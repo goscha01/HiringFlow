@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       maximumSizeInBytes: 500 * 1024 * 1024,
     })
 
-    return NextResponse.json({ clientToken })
+    return NextResponse.json({ clientToken, storeUrl: 'https://blob.vercel-storage.com' })
   } catch (error) {
     console.error('Token generation error:', error)
     return NextResponse.json({ error: 'Failed to generate upload token' }, { status: 500 })

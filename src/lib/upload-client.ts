@@ -19,12 +19,12 @@ export async function uploadVideoFile(
   return uploadViaApi(file, onProgress)
 }
 
-// Production: get scoped token, then upload directly from browser to Vercel Blob
+// Production: get client token, then PUT directly to blob.vercel-storage.com
 async function uploadViaBlob(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  // Step 1: Get a scoped client token from our API
+  // Step 1: Get a scoped client token + store URL from our API
   onProgress?.(5)
   const tokenRes = await fetch('/api/videos/upload-url', {
     method: 'POST',
@@ -33,9 +33,9 @@ async function uploadViaBlob(
   })
 
   if (!tokenRes.ok) throw new Error('Failed to get upload token')
-  const { clientToken } = await tokenRes.json()
+  const { clientToken, storeUrl } = await tokenRes.json()
 
-  // Step 2: Upload directly to Vercel Blob using the client token
+  // Step 2: Upload directly to Vercel Blob storage via fetch
   let progressInterval: ReturnType<typeof setInterval> | undefined
   let fakeProgress = 10
   if (onProgress) {
@@ -46,13 +46,24 @@ async function uploadViaBlob(
   }
 
   try {
-    const { put } = await import('@vercel/blob/client')
-    const blob = await put(file.name, file, {
-      access: 'public',
-      token: clientToken,
+    const putRes = await fetch(`${storeUrl}/${file.name}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${clientToken}`,
+        'Content-Type': file.type || 'video/mp4',
+        'x-api-version': '7',
+      },
+      body: file,
     })
 
     if (progressInterval) clearInterval(progressInterval)
+
+    if (!putRes.ok) {
+      const errText = await putRes.text()
+      throw new Error(`Blob upload failed: ${putRes.status} ${errText}`)
+    }
+
+    const blob = await putRes.json()
     onProgress?.(95)
 
     // Step 3: Register the uploaded blob in our DB
