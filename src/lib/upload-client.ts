@@ -19,14 +19,25 @@ export async function uploadVideoFile(
   return uploadViaApi(file, onProgress)
 }
 
-// Production: stream file to edge function which puts it in Vercel Blob
+// Production: get scoped token, then upload directly from browser to Vercel Blob
 async function uploadViaBlob(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  // Simulate progress (fetch doesn't expose upload progress)
+  // Step 1: Get a scoped client token from our API
+  onProgress?.(5)
+  const tokenRes = await fetch('/api/videos/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name }),
+  })
+
+  if (!tokenRes.ok) throw new Error('Failed to get upload token')
+  const { clientToken } = await tokenRes.json()
+
+  // Step 2: Upload directly to Vercel Blob using the client token
   let progressInterval: ReturnType<typeof setInterval> | undefined
-  let fakeProgress = 0
+  let fakeProgress = 10
   if (onProgress) {
     progressInterval = setInterval(() => {
       fakeProgress = Math.min(fakeProgress + 3, 90)
@@ -35,25 +46,32 @@ async function uploadViaBlob(
   }
 
   try {
-    const res = await fetch('/api/videos/upload-blob', {
-      method: 'POST',
-      headers: {
-        'x-filename': file.name,
-        'x-content-type': file.type || 'video/mp4',
-        'x-file-size': String(file.size),
-      },
-      body: file,
+    const { put } = await import('@vercel/blob/client')
+    const blob = await put(file.name, file, {
+      access: 'public',
+      token: clientToken,
     })
 
     if (progressInterval) clearInterval(progressInterval)
+    onProgress?.(95)
+
+    // Step 3: Register the uploaded blob in our DB
+    const regRes = await fetch('/api/videos/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: blob.url,
+        filename: file.name,
+        mimeType: file.type || 'video/mp4',
+        sizeBytes: file.size,
+      }),
+    })
+
     onProgress?.(100)
 
-    if (!res.ok) {
-      const err = await res.text()
-      throw new Error(`Upload failed: ${err}`)
-    }
+    if (!regRes.ok) throw new Error('Failed to register video')
 
-    const video = await res.json()
+    const video = await regRes.json()
     return {
       id: video.id,
       url: video.url,
