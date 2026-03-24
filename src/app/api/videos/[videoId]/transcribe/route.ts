@@ -7,6 +7,9 @@ import { readFile } from 'fs/promises'
 import path from 'path'
 import { toFile } from 'openai'
 
+// Allow up to 60 seconds for video download + Whisper processing
+export const maxDuration = 60
+
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads')
 
 export async function POST(
