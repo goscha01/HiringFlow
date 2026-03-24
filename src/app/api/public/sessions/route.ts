@@ -1,28 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { flowSlug, candidateName, candidateEmail } = body
+    const { flowSlug, candidateName, candidateEmail, preview } = body
 
     if (!flowSlug) {
       return NextResponse.json({ error: 'Flow slug is required' }, { status: 400 })
     }
 
-    const flow = await prisma.flow.findFirst({
-      where: {
-        slug: flowSlug,
-        isPublished: true,
-      },
-      include: {
-        steps: {
-          orderBy: { stepOrder: 'asc' },
-          take: 1,
+    let flow
+
+    if (preview) {
+      // Preview mode: allow unpublished flows for the owner
+      const session = await getServerSession(authOptions)
+      if (!session?.user?.id) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
+      flow = await prisma.flow.findFirst({
+        where: {
+          slug: flowSlug,
+          ownerUserId: session.user.id,
         },
-      },
-    })
+        include: {
+          steps: {
+            orderBy: { stepOrder: 'asc' },
+            take: 1,
+          },
+        },
+      })
+    } else {
+      flow = await prisma.flow.findFirst({
+        where: {
+          slug: flowSlug,
+          isPublished: true,
+        },
+        include: {
+          steps: {
+            orderBy: { stepOrder: 'asc' },
+            take: 1,
+          },
+        },
+      })
+    }
 
     if (!flow) {
       return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
@@ -39,7 +64,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    logger.info('Session started', { sessionId: session.id, flowSlug, flowId: flow.id })
+    logger.info('Session started', { sessionId: session.id, flowSlug, flowId: flow.id, preview: !!preview })
 
     return NextResponse.json({
       id: session.id,

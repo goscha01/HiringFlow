@@ -1,22 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { slug: string } }
 ) {
-  const flow = await prisma.flow.findFirst({
-    where: {
-      slug: params.slug,
-      isPublished: true,
-    },
-    include: {
-      steps: {
-        orderBy: { stepOrder: 'asc' },
-        take: 1,
+  const isPreview = request.nextUrl.searchParams.get('preview') === 'true'
+
+  let flow
+
+  if (isPreview) {
+    // Preview mode: owner can view unpublished flows
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    flow = await prisma.flow.findFirst({
+      where: {
+        slug: params.slug,
+        ownerUserId: session.user.id,
       },
-    },
-  })
+      include: {
+        steps: {
+          orderBy: { stepOrder: 'asc' },
+          take: 1,
+        },
+      },
+    })
+  } else {
+    flow = await prisma.flow.findFirst({
+      where: {
+        slug: params.slug,
+        isPublished: true,
+      },
+      include: {
+        steps: {
+          orderBy: { stepOrder: 'asc' },
+          take: 1,
+        },
+      },
+    })
+  }
 
   if (!flow) {
     return NextResponse.json({ error: 'Flow not found' }, { status: 404 })

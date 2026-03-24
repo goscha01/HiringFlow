@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 
 interface FlowInfo {
   id: string
@@ -15,7 +15,9 @@ interface FlowInfo {
 export default function FlowStartPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
+  const isPreview = searchParams.get('preview') === 'true'
 
   const [flow, setFlow] = useState<FlowInfo | null>(null)
   const [name, setName] = useState('')
@@ -28,7 +30,7 @@ export default function FlowStartPage() {
   }, [slug])
 
   const fetchFlow = async () => {
-    const res = await fetch(`/api/public/flows/${slug}`)
+    const res = await fetch(`/api/public/flows/${slug}${isPreview ? '?preview=true' : ''}`)
     if (res.ok) {
       const data = await res.json()
       setFlow(data)
@@ -48,6 +50,7 @@ export default function FlowStartPage() {
       body: JSON.stringify({
         flowSlug: slug,
         candidateName: name || null,
+        preview: isPreview || undefined,
       }),
     })
 
@@ -92,6 +95,11 @@ export default function FlowStartPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-purple-700 p-4">
+      {isPreview && (
+        <div className="fixed top-0 left-0 right-0 bg-yellow-400 text-yellow-900 text-center py-1.5 text-sm font-medium z-50">
+          Preview Mode — This flow is not published
+        </div>
+      )}
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
         <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <svg
