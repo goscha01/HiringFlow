@@ -37,6 +37,12 @@ export default function VideosPage() {
     }
   }
 
+  const deleteVideo = async (id: string) => {
+    if (!confirm('Delete this video?')) return
+    setVideos((prev) => prev.filter((v) => v.id !== id))
+    await fetch(`/api/videos/${id}`, { method: 'DELETE' })
+  }
+
   const uploadSingleFile = async (file: File, index: number): Promise<Video | null> => {
     try {
       setUploads((prev) =>
@@ -185,10 +191,18 @@ export default function VideosPage() {
                 {(video as any).summary && (
                   <p className="text-xs text-gray-600 mt-1 line-clamp-2">{(video as any).summary}</p>
                 )}
-                <p className="text-sm text-gray-500 mt-1">
-                  {formatFileSize(video.sizeBytes)} &middot;{' '}
-                  {new Date(video.createdAt).toLocaleDateString()}
-                </p>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-sm text-gray-500">
+                    {formatFileSize(video.sizeBytes)} &middot;{' '}
+                    {new Date(video.createdAt).toLocaleDateString()}
+                  </p>
+                  <button
+                    onClick={() => deleteVideo(video.id)}
+                    className="text-red-500 hover:text-red-700 text-sm"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
