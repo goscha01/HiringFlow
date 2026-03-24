@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { uploadVideoFile } from '@/lib/upload-client'
 
 interface Video {
   id: string
@@ -57,7 +58,7 @@ export default function StepEditorPanel({
   const [suggestion, setSuggestion] = useState<{ question: string; options: Array<{ text: string; isEndFlow: boolean }> } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (!file.type.startsWith('video/')) {
@@ -68,34 +69,27 @@ export default function StepEditorPanel({
     setUploading(true)
     setUploadProgress(0)
 
-    const xhr = new XMLHttpRequest()
-    const formData = new FormData()
-    formData.append('video', file)
+    try {
+      const result = await uploadVideoFile(file, (progress) => {
+        setUploadProgress(progress)
+      })
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        setUploadProgress(Math.round((event.loaded / event.total) * 100))
+      // Refresh videos list to get DB record with ID
+      const res = await fetch('/api/videos')
+      if (res.ok) {
+        const allVideos = await res.json()
+        const uploaded = allVideos.find((v: Video) => v.url === result.url)
+        if (uploaded) {
+          onVideoUploaded?.(uploaded)
+          onUpdateStep(step.id, { videoId: uploaded.id })
+        }
       }
-    }
-
-    xhr.onload = () => {
-      setUploading(false)
-      if (xhr.status === 200) {
-        const video = JSON.parse(xhr.responseText)
-        onVideoUploaded?.(video)
-        // Auto-select the uploaded video for this step
-        onUpdateStep(step.id, { videoId: video.id })
-      }
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-
-    xhr.onerror = () => {
+    } catch {
+      // Upload failed silently
+    } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-
-    xhr.open('POST', '/api/videos')
-    xhr.send(formData)
   }
 
   const handleTranscribe = async () => {

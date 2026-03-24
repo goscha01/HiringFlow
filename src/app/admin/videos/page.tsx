@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { uploadVideoFile } from '@/lib/upload-client'
 
 interface Video {
   id: string
@@ -37,45 +38,30 @@ export default function VideosPage() {
   }
 
   const uploadSingleFile = async (file: File, index: number): Promise<Video | null> => {
-    return new Promise((resolve) => {
-      const xhr = new XMLHttpRequest()
-      const formData = new FormData()
-      formData.append('video', file)
+    try {
+      setUploads((prev) =>
+        prev.map((u, i) => (i === index ? { ...u, status: 'uploading' } : u))
+      )
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = Math.round((event.loaded / event.total) * 100)
-          setUploads((prev) =>
-            prev.map((u, i) => (i === index ? { ...u, progress, status: 'uploading' } : u))
-          )
-        }
-      }
-
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          const video = JSON.parse(xhr.responseText)
-          setUploads((prev) =>
-            prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u))
-          )
-          resolve(video)
-        } else {
-          setUploads((prev) =>
-            prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u))
-          )
-          resolve(null)
-        }
-      }
-
-      xhr.onerror = () => {
+      const result = await uploadVideoFile(file, (progress) => {
         setUploads((prev) =>
-          prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u))
+          prev.map((u, i) => (i === index ? { ...u, progress, status: 'uploading' } : u))
         )
-        resolve(null)
-      }
+      })
 
-      xhr.open('POST', '/api/videos')
-      xhr.send(formData)
-    })
+      setUploads((prev) =>
+        prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u))
+      )
+
+      // Refresh video list to get the DB record with proper ID
+      await fetchVideos()
+      return result as unknown as Video
+    } catch {
+      setUploads((prev) =>
+        prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u))
+      )
+      return null
+    }
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
