@@ -2,15 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { openai } from '@/lib/openai'
-import { readFile } from 'fs/promises'
-import path from 'path'
-import { toFile } from 'openai'
+import { transcribeFromUrl } from '@/lib/deepgram'
+import { getVideoUrl } from '@/lib/storage'
 
-// Allow up to 60 seconds for video download + Whisper processing
-export const maxDuration = 60
-
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads')
+export const maxDuration = 120
 
 export async function POST(
   request: NextRequest,
@@ -30,40 +25,19 @@ export async function POST(
   }
 
   try {
-    let buffer: Buffer
+    const videoUrl = video.storageKey.startsWith('http')
+      ? video.storageKey
+      : `${request.nextUrl.origin}${getVideoUrl(video.storageKey)}`
 
-    if (video.storageKey.startsWith('http')) {
-      // Production: fetch from Vercel Blob URL
-      const res = await fetch(video.storageKey)
-      if (!res.ok) throw new Error('Failed to fetch video from storage')
-      buffer = Buffer.from(await res.arrayBuffer())
-    } else {
-      // Development: read from local filesystem
-      const filePath = path.join(UPLOAD_DIR, video.storageKey)
-      buffer = await readFile(filePath)
-    }
+    const { transcript, segments } = await transcribeFromUrl(videoUrl)
 
-    const file = await toFile(buffer, video.filename, {
-      type: video.mimeType,
+    // Save transcript to video record
+    await prisma.video.update({
+      where: { id: video.id },
+      data: { transcript },
     })
 
-    const transcription = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
-    })
-
-    const segments = (transcription as any).segments?.map((seg: any) => ({
-      start: seg.start,
-      end: seg.end,
-      text: seg.text.trim(),
-    })) || []
-
-    return NextResponse.json({
-      text: transcription.text,
-      segments,
-    })
+    return NextResponse.json({ text: transcript, segments })
   } catch (error: any) {
     console.error('Transcription error:', error?.message || error)
     return NextResponse.json(

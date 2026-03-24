@@ -3,13 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { openai } from '@/lib/openai'
-import { readFile } from 'fs/promises'
-import path from 'path'
-import { toFile } from 'openai'
+import { transcribeFromUrl } from '@/lib/deepgram'
+import { getVideoUrl } from '@/lib/storage'
 
 export const maxDuration = 120
-
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads')
 
 export async function POST(
   request: NextRequest,
@@ -29,52 +26,16 @@ export async function POST(
   }
 
   try {
-    // Step 1: Get the video file
-    console.log(`[analyze] Step 1: Fetching video ${video.id}, storageKey starts with http: ${video.storageKey.startsWith('http')}`)
-    let buffer: Buffer
-    if (video.storageKey.startsWith('http')) {
-      const res = await fetch(video.storageKey)
-      if (!res.ok) throw new Error(`Failed to fetch video: ${res.status} ${res.statusText}`)
-      buffer = Buffer.from(await res.arrayBuffer())
-    } else {
-      const filePath = path.join(UPLOAD_DIR, video.storageKey)
-      buffer = await readFile(filePath)
-    }
-    console.log(`[analyze] Step 1 done: ${buffer.length} bytes (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`)
+    // Step 1: Get the public URL for the video
+    const videoUrl = video.storageKey.startsWith('http')
+      ? video.storageKey
+      : `${request.nextUrl.origin}${getVideoUrl(video.storageKey)}`
 
-    // Step 2: Transcribe with Whisper
-    // Whisper limit is 25MB. For large videos, we send the blob URL directly
-    // and let the API handle partial reads if supported, or fail gracefully.
-    const safeFilename = video.filename.replace(/\.mov$/i, '.mp4')
-    const MAX_WHISPER_SIZE = 25 * 1024 * 1024
+    console.log(`[analyze] Step 1: Transcribing via Deepgram URL: ${videoUrl.slice(0, 80)}...`)
 
-    if (buffer.length > MAX_WHISPER_SIZE) {
-      console.log(`[analyze] Video ${(buffer.length / 1024 / 1024).toFixed(1)}MB exceeds 25MB Whisper limit, using URL-based transcription`)
-      // Use OpenAI's newer API that accepts URLs (if available), or return a helpful error
-      // For now, we'll use the transcription with a note about partial coverage
-      return NextResponse.json(
-        { error: `Video is ${(buffer.length / 1024 / 1024).toFixed(1)}MB — exceeds Whisper's 25MB limit. Please upload a compressed or shorter video, or click "Generate Captions" to try manual transcription.` },
-        { status: 413 }
-      )
-    }
-
-    console.log(`[analyze] Step 2: Sending to Whisper as "${safeFilename}", ${(buffer.length / 1024 / 1024).toFixed(1)}MB`)
-    const file = await toFile(buffer, safeFilename, { type: 'video/mp4' })
-    const transcription = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
-    })
-
-    console.log(`[analyze] Step 2 done: transcription received`)
-    const transcript = transcription.text
-    console.log(`[analyze] Transcript: "${transcript.slice(0, 100)}..."`)
-    const segments = (transcription as any).segments?.map((seg: any) => ({
-      start: seg.start,
-      end: seg.end,
-      text: seg.text.trim(),
-    })) || []
+    // Step 2: Transcribe with Deepgram (no file size limit — sends URL, not file)
+    const { transcript, segments } = await transcribeFromUrl(videoUrl)
+    console.log(`[analyze] Step 2 done: "${transcript.slice(0, 100)}..."`)
 
     // Step 3: Analyze with GPT to get name, summary, bullet points
     const analysis = await openai.chat.completions.create({
@@ -104,6 +65,7 @@ Respond in JSON format:
     })
 
     const analysisResult = JSON.parse(analysis.choices[0]?.message?.content || '{}')
+    console.log(`[analyze] Step 3 done: "${analysisResult.displayName}"`)
 
     // Step 4: Save to database
     const updated = await prisma.video.update({
@@ -126,11 +88,9 @@ Respond in JSON format:
     })
   } catch (error: any) {
     const errMsg = error?.message || String(error)
-    const errStatus = error?.status || error?.response?.status
-    const errBody = error?.response?.data || error?.error || null
-    console.error('Video analysis error:', JSON.stringify({ message: errMsg, status: errStatus, body: errBody, stack: error?.stack?.slice(0, 500) }))
+    console.error('Video analysis error:', errMsg)
     return NextResponse.json(
-      { error: errMsg, details: errBody },
+      { error: errMsg },
       { status: 500 }
     )
   }
