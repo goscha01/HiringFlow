@@ -9,12 +9,23 @@ interface UploadResult {
   sizeBytes: number
 }
 
-// Fire-and-forget: trigger video analysis (transcription + AI summary) after upload
-export function triggerVideoAnalysis(videoId: string, onComplete?: (result: any) => void) {
+// Trigger video analysis (transcription + AI summary) after upload
+export function triggerVideoAnalysis(
+  videoId: string,
+  onComplete?: (result: any) => void,
+  onError?: (error: string) => void
+) {
   fetch(`/api/videos/${videoId}/analyze`, { method: 'POST' })
-    .then((res) => res.ok ? res.json() : null)
-    .then((data) => { if (data && onComplete) onComplete(data) })
-    .catch(() => {})
+    .then(async (res) => {
+      if (res.ok) {
+        const data = await res.json()
+        if (onComplete) onComplete(data)
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Analysis failed' }))
+        if (onError) onError(err.error || 'Analysis failed')
+      }
+    })
+    .catch(() => { if (onError) onError('Network error during analysis') })
 }
 
 export async function uploadVideoFile(

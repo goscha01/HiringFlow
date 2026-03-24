@@ -85,6 +85,7 @@ export default function StepEditorPanel({
   const [suggestion, setSuggestion] = useState<{ question: string; options: Array<{ text: string; isEndFlow: boolean }> } | null>(null)
   const [activeTab, setActiveTab] = useState<'quiz' | 'form'>('quiz')
   const [analyzing, setAnalyzing] = useState(false)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const formConfig: FormConfig = (step.formConfig as FormConfig) || DEFAULT_FORM_CONFIG
@@ -112,18 +113,25 @@ export default function StepEditorPanel({
 
         // Auto-trigger analysis (transcription + AI summary) in background
         setAnalyzing(true)
-        triggerVideoAnalysis(result.id, (analysis) => {
-          setAnalyzing(false)
-          setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
-          // Update the video with analysis data
-          onVideoUploaded?.({
-            ...video,
-            displayName: analysis.displayName,
-            summary: analysis.summary,
-            bulletPoints: analysis.bulletPoints,
-            transcript: analysis.transcript,
-          })
-        })
+        setAnalysisError(null)
+        triggerVideoAnalysis(
+          result.id,
+          (analysis) => {
+            setAnalyzing(false)
+            setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
+            onVideoUploaded?.({
+              ...video,
+              displayName: analysis.displayName,
+              summary: analysis.summary,
+              bulletPoints: analysis.bulletPoints,
+              transcript: analysis.transcript,
+            })
+          },
+          (error) => {
+            setAnalyzing(false)
+            setAnalysisError(error)
+          }
+        )
       }
     } catch {
       // Upload failed silently
@@ -297,6 +305,19 @@ export default function StepEditorPanel({
                 </div>
               )}
 
+              {/* Analysis error */}
+              {analysisError && (
+                <div className="mt-2 bg-red-50 rounded-md p-3 border border-red-200">
+                  <p className="text-xs text-red-700">{analysisError}</p>
+                  <button
+                    onClick={() => setAnalysisError(null)}
+                    className="text-xs text-red-500 hover:text-red-700 mt-1"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
               {/* Video analysis info */}
               {step.video.displayName && (
                 <div className="mt-2 bg-blue-50 rounded-md p-3 border border-blue-200">
@@ -330,19 +351,27 @@ export default function StepEditorPanel({
                     onClick={() => {
                       if (!step.videoId) return
                       setAnalyzing(true)
-                      triggerVideoAnalysis(step.videoId, (analysis) => {
-                        setAnalyzing(false)
-                        setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
-                        onVideoUploaded?.({
-                          id: step.video!.id,
-                          filename: step.video!.filename,
-                          url: step.video!.url,
-                          displayName: analysis.displayName,
-                          summary: analysis.summary,
-                          bulletPoints: analysis.bulletPoints,
-                          transcript: analysis.transcript,
-                        })
-                      })
+                      setAnalysisError(null)
+                      triggerVideoAnalysis(
+                        step.videoId,
+                        (analysis) => {
+                          setAnalyzing(false)
+                          setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
+                          onVideoUploaded?.({
+                            id: step.video!.id,
+                            filename: step.video!.filename,
+                            url: step.video!.url,
+                            displayName: analysis.displayName,
+                            summary: analysis.summary,
+                            bulletPoints: analysis.bulletPoints,
+                            transcript: analysis.transcript,
+                          })
+                        },
+                        (error) => {
+                          setAnalyzing(false)
+                          setAnalysisError(error)
+                        }
+                      )
                     }}
                     className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
                   >
