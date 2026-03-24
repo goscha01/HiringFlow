@@ -1,68 +1,77 @@
-import { writeFile, mkdir } from 'fs/promises'
-import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import path from 'path'
 
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads')
+const IS_VERCEL = !!process.env.BLOB_READ_WRITE_TOKEN
 
-export async function saveVideoFile(file: File): Promise<{
-  storageKey: string
-  filename: string
-  mimeType: string
-  sizeBytes: number
-}> {
-  // Ensure upload directory exists
-  await mkdir(UPLOAD_DIR, { recursive: true })
+// ── Vercel Blob (production) ──────────────────────────────────────
 
-  const bytes = await file.arrayBuffer()
-  const buffer = Buffer.from(bytes)
+async function saveToBlobStore(file: File, prefix = '') {
+  const { put } = await import('@vercel/blob')
+  const ext = path.extname(file.name) || '.webm'
+  const blobPath = `${prefix}${uuidv4()}${ext}`
 
-  // Generate unique filename
-  const ext = path.extname(file.name)
-  const storageKey = `${uuidv4()}${ext}`
-  const filePath = path.join(UPLOAD_DIR, storageKey)
+  const blob = await put(blobPath, file, {
+    access: 'public',
+    contentType: file.type || 'video/mp4',
+  })
 
-  await writeFile(filePath, buffer)
-
+  // Store the full blob URL as storageKey — getVideoUrl handles http URLs
   return {
-    storageKey,
-    filename: file.name,
-    mimeType: file.type,
-    sizeBytes: buffer.length,
+    storageKey: blob.url,
+    filename: file.name || `recording${ext}`,
+    mimeType: file.type || 'video/mp4',
+    sizeBytes: file.size,
   }
 }
 
-export function getVideoUrl(storageKey: string): string {
-  return `/api/uploads/${storageKey}`
-}
+// ── Local filesystem (development) ────────────────────────────────
 
-const CANDIDATE_UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads', 'candidates')
-
-export async function saveCandidateVideoFile(file: File): Promise<{
-  storageKey: string
-  filename: string
-  mimeType: string
-  sizeBytes: number
-}> {
-  await mkdir(CANDIDATE_UPLOAD_DIR, { recursive: true })
+async function saveToLocal(file: File, subdir = '') {
+  const { writeFile, mkdir } = await import('fs/promises')
+  const uploadDir = path.join(process.cwd(), 'public', 'uploads', subdir)
+  await mkdir(uploadDir, { recursive: true })
 
   const bytes = await file.arrayBuffer()
   const buffer = Buffer.from(bytes)
 
   const ext = path.extname(file.name) || '.webm'
   const uniqueName = `${uuidv4()}${ext}`
-  const storageKey = `candidates/${uniqueName}`
-  const filePath = path.join(CANDIDATE_UPLOAD_DIR, uniqueName)
+  const storageKey = subdir ? `${subdir}/${uniqueName}` : uniqueName
+  const filePath = path.join(uploadDir, uniqueName)
 
   await writeFile(filePath, buffer)
 
   return {
     storageKey,
     filename: file.name || `recording${ext}`,
-    mimeType: file.type || 'video/webm',
+    mimeType: file.type || 'video/mp4',
     sizeBytes: buffer.length,
   }
 }
 
+// ── Public API ────────────────────────────────────────────────────
+
+export async function saveVideoFile(file: File) {
+  if (IS_VERCEL) {
+    return saveToBlobStore(file)
+  }
+  return saveToLocal(file)
+}
+
+export async function saveCandidateVideoFile(file: File) {
+  if (IS_VERCEL) {
+    return saveToBlobStore(file, 'candidates/')
+  }
+  return saveToLocal(file, 'candidates')
+}
+
+export function getVideoUrl(storageKey: string): string {
+  // If it's already a full URL (blob), return as-is
+  if (storageKey.startsWith('http')) return storageKey
+  return `/api/uploads/${storageKey}`
+}
+
 export function getCandidateVideoUrl(storageKey: string): string {
+  if (storageKey.startsWith('http')) return storageKey
   return `/api/uploads/${storageKey}`
 }
