@@ -27,8 +27,18 @@ export async function POST(
   }
 
   try {
-    const filePath = path.join(UPLOAD_DIR, video.storageKey)
-    const buffer = await readFile(filePath)
+    let buffer: Buffer
+
+    if (video.storageKey.startsWith('http')) {
+      // Production: fetch from Vercel Blob URL
+      const res = await fetch(video.storageKey)
+      if (!res.ok) throw new Error('Failed to fetch video from storage')
+      buffer = Buffer.from(await res.arrayBuffer())
+    } else {
+      // Development: read from local filesystem
+      const filePath = path.join(UPLOAD_DIR, video.storageKey)
+      buffer = await readFile(filePath)
+    }
 
     const file = await toFile(buffer, video.filename, {
       type: video.mimeType,
