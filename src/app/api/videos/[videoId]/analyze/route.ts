@@ -30,18 +30,23 @@ export async function POST(
 
   try {
     // Step 1: Get the video file
+    console.log(`[analyze] Step 1: Fetching video ${video.id}, storageKey starts with http: ${video.storageKey.startsWith('http')}`)
     let buffer: Buffer
     if (video.storageKey.startsWith('http')) {
       const res = await fetch(video.storageKey)
-      if (!res.ok) throw new Error('Failed to fetch video from storage')
+      if (!res.ok) throw new Error(`Failed to fetch video: ${res.status} ${res.statusText}`)
       buffer = Buffer.from(await res.arrayBuffer())
     } else {
       const filePath = path.join(UPLOAD_DIR, video.storageKey)
       buffer = await readFile(filePath)
     }
+    console.log(`[analyze] Step 1 done: ${buffer.length} bytes`)
 
     // Step 2: Transcribe with Whisper
-    const file = await toFile(buffer, video.filename, { type: video.mimeType })
+    // Use .mp4 extension for Whisper compatibility (it doesn't accept .mov well)
+    const safeFilename = video.filename.replace(/\.mov$/i, '.mp4')
+    console.log(`[analyze] Step 2: Sending to Whisper as "${safeFilename}", ${buffer.length} bytes`)
+    const file = await toFile(buffer, safeFilename, { type: 'video/mp4' })
     const transcription = await openai.audio.transcriptions.create({
       file,
       model: 'whisper-1',
@@ -49,7 +54,9 @@ export async function POST(
       timestamp_granularities: ['segment'],
     })
 
+    console.log(`[analyze] Step 2 done: transcription received`)
     const transcript = transcription.text
+    console.log(`[analyze] Transcript: "${transcript.slice(0, 100)}..."`)
     const segments = (transcription as any).segments?.map((seg: any) => ({
       start: seg.start,
       end: seg.end,
@@ -105,9 +112,12 @@ Respond in JSON format:
       bulletPoints: updated.bulletPoints,
     })
   } catch (error: any) {
-    console.error('Video analysis error:', error?.message || error)
+    const errMsg = error?.message || String(error)
+    const errStatus = error?.status || error?.response?.status
+    const errBody = error?.response?.data || error?.error || null
+    console.error('Video analysis error:', JSON.stringify({ message: errMsg, status: errStatus, body: errBody, stack: error?.stack?.slice(0, 500) }))
     return NextResponse.json(
-      { error: error?.message || 'Analysis failed' },
+      { error: errMsg, details: errBody },
       { status: 500 }
     )
   }
