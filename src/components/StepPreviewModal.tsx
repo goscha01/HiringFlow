@@ -57,8 +57,8 @@ export default function StepPreviewModal({
   // --- Start Screen ---
   if (previewId === '__start__') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="w-full max-w-md">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="w-full max-w-lg">
           {/* Preview badge */}
           <div className="flex justify-center mb-3">
             <span className="bg-green-600 text-white text-xs font-bold px-3 py-1 rounded-full tracking-wide">
@@ -115,8 +115,8 @@ export default function StepPreviewModal({
   // --- End Screen ---
   if (previewId === '__end__') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="w-full max-w-md">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="w-full max-w-lg">
           <div className="flex justify-center mb-3">
             <span className="bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full tracking-wide">
               PREVIEW &middot; END SCREEN
@@ -162,8 +162,8 @@ export default function StepPreviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -224,7 +224,7 @@ export default function StepPreviewModal({
               </button>
             </div>
           ) : (
-            <div className={`space-y-2 max-w-md mx-auto ${!showOptions ? 'opacity-40 pointer-events-none' : ''}`}>
+            <div className={`space-y-2 max-w-xl mx-auto ${!showOptions ? 'opacity-40 pointer-events-none' : ''}`}>
               {step.options.map((option) => {
                 const targetStep = option.nextStepId
                   ? allSteps.find((s) => s.id === option.nextStepId)
