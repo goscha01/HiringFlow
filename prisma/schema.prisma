@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  videos       Video[]
+  flows        Flow[]
+
+  @@map("users")
+}
+
+model Video {
+  id              String     @id @default(uuid())
+  ownerUserId     String     @map("owner_user_id")
+  owner           User       @relation(fields: [ownerUserId], references: [id])
+  filename        String
+  storageKey      String     @map("storage_key")
+  mimeType        String     @map("mime_type")
+  sizeBytes       Int        @map("size_bytes")
+  durationSeconds Float?     @map("duration_seconds")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  steps           FlowStep[]
+
+  @@map("videos")
+}
+
+model Flow {
+  id           String     @id @default(uuid())
+  ownerUserId  String     @map("owner_user_id")
+  owner        User       @relation(fields: [ownerUserId], references: [id])
+  name         String
+  slug         String     @unique
+  isPublished  Boolean    @default(false) @map("is_published")
+  startMessage String     @default("Welcome to the video interview") @map("start_message")
+  endMessage   String     @default("Thank you for your participation!") @map("end_message")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  steps        FlowStep[]
+  sessions     Session[]
+
+  @@map("flows")
+}
+
+model FlowStep {
+  id              String                @id @default(uuid())
+  flowId          String                @map("flow_id")
+  flow            Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  title           String
+  videoId         String?               @map("video_id")
+  video           Video?                @relation(fields: [videoId], references: [id])
+  questionText    String?               @map("question_text")
+  stepOrder       Int                   @default(0) @map("step_order")
+  stepType        String                @default("question") @map("step_type")
+  questionType    String                @default("single") @map("question_type")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  options         StepOption[]          @relation("StepOptions")
+  incomingOptions StepOption[]          @relation("NextStep")
+  answers         SessionAnswer[]
+  submissions     CandidateSubmission[]
+  sessions        Session[]             @relation("LastStep")
+
+  @@map("flow_steps")
+}
+
+model StepOption {
+  id         String          @id @default(uuid())
+  stepId     String          @map("step_id")
+  step       FlowStep        @relation("StepOptions", fields: [stepId], references: [id], onDelete: Cascade)
+  optionText String          @map("option_text")
+  nextStepId String?         @map("next_step_id")
+  nextStep   FlowStep?       @relation("NextStep", fields: [nextStepId], references: [id], onDelete: SetNull)
+  createdAt  DateTime        @default(now()) @map("created_at")
+  answers    SessionAnswer[]
+
+  @@map("step_options")
+}
+
+model Session {
+  id             String                @id @default(uuid())
+  flowId         String                @map("flow_id")
+  flow           Flow                  @relation(fields: [flowId], references: [id])
+  candidateName  String?               @map("candidate_name")
+  candidateEmail String?               @map("candidate_email")
+  startedAt      DateTime              @default(now()) @map("started_at")
+  finishedAt     DateTime?             @map("finished_at")
+  lastStepId     String?               @map("last_step_id")
+  lastStep       FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
+  answers        SessionAnswer[]
+  submissions    CandidateSubmission[]
+
+  @@map("sessions")
+}
+
+model SessionAnswer {
+  id         String      @id @default(uuid())
+  sessionId  String      @map("session_id")
+  session    Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  stepId     String      @map("step_id")
+  step       FlowStep    @relation(fields: [stepId], references: [id])
+  optionId   String?     @map("option_id")
+  option     StepOption? @relation(fields: [optionId], references: [id])
+  answeredAt DateTime    @default(now()) @map("answered_at")
+
+  @@index([sessionId, stepId])
+  @@map("session_answers")
+}
+
+model CandidateSubmission {
+  id              String   @id @default(uuid())
+  sessionId       String   @map("session_id")
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  stepId          String   @map("step_id")
+  step            FlowStep @relation(fields: [stepId], references: [id])
+  videoStorageKey String?  @map("video_storage_key")
+  videoFilename   String?  @map("video_filename")
+  videoMimeType   String?  @map("video_mime_type")
+  videoSizeBytes  Int?     @map("video_size_bytes")
+  textMessage     String?  @map("text_message")
+  submittedAt     DateTime @default(now()) @map("submitted_at")
+
+  @@unique([sessionId, stepId])
+  @@map("candidate_submissions")
+}
