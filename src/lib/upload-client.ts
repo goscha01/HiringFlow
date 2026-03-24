@@ -14,51 +14,44 @@ export async function uploadVideoFile(
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
   if (IS_VERCEL) {
-    return uploadViaBlobClient(file, onProgress)
+    return uploadViaBlob(file, onProgress)
   }
   return uploadViaApi(file, onProgress)
 }
 
-// Production: upload to Vercel Blob via client SDK, then register in DB
-async function uploadViaBlobClient(
+// Production: stream file to edge function which puts it in Vercel Blob
+async function uploadViaBlob(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  const { upload } = await import('@vercel/blob/client')
-
+  // Simulate progress (fetch doesn't expose upload progress)
   let progressInterval: ReturnType<typeof setInterval> | undefined
   let fakeProgress = 0
   if (onProgress) {
     progressInterval = setInterval(() => {
-      fakeProgress = Math.min(fakeProgress + 5, 90)
+      fakeProgress = Math.min(fakeProgress + 3, 90)
       onProgress(fakeProgress)
-    }, 200)
+    }, 300)
   }
 
   try {
-    const blob = await upload(file.name, file, {
-      access: 'public',
-      handleUploadUrl: '/api/videos/upload-url',
+    const res = await fetch('/api/videos/upload-blob', {
+      method: 'POST',
+      headers: {
+        'x-filename': file.name,
+        'x-content-type': file.type || 'video/mp4',
+        'x-file-size': String(file.size),
+      },
+      body: file,
     })
 
     if (progressInterval) clearInterval(progressInterval)
-    onProgress?.(95)
-
-    // Register the uploaded blob in the database
-    const res = await fetch('/api/videos/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: blob.url,
-        filename: file.name,
-        mimeType: file.type || 'video/mp4',
-        sizeBytes: file.size,
-      }),
-    })
-
     onProgress?.(100)
 
-    if (!res.ok) throw new Error('Failed to register video')
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Upload failed: ${err}`)
+    }
 
     const video = await res.json()
     return {
