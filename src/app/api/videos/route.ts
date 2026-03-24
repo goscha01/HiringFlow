@@ -73,6 +73,13 @@ export async function POST(request: NextRequest) {
           ...video,
           url: getVideoUrl(video.storageKey),
         })
+
+        // Fire-and-forget: trigger analysis
+        const baseUrl = request.nextUrl.origin
+        fetch(`${baseUrl}/api/videos/${video.id}/analyze`, {
+          method: 'POST',
+          headers: { cookie: request.headers.get('cookie') || '' },
+        }).catch(() => {})
       } catch (err) {
         errors.push({ filename: file.name, error: 'Upload failed' })
       }

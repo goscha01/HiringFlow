@@ -3,14 +3,14 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-// Register a blob-uploaded video in the database
+// Register a blob-uploaded video and optionally trigger analysis
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { url, filename, mimeType, sizeBytes } = await request.json()
+  const { url, filename, mimeType, sizeBytes, analyze } = await request.json()
 
   if (!url) {
     return NextResponse.json({ error: 'Missing blob URL' }, { status: 400 })
@@ -25,6 +25,15 @@ export async function POST(request: NextRequest) {
       sizeBytes: sizeBytes || 0,
     },
   })
+
+  // Fire-and-forget: trigger analysis server-side without blocking the response
+  if (analyze) {
+    const baseUrl = request.nextUrl.origin
+    fetch(`${baseUrl}/api/videos/${video.id}/analyze`, {
+      method: 'POST',
+      headers: { cookie: request.headers.get('cookie') || '' },
+    }).catch(() => {})
+  }
 
   return NextResponse.json({
     ...video,

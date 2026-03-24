@@ -74,7 +74,7 @@ async function uploadViaBlob(
     const blob = await putRes.json()
     onProgress?.(95)
 
-    // Step 3: Register the uploaded blob in our DB
+    // Step 3: Register in DB + trigger analysis server-side (fire-and-forget)
     const regRes = await fetch('/api/videos/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -83,6 +83,7 @@ async function uploadViaBlob(
         filename: file.name,
         mimeType: file.type || 'video/mp4',
         sizeBytes: file.size,
+        analyze: true,
       }),
     })
 
