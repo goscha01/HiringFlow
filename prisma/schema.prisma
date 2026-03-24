@@ -28,6 +28,10 @@ model Video {
   mimeType        String     @map("mime_type")
   sizeBytes       Int        @map("size_bytes")
   durationSeconds Float?     @map("duration_seconds")
+  transcript      String?
+  summary         String?
+  bulletPoints    String[]   @default([]) @map("bullet_points")
+  displayName     String?    @map("display_name")
   createdAt       DateTime   @default(now()) @map("created_at")
   steps           FlowStep[]
 

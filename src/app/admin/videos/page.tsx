@@ -180,8 +180,11 @@ export default function VideosPage() {
               </div>
               <div className="p-4">
                 <h3 className="font-medium text-gray-900 truncate" title={video.filename}>
-                  {video.filename}
+                  {(video as any).displayName || video.filename}
                 </h3>
+                {(video as any).summary && (
+                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">{(video as any).summary}</p>
+                )}
                 <p className="text-sm text-gray-500 mt-1">
                   {formatFileSize(video.sizeBytes)} &middot;{' '}
                   {new Date(video.createdAt).toLocaleDateString()}

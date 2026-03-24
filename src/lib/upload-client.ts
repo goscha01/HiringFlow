@@ -9,6 +9,14 @@ interface UploadResult {
   sizeBytes: number
 }
 
+// Fire-and-forget: trigger video analysis (transcription + AI summary) after upload
+export function triggerVideoAnalysis(videoId: string, onComplete?: (result: any) => void) {
+  fetch(`/api/videos/${videoId}/analyze`, { method: 'POST' })
+    .then((res) => res.ok ? res.json() : null)
+    .then((data) => { if (data && onComplete) onComplete(data) })
+    .catch(() => {})
+}
+
 export async function uploadVideoFile(
   file: File,
   onProgress?: (percent: number) => void

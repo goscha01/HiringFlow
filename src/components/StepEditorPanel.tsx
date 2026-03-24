@@ -1,12 +1,16 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { uploadVideoFile } from '@/lib/upload-client'
+import { uploadVideoFile, triggerVideoAnalysis } from '@/lib/upload-client'
 
 interface Video {
   id: string
   filename: string
   url: string
+  displayName?: string | null
+  summary?: string | null
+  bulletPoints?: string[]
+  transcript?: string | null
 }
 
 interface Option {
@@ -80,6 +84,7 @@ export default function StepEditorPanel({
   const [suggesting, setSuggesting] = useState(false)
   const [suggestion, setSuggestion] = useState<{ question: string; options: Array<{ text: string; isEndFlow: boolean }> } | null>(null)
   const [activeTab, setActiveTab] = useState<'quiz' | 'form'>('quiz')
+  const [analyzing, setAnalyzing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const formConfig: FormConfig = (step.formConfig as FormConfig) || DEFAULT_FORM_CONFIG
@@ -104,6 +109,21 @@ export default function StepEditorPanel({
         const video = { id: result.id, filename: result.filename, url: result.url }
         onVideoUploaded?.(video)
         onUpdateStep(step.id, { videoId: result.id })
+
+        // Auto-trigger analysis (transcription + AI summary) in background
+        setAnalyzing(true)
+        triggerVideoAnalysis(result.id, (analysis) => {
+          setAnalyzing(false)
+          setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
+          // Update the video with analysis data
+          onVideoUploaded?.({
+            ...video,
+            displayName: analysis.displayName,
+            summary: analysis.summary,
+            bulletPoints: analysis.bulletPoints,
+            transcript: analysis.transcript,
+          })
+        })
       }
     } catch {
       // Upload failed silently
@@ -134,7 +154,7 @@ export default function StepEditorPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          transcript: transcript?.text || null,
+          transcript: transcript?.text || step.video?.transcript || null,
           stepTitle: step.title,
           flowContext: `This is step ${step.stepOrder + 1} in a video interview flow.`,
         }),
@@ -265,17 +285,73 @@ export default function StepEditorPanel({
                 controls
                 preload="metadata"
               />
-              <div className="mt-2 flex gap-2">
+
+              {/* Analyzing indicator */}
+              {analyzing && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-purple-600">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Analyzing video — transcribing &amp; generating summary...
+                </div>
+              )}
+
+              {/* Video analysis info */}
+              {step.video.displayName && (
+                <div className="mt-2 bg-blue-50 rounded-md p-3 border border-blue-200">
+                  <p className="text-sm font-medium text-blue-900">{step.video.displayName}</p>
+                  {step.video.summary && (
+                    <p className="text-xs text-blue-700 mt-1">{step.video.summary}</p>
+                  )}
+                  {step.video.bulletPoints && step.video.bulletPoints.length > 0 && (
+                    <ul className="mt-2 space-y-0.5">
+                      {step.video.bulletPoints.map((bp, i) => (
+                        <li key={i} className="text-xs text-blue-600 flex items-start gap-1.5">
+                          <span className="mt-1 w-1 h-1 bg-blue-400 rounded-full flex-shrink-0" />
+                          {bp}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   onClick={handleTranscribe}
-                  disabled={transcribing}
+                  disabled={transcribing || analyzing}
                   className="px-3 py-1.5 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-md hover:bg-purple-100 disabled:opacity-50 transition-colors"
                 >
                   {transcribing ? 'Transcribing...' : transcript ? 'Re-transcribe' : 'Generate Captions'}
                 </button>
+                {!step.video.displayName && !analyzing && (
+                  <button
+                    onClick={() => {
+                      if (!step.videoId) return
+                      setAnalyzing(true)
+                      triggerVideoAnalysis(step.videoId, (analysis) => {
+                        setAnalyzing(false)
+                        setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
+                        onVideoUploaded?.({
+                          id: step.video!.id,
+                          filename: step.video!.filename,
+                          url: step.video!.url,
+                          displayName: analysis.displayName,
+                          summary: analysis.summary,
+                          bulletPoints: analysis.bulletPoints,
+                          transcript: analysis.transcript,
+                        })
+                      })
+                    }}
+                    className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                  >
+                    Analyze Video
+                  </button>
+                )}
                 <button
                   onClick={handleSuggestQuestions}
-                  disabled={suggesting}
+                  disabled={suggesting || analyzing}
                   className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md hover:bg-amber-100 disabled:opacity-50 transition-colors"
                 >
                   {suggesting ? 'Thinking...' : 'Suggest Question'}
