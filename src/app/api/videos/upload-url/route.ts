@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
             filename: blob.pathname.split('/').pop() || blob.pathname,
             storageKey: blob.url,
             mimeType: blob.contentType || 'video/mp4',
-            sizeBytes: blob.size,
+            sizeBytes: 0,
           },
         })
       },
