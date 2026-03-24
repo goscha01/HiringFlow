@@ -61,6 +61,8 @@ model FlowStep {
   stepOrder       Int                   @default(0) @map("step_order")
   stepType        String                @default("question") @map("step_type")
   questionType    String                @default("single") @map("question_type")
+  formEnabled     Boolean               @default(false) @map("form_enabled")
+  formConfig      Json?                 @map("form_config")
   createdAt       DateTime              @default(now()) @map("created_at")
   options         StepOption[]          @relation("StepOptions")
   incomingOptions StepOption[]          @relation("NextStep")
