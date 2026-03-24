@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FlowSchemaView from '@/components/FlowSchemaView'
 import StepEditorPanel from '@/components/StepEditorPanel'
@@ -43,6 +43,7 @@ interface Flow {
 
 export default function FlowBuilderPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const flowId = params.id as string
 
   const [flow, setFlow] = useState<Flow | null>(null)
@@ -50,7 +51,9 @@ export default function FlowBuilderPage() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [viewMode, setViewMode] = useState<'editor' | 'schema'>('editor')
+  const [viewMode, setViewMode] = useState<'editor' | 'schema'>(
+    searchParams.get('view') === 'schema' ? 'schema' : 'editor'
+  )
   const [popupStepId, setPopupStepId] = useState<string | null>(null)
   const [previewStepId, setPreviewStepId] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)

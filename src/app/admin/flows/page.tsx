@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 interface Flow {
@@ -21,6 +22,7 @@ export default function FlowsPage() {
   const [newFlowName, setNewFlowName] = useState('')
   const [creating, setCreating] = useState(false)
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
+  const router = useRouter()
 
   useEffect(() => {
     fetchFlows()
@@ -45,9 +47,11 @@ export default function FlowsPage() {
     })
 
     if (res.ok) {
+      const flow = await res.json()
       setNewFlowName('')
       setShowModal(false)
-      fetchFlows()
+      router.push(`/admin/flows/${flow.id}/builder?view=schema`)
+      return
     }
     setCreating(false)
   }
@@ -115,9 +119,9 @@ export default function FlowsPage() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {flows.map((flow) => (
-                <tr key={flow.id}>
+                <tr key={flow.id} className="cursor-pointer hover:bg-gray-50" onClick={() => router.push(`/admin/flows/${flow.id}/builder?view=schema`)}>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{flow.name}</div>
+                    <div className="text-sm font-medium text-blue-600 hover:text-blue-800">{flow.name}</div>
                     <div className="text-sm text-gray-500">/{flow.slug}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -126,7 +130,7 @@ export default function FlowsPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {flow._count.sessions}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => togglePublish(flow)}
                       className={`px-2 py-1 text-xs rounded-full cursor-pointer transition-colors ${
@@ -138,9 +142,9 @@ export default function FlowsPage() {
                       {flow.isPublished ? 'Published' : 'Draft'}
                     </button>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm space-x-3">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm space-x-3" onClick={(e) => e.stopPropagation()}>
                     <Link
-                      href={`/admin/flows/${flow.id}/builder`}
+                      href={`/admin/flows/${flow.id}/builder?view=schema`}
                       className="text-blue-600 hover:text-blue-800"
                     >
                       Edit
