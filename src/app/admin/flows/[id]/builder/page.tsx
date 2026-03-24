@@ -572,9 +572,12 @@ export default function FlowBuilderPage() {
 
           {/* Popup editor overlay */}
           {popupStepId && (
-            <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+            <div
+              className="absolute inset-0 flex items-center justify-center z-30 bg-black/30 backdrop-blur-[2px]"
+              onClick={() => setPopupStepId(null)}
+            >
               <div
-                className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-3xl max-h-[80%] overflow-y-auto p-6 pointer-events-auto"
+                className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[80%] max-h-[80vh] overflow-y-auto p-6"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-4">
