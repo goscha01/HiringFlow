@@ -1,8 +1,7 @@
-import { upload } from '@vercel/blob/client'
-
 const IS_VERCEL = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
 
 interface UploadResult {
+  id?: string
   url: string
   storageKey: string
   filename: string
@@ -20,12 +19,13 @@ export async function uploadVideoFile(
   return uploadViaApi(file, onProgress)
 }
 
-// Production: direct upload to Vercel Blob (no server body limit)
+// Production: upload to Vercel Blob via client SDK, then register in DB
 async function uploadViaBlobClient(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  // Simulate progress since blob client doesn't expose it
+  const { upload } = await import('@vercel/blob/client')
+
   let progressInterval: ReturnType<typeof setInterval> | undefined
   let fakeProgress = 0
   if (onProgress) {
@@ -42,17 +42,32 @@ async function uploadViaBlobClient(
     })
 
     if (progressInterval) clearInterval(progressInterval)
+    onProgress?.(95)
+
+    // Register the uploaded blob in the database
+    const res = await fetch('/api/videos/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: blob.url,
+        filename: file.name,
+        mimeType: file.type || 'video/mp4',
+        sizeBytes: file.size,
+      }),
+    })
+
     onProgress?.(100)
 
-    // The onUploadCompleted callback saved the video to DB.
-    // We need to fetch the video record to get its ID.
-    // Return the blob URL as both url and storageKey.
+    if (!res.ok) throw new Error('Failed to register video')
+
+    const video = await res.json()
     return {
-      url: blob.url,
-      storageKey: blob.url,
-      filename: file.name,
-      mimeType: file.type || 'video/mp4',
-      sizeBytes: file.size,
+      id: video.id,
+      url: video.url,
+      storageKey: video.storageKey,
+      filename: video.filename,
+      mimeType: video.mimeType,
+      sizeBytes: video.sizeBytes,
     }
   } catch (error) {
     if (progressInterval) clearInterval(progressInterval)
@@ -80,6 +95,7 @@ function uploadViaApi(
       if (xhr.status === 200) {
         const video = JSON.parse(xhr.responseText)
         resolve({
+          id: video.id,
           url: video.url,
           storageKey: video.storageKey,
           filename: video.filename,

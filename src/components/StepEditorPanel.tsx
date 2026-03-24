@@ -74,15 +74,10 @@ export default function StepEditorPanel({
         setUploadProgress(progress)
       })
 
-      // Refresh videos list to get DB record with ID
-      const res = await fetch('/api/videos')
-      if (res.ok) {
-        const allVideos = await res.json()
-        const uploaded = allVideos.find((v: Video) => v.url === result.url)
-        if (uploaded) {
-          onVideoUploaded?.(uploaded)
-          onUpdateStep(step.id, { videoId: uploaded.id })
-        }
+      if (result.id) {
+        const video = { id: result.id, filename: result.filename, url: result.url }
+        onVideoUploaded?.(video)
+        onUpdateStep(step.id, { videoId: result.id })
       }
     } catch {
       // Upload failed silently
