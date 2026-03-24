@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { uploadVideoFile, triggerVideoAnalysis } from '@/lib/upload-client'
+import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from './CaptionedVideo'
 
 interface Video {
   id: string
@@ -86,6 +87,8 @@ export default function StepEditorPanel({
   const [activeTab, setActiveTab] = useState<'quiz' | 'form'>('quiz')
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [captionsEnabled, setCaptionsEnabled] = useState(false)
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_CAPTION_STYLE)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const formConfig: FormConfig = (step.formConfig as FormConfig) || DEFAULT_FORM_CONFIG
@@ -119,6 +122,11 @@ export default function StepEditorPanel({
           (analysis) => {
             setAnalyzing(false)
             setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
+            if (analysis.segments?.length > 0) setCaptionsEnabled(true)
+            // Auto-set step title from video analysis
+            if (analysis.displayName && (!step.title || step.title === 'New Step')) {
+              onUpdateStep(step.id, { title: analysis.displayName })
+            }
             onVideoUploaded?.({
               ...video,
               displayName: analysis.displayName,
@@ -149,6 +157,7 @@ export default function StepEditorPanel({
       if (res.ok) {
         const data = await res.json()
         setTranscript(data)
+        setCaptionsEnabled(true)
       }
     } catch {}
     setTranscribing(false)
@@ -287,12 +296,31 @@ export default function StepEditorPanel({
 
           {step.video && (
             <div className="mt-2">
-              <video
+              <CaptionedVideo
                 src={step.video.url}
-                className="w-full rounded-md"
-                controls
-                preload="metadata"
+                segments={transcript?.segments || []}
+                captionsEnabled={captionsEnabled}
+                captionStyle={captionStyle}
+                onStyleChange={setCaptionStyle}
+                showStyleEditor={captionsEnabled}
               />
+
+              {/* Captions toggle */}
+              {transcript && transcript.segments.length > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={() => setCaptionsEnabled(!captionsEnabled)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
+                      captionsEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                      captionsEnabled ? 'translate-x-5' : 'translate-x-1'
+                    }`} />
+                  </button>
+                  <span className="text-xs text-gray-600">Show Captions</span>
+                </div>
+              )}
 
               {/* Analyzing indicator */}
               {analyzing && (
