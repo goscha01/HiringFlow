@@ -757,44 +757,6 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               />
             </div>
 
-            {/* Form preview */}
-            <div className="p-4 rounded-lg border border-gray-200" style={{ backgroundColor: config.form.backgroundColor }}>
-              <span className="text-[10px] text-gray-400 uppercase block mb-3">Form Preview</span>
-              {['Full Name', 'Email'].map((field) => {
-                const inputBorder = config.form.inputStyle === 'underline'
-                  ? { borderBottom: '2px solid #d1d5db', borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }
-                  : {
-                      border: '1px solid #d1d5db',
-                      borderRadius: config.form.inputStyle === 'pill' ? '9999px' : config.form.inputStyle === 'square' ? '2px' : '8px',
-                    }
-                return (
-                  <div key={field} className="mb-3">
-                    {config.form.labelPosition === 'above' && (
-                      <label className="text-xs font-medium mb-1 block" style={{ color: config.form.textColor }}>{field}</label>
-                    )}
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder={config.form.labelPosition !== 'above' ? field : ''}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm bg-transparent outline-none"
-                        style={{ ...inputBorder, color: config.form.textColor }}
-                      />
-                      {config.form.labelPosition === 'floating' && (
-                        <span className="absolute -top-2 left-3 text-[10px] px-1" style={{ color: config.colors.primary, backgroundColor: config.form.backgroundColor }}>{field}</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-              <button style={{
-                ...btnPreviewStyle,
-                width: '100%',
-                marginTop: '4px',
-              }}>
-                {config.form.submitText || 'Continue'}
-              </button>
-            </div>
           </div>
         )}
 
