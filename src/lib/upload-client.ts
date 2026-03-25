@@ -38,16 +38,26 @@ export async function uploadVideoFile(
   return uploadViaApi(file, onProgress)
 }
 
-// Production: stream file to our Edge API which PUTs to Vercel Blob
-// Edge runtime has no body size limit, so large videos work
+// Production: get presigned S3 URL, upload directly from browser
+// No file data goes through our server — unlimited file size
 async function uploadViaBlob(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
   onProgress?.(5)
 
-  // Use XMLHttpRequest for real progress tracking
-  const blobResult = await new Promise<{ url: string }>((resolve, reject) => {
+  // Step 1: Get presigned URL from our API (tiny JSON request)
+  const tokenRes = await fetch('/api/videos/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, contentType: file.type || 'video/mp4' }),
+  })
+
+  if (!tokenRes.ok) throw new Error('Failed to get upload URL')
+  const { uploadUrl, publicUrl, key } = await tokenRes.json()
+
+  // Step 2: Upload directly to S3 via presigned URL with progress
+  await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
 
     xhr.upload.onprogress = (event) => {
@@ -57,32 +67,32 @@ async function uploadViaBlob(
     }
 
     xhr.onload = () => {
-      if (xhr.status === 200) {
-        resolve(JSON.parse(xhr.responseText))
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve()
       } else {
-        reject(new Error(`Upload failed: ${xhr.status}`))
+        reject(new Error(`S3 upload failed: ${xhr.status}`))
       }
     }
 
     xhr.onerror = () => reject(new Error('Upload failed'))
 
-    xhr.open('POST', '/api/videos/upload-url')
-    xhr.setRequestHeader('x-filename', file.name)
+    xhr.open('PUT', uploadUrl)
     xhr.setRequestHeader('Content-Type', file.type || 'video/mp4')
     xhr.send(file)
   })
 
   onProgress?.(90)
 
-  // Register in DB + trigger analysis
+  // Step 3: Register in DB + trigger analysis
   const regRes = await fetch('/api/videos/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      url: blobResult.url,
+      url: publicUrl,
       filename: file.name,
       mimeType: file.type || 'video/mp4',
       sizeBytes: file.size,
+      storageKey: key,
       analyze: true,
     }),
   })
@@ -94,8 +104,8 @@ async function uploadViaBlob(
   const video = await regRes.json()
   return {
     id: video.id,
-    url: video.url,
-    storageKey: video.storageKey,
+    url: video.url || publicUrl,
+    storageKey: video.storageKey || key,
     filename: video.filename,
     mimeType: video.mimeType,
     sizeBytes: video.sizeBytes,

@@ -13,6 +13,8 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1017.0",
+    "@aws-sdk/s3-request-presigner": "^3.1017.0",
     "@deepgram/sdk": "^5.0.0",
     "@geos/loghub-client": "github:goscha01/geos-loghub-client",
     "@prisma/client": "^5.10.0",
