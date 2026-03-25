@@ -45,6 +45,15 @@ export interface BrandingConfig {
     ctaText?: string
     ctaUrl?: string
   }
+  form: {
+    position: 'before-video' | 'after-video' | 'overlay' | 'sidebar'
+    style: 'card' | 'minimal' | 'floating'
+    backgroundColor: string
+    textColor: string
+    inputStyle: 'rounded' | 'pill' | 'square' | 'underline'
+    labelPosition: 'above' | 'floating' | 'inline'
+    submitText: string
+  }
   layout: {
     videoPosition: 'left' | 'center' | 'right'
     videoAspect: 'horizontal' | 'vertical' | 'square'
@@ -89,6 +98,15 @@ export const DEFAULT_BRANDING: BrandingConfig = {
     ctaText: 'Start Interview',
   },
   endScreen: {},
+  form: {
+    position: 'before-video',
+    style: 'card',
+    backgroundColor: '#ffffff',
+    textColor: '#1f2937',
+    inputStyle: 'rounded',
+    labelPosition: 'above',
+    submitText: 'Continue',
+  },
   layout: {
     videoPosition: 'left',
     videoAspect: 'horizontal',
@@ -109,6 +127,7 @@ export function mergeBranding(partial?: Partial<BrandingConfig> | null): Brandin
     background: { ...DEFAULT_BRANDING.background, ...partial.background },
     startScreen: { ...DEFAULT_BRANDING.startScreen, ...partial.startScreen },
     endScreen: { ...DEFAULT_BRANDING.endScreen, ...partial.endScreen },
+    form: { ...DEFAULT_BRANDING.form, ...partial.form },
     layout: { ...DEFAULT_BRANDING.layout, ...partial.layout },
     logoSettings: {
       startScreen: { ...DEFAULT_LOGO_SETTINGS!.startScreen, ...partial.logoSettings?.startScreen },

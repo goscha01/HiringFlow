@@ -44,7 +44,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   // Local state for instant preview — debounced save to API
   const [config, setConfig] = useState<BrandingConfig>(() => mergeBranding(rawBranding))
   const [activeSection, setActiveSection] = useState<string>('colors')
-  const [previewScreen, setPreviewScreen] = useState<'start' | 'step' | 'end'>('start')
+  const [previewScreen, setPreviewScreen] = useState<'start' | 'form' | 'step' | 'end'>('start')
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop')
   const [uploading, setUploading] = useState(false)
   const [savedPalettes, setSavedPalettes] = useState<Array<{ name: string; primary: string; bg: string; text: string; secondaryText?: string; accent: string }>>(() => {
@@ -59,7 +59,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   const previewRef = useRef<HTMLDivElement>(null)
   const logoDragStart = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null)
 
-  const screenKey = previewScreen === 'start' ? 'startScreen' : previewScreen === 'step' ? 'stepScreen' : 'endScreen'
+  const screenKey = previewScreen === 'start' || previewScreen === 'form' ? 'startScreen' : previewScreen === 'step' ? 'stepScreen' : 'endScreen'
   const currentLogoSettings = config.logoSettings?.[screenKey] || DEFAULT_LOGO_SETTINGS![screenKey]
 
   const handleLogoDragStart = (e: React.MouseEvent | React.TouchEvent) => {
@@ -181,6 +181,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
     { id: 'typography', label: 'Typography' },
     { id: 'buttons', label: 'Buttons' },
     { id: 'background', label: 'Background' },
+    { id: 'form', label: 'Form' },
     { id: 'logo', label: 'Logo' },
     { id: 'layout', label: 'Layout' },
     { id: 'screens', label: 'Screens' },
@@ -638,6 +639,165 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
           </div>
         )}
 
+        {/* Form */}
+        {activeSection === 'form' && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Form Position</label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { key: 'before-video' as const, label: 'Before Video', desc: 'Full screen before playback' },
+                  { key: 'after-video' as const, label: 'After Video', desc: 'Shows after video ends' },
+                  { key: 'overlay' as const, label: 'Overlay', desc: 'Over the video' },
+                  { key: 'sidebar' as const, label: 'Sidebar', desc: 'Next to the video' },
+                ]).map(({ key, label, desc }) => (
+                  <button
+                    key={key}
+                    onClick={() => update({ form: { ...config.form, position: key } })}
+                    className={`p-2 rounded-lg border text-left ${
+                      config.form.position === key ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className={`text-xs font-medium ${config.form.position === key ? 'text-blue-700' : 'text-gray-700'}`}>{label}</span>
+                    <span className="text-[10px] text-gray-400 block">{desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Form Style</label>
+              <div className="flex gap-2">
+                {([
+                  { key: 'card' as const, label: 'Card' },
+                  { key: 'minimal' as const, label: 'Minimal' },
+                  { key: 'floating' as const, label: 'Floating' },
+                ]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => update({ form: { ...config.form, style: key } })}
+                    className={`flex-1 py-2 text-xs rounded border ${
+                      config.form.style === key ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Input Style</label>
+              <div className="grid grid-cols-4 gap-2">
+                {([
+                  { key: 'rounded' as const, label: 'Rounded' },
+                  { key: 'pill' as const, label: 'Pill' },
+                  { key: 'square' as const, label: 'Square' },
+                  { key: 'underline' as const, label: 'Underline' },
+                ]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => update({ form: { ...config.form, inputStyle: key } })}
+                    className={`py-2 text-xs rounded border ${
+                      config.form.inputStyle === key ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Label Position</label>
+              <div className="flex gap-2">
+                {([
+                  { key: 'above' as const, label: 'Above' },
+                  { key: 'floating' as const, label: 'Floating' },
+                  { key: 'inline' as const, label: 'Inline' },
+                ]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => update({ form: { ...config.form, labelPosition: key } })}
+                    className={`flex-1 py-2 text-xs rounded border ${
+                      config.form.labelPosition === key ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-center gap-2">
+                <input type="color" value={config.form.backgroundColor} onChange={(e) => update({ form: { ...config.form, backgroundColor: e.target.value } })} className="w-7 h-7 rounded cursor-pointer border border-gray-300" />
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Background</label>
+                  <input type="text" value={config.form.backgroundColor} onChange={(e) => update({ form: { ...config.form, backgroundColor: e.target.value } })} className="w-full text-[10px] px-1 py-0.5 border border-gray-300 rounded font-mono" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="color" value={config.form.textColor} onChange={(e) => update({ form: { ...config.form, textColor: e.target.value } })} className="w-7 h-7 rounded cursor-pointer border border-gray-300" />
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Text</label>
+                  <input type="text" value={config.form.textColor} onChange={(e) => update({ form: { ...config.form, textColor: e.target.value } })} className="w-full text-[10px] px-1 py-0.5 border border-gray-300 rounded font-mono" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Submit Button Text</label>
+              <input
+                type="text"
+                value={config.form.submitText}
+                onChange={(e) => update({ form: { ...config.form, submitText: e.target.value } })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                placeholder="Continue"
+              />
+            </div>
+
+            {/* Form preview */}
+            <div className="p-4 rounded-lg border border-gray-200" style={{ backgroundColor: config.form.backgroundColor }}>
+              <span className="text-[10px] text-gray-400 uppercase block mb-3">Form Preview</span>
+              {['Full Name', 'Email'].map((field) => {
+                const inputBorder = config.form.inputStyle === 'underline'
+                  ? { borderBottom: '2px solid #d1d5db', borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }
+                  : {
+                      border: '1px solid #d1d5db',
+                      borderRadius: config.form.inputStyle === 'pill' ? '9999px' : config.form.inputStyle === 'square' ? '2px' : '8px',
+                    }
+                return (
+                  <div key={field} className="mb-3">
+                    {config.form.labelPosition === 'above' && (
+                      <label className="text-xs font-medium mb-1 block" style={{ color: config.form.textColor }}>{field}</label>
+                    )}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={config.form.labelPosition !== 'above' ? field : ''}
+                        readOnly
+                        className="w-full px-3 py-2 text-sm bg-transparent outline-none"
+                        style={{ ...inputBorder, color: config.form.textColor }}
+                      />
+                      {config.form.labelPosition === 'floating' && (
+                        <span className="absolute -top-2 left-3 text-[10px] px-1" style={{ color: config.colors.primary, backgroundColor: config.form.backgroundColor }}>{field}</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              <button style={{
+                ...btnPreviewStyle,
+                width: '100%',
+                marginTop: '4px',
+              }}>
+                {config.form.submitText || 'Continue'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Logo */}
         {activeSection === 'logo' && (
           <div className="space-y-4">
@@ -851,15 +1011,15 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               </label>
             )}
             <div className="flex rounded-md border border-gray-300 overflow-hidden">
-              {(['start', 'step', 'end'] as const).map((s) => (
+              {(['start', 'form', 'step', 'end'] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => setPreviewScreen(s)}
-                  className={`px-3 py-1 text-xs capitalize ${
+                  className={`px-2.5 py-1 text-xs capitalize ${
                     previewScreen === s ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                   }`}
                 >
-                  {s === 'step' ? 'Video Step' : s === 'start' ? 'Start' : 'End'}
+                  {s === 'step' ? 'Video' : s === 'start' ? 'Start' : s === 'form' ? 'Form' : 'End'}
                 </button>
               ))}
             </div>
@@ -910,6 +1070,54 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               </button>
             </div>
           )}
+
+          {/* Form screen */}
+          {previewScreen === 'form' && (() => {
+            const inputBorderStyle = config.form.inputStyle === 'underline'
+              ? { borderBottom: `2px solid ${config.colors.accent}40`, borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }
+              : {
+                  border: '1px solid #d1d5db',
+                  borderRadius: config.form.inputStyle === 'pill' ? '9999px' : config.form.inputStyle === 'square' ? '2px' : '8px',
+                }
+            const formContainer: React.CSSProperties = config.form.style === 'card'
+              ? { backgroundColor: config.form.backgroundColor, borderRadius: '16px', padding: '32px', boxShadow: '0 4px 24px rgba(0,0,0,0.15)', maxWidth: '320px', width: '100%' }
+              : config.form.style === 'floating'
+              ? { backgroundColor: config.form.backgroundColor, borderRadius: '24px', padding: '28px', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', border: `1px solid ${config.colors.accent}30`, maxWidth: '300px', width: '100%' }
+              : { maxWidth: '300px', width: '100%', padding: '24px' }
+
+            return (
+              <div className={`flex items-center justify-center ${previewDevice === 'mobile' ? 'h-[500px]' : 'h-[420px]'} p-6`}>
+                <div style={formContainer}>
+                  <h2 style={{ color: config.form.style === 'minimal' ? config.colors.text : config.form.textColor, fontSize: '16px', fontWeight: 600, marginBottom: '4px' }}>
+                    {flowName || 'Flow Name'}
+                  </h2>
+                  <p style={{ color: config.form.style === 'minimal' ? config.colors.secondaryText : config.form.textColor, opacity: 0.6, fontSize: '12px', marginBottom: '20px' }}>
+                    Please fill in your details
+                  </p>
+                  {['Full Name', 'Email', 'Phone'].map((field) => (
+                    <div key={field} className="mb-3 relative">
+                      {config.form.labelPosition === 'above' && (
+                        <label className="text-[11px] font-medium mb-1 block" style={{ color: config.form.style === 'minimal' ? config.colors.text : config.form.textColor }}>{field}</label>
+                      )}
+                      <input
+                        type="text"
+                        readOnly
+                        placeholder={config.form.labelPosition !== 'above' ? field : ''}
+                        className="w-full px-3 py-2 text-xs bg-transparent outline-none"
+                        style={{ ...inputBorderStyle, color: config.form.style === 'minimal' ? config.colors.text : config.form.textColor }}
+                      />
+                      {config.form.labelPosition === 'floating' && (
+                        <span className="absolute -top-2 left-3 text-[9px] px-1" style={{ color: config.colors.primary, backgroundColor: config.form.style === 'minimal' ? 'transparent' : config.form.backgroundColor }}>{field}</span>
+                      )}
+                    </div>
+                  ))}
+                  <button style={{ ...btnPreviewStyle, width: '100%', marginTop: '8px', fontSize: '13px' }}>
+                    {config.form.submitText || 'Continue'}
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Video step screen */}
           {previewScreen === 'step' && (
