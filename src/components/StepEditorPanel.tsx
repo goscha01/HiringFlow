@@ -247,6 +247,33 @@ export default function StepEditorPanel({
     onUpdateStep(step.id, { formConfig: { fields: newFields } } as Partial<Step>)
   }
 
+  const [generatingTitle, setGeneratingTitle] = useState(false)
+  const handleGenerateTitle = async () => {
+    setGeneratingTitle(true)
+    try {
+      const res = await fetch('/api/ai/suggest-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: transcript?.text || step.video?.transcript || null,
+          stepTitle: step.title,
+          flowContext: `Generate ONLY a short descriptive title (3-6 words) for this video interview step. Respond in JSON: {"question": "The Title Here", "options": []}`,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.question) onUpdateStep(step.id, { title: data.question })
+      }
+    } catch {}
+    setGeneratingTitle(false)
+  }
+
+  const aiSparkIcon = (
+    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M12 2L9 12l-7 0 5.5 4.5L5 22l7-5 7 5-2.5-5.5L22 12h-7L12 2z" />
+    </svg>
+  )
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -260,20 +287,9 @@ export default function StepEditorPanel({
         </button>
       </div>
 
-      {/* Title */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-        <input
-          type="text"
-          value={step.title}
-          onChange={(e) => onUpdateStep(step.id, { title: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
       {/* Desktop: side-by-side | Mobile: stacked */}
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Left: Video */}
+        {/* Left: Video only */}
         <div className="lg:w-1/2">
           <label className="block text-sm font-medium text-gray-700 mb-1">Video</label>
           <div className="flex gap-2">
@@ -328,75 +344,82 @@ export default function StepEditorPanel({
                 onStyleChange={setCaptionStyle}
                 showStyleEditor={captionsEnabled}
               />
+            </div>
+          )}
+        </div>
 
-              {/* Captions toggle */}
-              {((transcript && transcript.segments.length > 0) || (videoSegments && videoSegments.length > 0)) && (
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    onClick={() => setCaptionsEnabled(!captionsEnabled)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
-                      captionsEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                      captionsEnabled ? 'translate-x-5' : 'translate-x-1'
-                    }`} />
-                  </button>
-                  <span className="text-xs text-gray-600">Show Captions</span>
-                </div>
+        {/* Right: Title, Transcription/Captions, Quiz/Form */}
+        <div className="lg:w-1/2 space-y-4">
+          {/* Title with AI generate */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">Title</label>
+              {(transcript?.text || step.video?.transcript) && (
+                <button
+                  onClick={handleGenerateTitle}
+                  disabled={generatingTitle}
+                  className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-50"
+                >
+                  {aiSparkIcon}
+                  {generatingTitle ? 'Generating...' : 'AI Generate'}
+                </button>
               )}
+            </div>
+            <input
+              type="text"
+              value={step.title}
+              onChange={(e) => onUpdateStep(step.id, { title: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
 
-              {/* Analyzing indicator */}
-              {analyzing && (
-                <div className="mt-2 flex items-center gap-2 text-sm text-purple-600">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Analyzing video — transcribing &amp; generating summary...
-                </div>
+          {/* Analyzing indicator */}
+          {analyzing && (
+            <div className="flex items-center gap-2 text-sm text-purple-600">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Analyzing video — transcribing &amp; generating summary...
+            </div>
+          )}
+
+          {/* Analysis error */}
+          {analysisError && (
+            <div className="bg-red-50 rounded-md p-3 border border-red-200">
+              <p className="text-xs text-red-700">{analysisError}</p>
+              <button onClick={() => setAnalysisError(null)} className="text-xs text-red-500 hover:text-red-700 mt-1">Dismiss</button>
+            </div>
+          )}
+
+          {/* Video analysis info */}
+          {step.video?.displayName && (
+            <div className="bg-blue-50 rounded-md p-3 border border-blue-200">
+              <p className="text-sm font-medium text-blue-900">{step.video.displayName}</p>
+              {step.video.summary && <p className="text-xs text-blue-700 mt-1">{step.video.summary}</p>}
+              {step.video.bulletPoints && step.video.bulletPoints.length > 0 && (
+                <ul className="mt-2 space-y-0.5">
+                  {step.video.bulletPoints.map((bp, i) => (
+                    <li key={i} className="text-xs text-blue-600 flex items-start gap-1.5">
+                      <span className="mt-1 w-1 h-1 bg-blue-400 rounded-full flex-shrink-0" />
+                      {bp}
+                    </li>
+                  ))}
+                </ul>
               )}
+            </div>
+          )}
 
-              {/* Analysis error */}
-              {analysisError && (
-                <div className="mt-2 bg-red-50 rounded-md p-3 border border-red-200">
-                  <p className="text-xs text-red-700">{analysisError}</p>
-                  <button
-                    onClick={() => setAnalysisError(null)}
-                    className="text-xs text-red-500 hover:text-red-700 mt-1"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
-
-              {/* Video analysis info */}
-              {step.video.displayName && (
-                <div className="mt-2 bg-blue-50 rounded-md p-3 border border-blue-200">
-                  <p className="text-sm font-medium text-blue-900">{step.video.displayName}</p>
-                  {step.video.summary && (
-                    <p className="text-xs text-blue-700 mt-1">{step.video.summary}</p>
-                  )}
-                  {step.video.bulletPoints && step.video.bulletPoints.length > 0 && (
-                    <ul className="mt-2 space-y-0.5">
-                      {step.video.bulletPoints.map((bp, i) => (
-                        <li key={i} className="text-xs text-blue-600 flex items-start gap-1.5">
-                          <span className="mt-1 w-1 h-1 bg-blue-400 rounded-full flex-shrink-0" />
-                          {bp}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-2 flex flex-wrap gap-2">
+          {/* Transcription & Captions controls */}
+          {step.video && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleTranscribe}
                   disabled={transcribing || analyzing}
                   className="px-3 py-1.5 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-md hover:bg-purple-100 disabled:opacity-50 transition-colors"
                 >
-                  {transcribing ? 'Transcribing...' : transcript ? 'Re-transcribe' : 'Generate Captions'}
+                  {transcribing ? 'Transcribing...' : transcript || videoSegments?.length ? 'Re-transcribe' : 'Generate Captions'}
                 </button>
                 {!step.video.displayName && !analyzing && (
                   <button
@@ -410,23 +433,14 @@ export default function StepEditorPanel({
                           setAnalyzing(false)
                           setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
                           if (analysis.segments?.length > 0) setCaptionsEnabled(true)
-                          if (analysis.displayName) {
-                            onUpdateStep(step.id, { title: analysis.displayName })
-                          }
+                          if (analysis.displayName) onUpdateStep(step.id, { title: analysis.displayName })
                           onVideoUploaded?.({
-                            id: step.video!.id,
-                            filename: step.video!.filename,
-                            url: step.video!.url,
-                            displayName: analysis.displayName,
-                            summary: analysis.summary,
-                            bulletPoints: analysis.bulletPoints,
-                            transcript: analysis.transcript,
+                            id: step.video!.id, filename: step.video!.filename, url: step.video!.url,
+                            displayName: analysis.displayName, summary: analysis.summary,
+                            bulletPoints: analysis.bulletPoints, transcript: analysis.transcript,
                           })
                         },
-                        (error) => {
-                          setAnalyzing(false)
-                          setAnalysisError(error)
-                        }
+                        (error) => { setAnalyzing(false); setAnalysisError(error) }
                       )
                     }}
                     className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
@@ -434,42 +448,52 @@ export default function StepEditorPanel({
                     Analyze Video
                   </button>
                 )}
-                <button
-                  onClick={handleSuggestQuestions}
-                  disabled={suggesting || analyzing}
-                  className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-md hover:bg-amber-100 disabled:opacity-50 transition-colors"
-                >
-                  {suggesting ? 'Thinking...' : 'Suggest Question'}
-                </button>
-              </div>
-            </div>
-          )}
 
-          {/* Transcript */}
-          {transcript && (
-            <div className="mt-3 bg-gray-50 rounded-md p-3 border border-gray-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-gray-500 uppercase">Captions</span>
-                <button onClick={() => setTranscript(null)} className="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
-              </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto text-sm">
-                {transcript.segments.length > 0 ? (
-                  transcript.segments.map((seg, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-gray-400 text-xs font-mono whitespace-nowrap mt-0.5">{formatTime(seg.start)}</span>
-                      <span className="text-gray-700">{seg.text}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-gray-600">{transcript.text}</p>
+                {/* Captions toggle */}
+                {((transcript && transcript.segments.length > 0) || (videoSegments && videoSegments.length > 0)) && (
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      onClick={() => setCaptionsEnabled(!captionsEnabled)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
+                        captionsEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                        captionsEnabled ? 'translate-x-5' : 'translate-x-1'
+                      }`} />
+                    </button>
+                    <span className="text-xs text-gray-600">Captions</span>
+                  </div>
                 )}
               </div>
+
+              {/* Transcript text */}
+              {transcript && (
+                <div className="bg-gray-50 rounded-md p-3 border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-gray-500 uppercase">Transcript</span>
+                    <button onClick={() => setTranscript(null)} className="text-xs text-gray-400 hover:text-gray-600">Dismiss</button>
+                  </div>
+                  <div className="space-y-1 max-h-28 overflow-y-auto text-sm">
+                    {transcript.segments.length > 0 ? (
+                      transcript.segments.map((seg, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-gray-400 text-xs font-mono whitespace-nowrap mt-0.5">{formatTime(seg.start)}</span>
+                          <span className="text-gray-700">{seg.text}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-gray-600">{transcript.text}</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* AI Suggestion */}
           {suggestion && (
-            <div className="mt-3 bg-amber-50 rounded-md p-3 border border-amber-200">
+            <div className="bg-amber-50 rounded-md p-3 border border-amber-200">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-amber-600 uppercase">AI Suggestion</span>
                 <button onClick={() => setSuggestion(null)} className="text-xs text-amber-400 hover:text-amber-600">Dismiss</button>
@@ -489,10 +513,7 @@ export default function StepEditorPanel({
               </button>
             </div>
           )}
-        </div>
 
-        {/* Right: Metadata (Quiz / Form tabs) */}
-        <div className="lg:w-1/2">
           {/* Tabs */}
           <div className="flex border-b border-gray-200 mb-4">
             <button
@@ -527,15 +548,14 @@ export default function StepEditorPanel({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-sm font-medium text-gray-700">Question</label>
-                  {!step.video && (
-                    <button
-                      onClick={handleSuggestQuestions}
-                      disabled={suggesting}
-                      className="text-xs text-amber-600 hover:text-amber-800 disabled:opacity-50"
-                    >
-                      {suggesting ? 'Thinking...' : 'AI Suggest'}
-                    </button>
-                  )}
+                  <button
+                    onClick={handleSuggestQuestions}
+                    disabled={suggesting || analyzing}
+                    className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-50"
+                  >
+                    {aiSparkIcon}
+                    {suggesting ? 'Generating...' : 'AI Generate'}
+                  </button>
                 </div>
                 <textarea
                   value={step.questionText || ''}
