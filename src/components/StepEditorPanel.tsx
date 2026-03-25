@@ -1,8 +1,86 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { uploadVideoFile, triggerVideoAnalysis } from '@/lib/upload-client'
 import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from './CaptionedVideo'
+
+// Debounced input that keeps cursor position stable
+function DebouncedInput({
+  value: externalValue,
+  onChange,
+  delay = 500,
+  ...props
+}: {
+  value: string
+  onChange: (value: string) => void
+  delay?: number
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'>) {
+  const [localValue, setLocalValue] = useState(externalValue)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isTypingRef = useRef(false)
+
+  // Sync from parent only when not actively typing
+  useEffect(() => {
+    if (!isTypingRef.current) {
+      setLocalValue(externalValue)
+    }
+  }, [externalValue])
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    setLocalValue(val)
+    isTypingRef.current = true
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      onChange(val)
+      isTypingRef.current = false
+    }, delay)
+  }
+
+  useEffect(() => {
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
+  }, [])
+
+  return <input {...props} value={localValue} onChange={handleChange} />
+}
+
+function DebouncedTextarea({
+  value: externalValue,
+  onChange,
+  delay = 500,
+  ...props
+}: {
+  value: string
+  onChange: (value: string) => void
+  delay?: number
+} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onChange' | 'value'>) {
+  const [localValue, setLocalValue] = useState(externalValue)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isTypingRef = useRef(false)
+
+  useEffect(() => {
+    if (!isTypingRef.current) {
+      setLocalValue(externalValue)
+    }
+  }, [externalValue])
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setLocalValue(val)
+    isTypingRef.current = true
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      onChange(val)
+      isTypingRef.current = false
+    }, delay)
+  }
+
+  useEffect(() => {
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
+  }, [])
+
+  return <textarea {...props} value={localValue} onChange={handleChange} />
+}
 
 interface Segment {
   start: number
@@ -398,10 +476,10 @@ export default function StepEditorPanel({
                 </button>
               )}
             </div>
-            <input
+            <DebouncedInput
               type="text"
               value={step.title}
-              onChange={(e) => onUpdateStep(step.id, { title: e.target.value })}
+              onChange={(val) => onUpdateStep(step.id, { title: val })}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -775,9 +853,9 @@ export default function StepEditorPanel({
                     {suggesting ? 'Generating...' : 'AI Generate'}
                   </button>
                 </div>
-                <textarea
+                <DebouncedTextarea
                   value={step.questionText || ''}
-                  onChange={(e) => onUpdateStep(step.id, { questionText: e.target.value })}
+                  onChange={(val) => onUpdateStep(step.id, { questionText: val })}
                   rows={2}
                   placeholder="What question should candidates answer?"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -836,10 +914,10 @@ export default function StepEditorPanel({
                     {step.options.map((option) => (
                       <div key={option.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-md">
                         <div className="flex-1 space-y-2">
-                          <input
+                          <DebouncedInput
                             type="text"
                             value={option.optionText}
-                            onChange={(e) => onUpdateOption(option.id, { optionText: e.target.value })}
+                            onChange={(val) => onUpdateOption(option.id, { optionText: val })}
                             placeholder="Option text"
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
@@ -922,10 +1000,10 @@ export default function StepEditorPanel({
                               <span className="ml-2 text-xs text-gray-400">{field.type}</span>
                             </div>
                           ) : (
-                            <input
+                            <DebouncedInput
                               type="text"
                               value={field.label}
-                              onChange={(e) => updateFormField(field.id, { label: e.target.value })}
+                              onChange={(val) => updateFormField(field.id, { label: val })}
                               className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
                           )}
