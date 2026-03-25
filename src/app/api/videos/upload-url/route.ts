@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 
-// Handle both the token generation and upload completion callbacks
+// Handle the client upload protocol from @vercel/blob/client
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as HandleUploadBody
 
@@ -11,25 +11,21 @@ export async function POST(request: NextRequest) {
     const jsonResponse = await handleUpload({
       body,
       request,
-      onBeforeGenerateToken: async (pathname) => {
-        // Authenticate the user
+      onBeforeGenerateToken: async () => {
         const session = await getServerSession(authOptions)
-        if (!session?.user?.id) {
-          throw new Error('Unauthorized')
-        }
+        if (!session?.user?.id) throw new Error('Unauthorized')
 
         return {
           allowedContentTypes: [
             'video/mp4', 'video/quicktime', 'video/webm',
             'video/x-msvideo', 'video/x-matroska', 'video/mov',
           ],
-          maximumSizeInBytes: 500 * 1024 * 1024, // 500MB
+          maximumSizeInBytes: 500 * 1024 * 1024,
           tokenPayload: JSON.stringify({ userId: session.user.id }),
         }
       },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        // Optional: could register video here, but we do it in the client
-        // after upload completes for better UX control
+      onUploadCompleted: async () => {
+        // Registration happens client-side after upload
       },
     })
 
