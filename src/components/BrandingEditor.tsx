@@ -44,6 +44,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   // Local state for instant preview — debounced save to API
   const [config, setConfig] = useState<BrandingConfig>(() => mergeBranding(rawBranding))
   const [activeSection, setActiveSection] = useState<string>('colors')
+  const [previewScreen, setPreviewScreen] = useState<'start' | 'step' | 'end'>('start')
   const [uploading, setUploading] = useState(false)
   const [savedPalettes, setSavedPalettes] = useState<Array<{ name: string; primary: string; bg: string; text: string; accent: string }>>(() => {
     if (typeof window === 'undefined') return []
@@ -130,6 +131,9 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
     { id: 'screens', label: 'Screens' },
     { id: 'css', label: 'Custom CSS' },
   ]
+
+  const headingSize = config.typography.headingSize === 'lg' ? '2rem' : config.typography.headingSize === 'sm' ? '1.25rem' : '1.5rem'
+  const bodySize = config.typography.bodySize === 'lg' ? '1.125rem' : config.typography.bodySize === 'sm' ? '0.875rem' : '1rem'
 
   const getBackground = () => {
     if (config.background.type === 'gradient') {
@@ -619,48 +623,136 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
       {/* Right: Live Preview */}
       <div className="lg:w-1/2">
-        <label className="text-xs font-medium text-gray-500 uppercase mb-2 block">Preview</label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-gray-500 uppercase">Preview</label>
+          <div className="flex rounded-md border border-gray-300 overflow-hidden">
+            {(['start', 'step', 'end'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setPreviewScreen(s)}
+                className={`px-3 py-1 text-xs capitalize ${
+                  previewScreen === s ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {s === 'step' ? 'Video Step' : s === 'start' ? 'Start' : 'End'}
+              </button>
+            ))}
+          </div>
+        </div>
         <div
           className="rounded-lg border border-gray-200 overflow-hidden shadow-lg"
           style={{
             background: getBackground(),
             fontFamily: config.typography.fontFamily,
-            minHeight: '400px',
+            minHeight: '420px',
           }}
         >
-          {/* Start screen preview */}
-          <div className="flex flex-col items-center justify-center h-[400px] p-8 text-center">
-            {config.logo && (
-              <img
-                src={config.logo}
-                alt="Logo"
-                className={`max-h-12 mb-6 ${config.startScreen.logoPosition === 'top-left' ? 'self-start' : ''}`}
-              />
-            )}
-            <h1
-              style={{
-                color: config.colors.text,
-                fontSize: config.typography.headingSize === 'lg' ? '2rem' : config.typography.headingSize === 'sm' ? '1.25rem' : '1.5rem',
-                fontWeight: 600,
-                marginBottom: '0.5rem',
-              }}
-            >
-              {flowName || 'Flow Name'}
-            </h1>
-            <p
-              style={{
-                color: config.colors.text,
-                opacity: 0.7,
-                fontSize: config.typography.bodySize === 'lg' ? '1.125rem' : config.typography.bodySize === 'sm' ? '0.875rem' : '1rem',
-                marginBottom: '2rem',
-              }}
-            >
-              {startMessage}
-            </p>
-            <button style={btnPreviewStyle}>
-              {config.startScreen.ctaText || 'Start Interview'}
-            </button>
-          </div>
+          {/* Start screen */}
+          {previewScreen === 'start' && (
+            <div className="flex flex-col items-center justify-center h-[420px] p-8 text-center">
+              {config.logo && (
+                <img
+                  src={config.logo}
+                  alt="Logo"
+                  className={`max-h-12 mb-6 ${config.startScreen.logoPosition === 'top-left' ? 'self-start' : ''}`}
+                />
+              )}
+              <h1 style={{ color: config.colors.text, fontSize: headingSize, fontWeight: 600, marginBottom: '0.5rem' }}>
+                {flowName || 'Flow Name'}
+              </h1>
+              <p style={{ color: config.colors.text, opacity: 0.7, fontSize: bodySize, marginBottom: '2rem' }}>
+                {startMessage}
+              </p>
+              <button style={btnPreviewStyle}>
+                {config.startScreen.ctaText || 'Start Interview'}
+              </button>
+            </div>
+          )}
+
+          {/* Video step screen */}
+          {previewScreen === 'step' && (
+            <div className="flex h-[420px]">
+              {/* Video area */}
+              <div className="flex-1 flex items-center justify-center p-4">
+                <div className="w-full max-w-[280px] bg-black/40 rounded-lg aspect-video flex items-center justify-center">
+                  <svg className="w-12 h-12 text-white/40" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </div>
+              {/* Questions sidebar */}
+              {config.layout.questionStyle === 'sidebar' ? (
+                <div className="w-[180px] bg-white/95 p-4 flex flex-col justify-center">
+                  <p style={{ fontSize: '11px', color: config.colors.primary, fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Sample Step
+                  </p>
+                  <p style={{ fontSize: '13px', color: '#1f2937', fontWeight: 500, marginBottom: '12px' }}>
+                    What are your expectations?
+                  </p>
+                  {['Growth opportunity', 'Team culture', 'Compensation'].map((opt, i) => (
+                    <button
+                      key={i}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '6px 10px',
+                        marginBottom: '6px',
+                        fontSize: '11px',
+                        borderRadius: config.buttons.shape === 'pill' ? '9999px' : config.buttons.shape === 'square' ? '3px' : '8px',
+                        border: `1.5px solid ${i === 0 ? config.colors.primary : '#e5e7eb'}`,
+                        backgroundColor: i === 0 ? `${config.colors.primary}10` : 'white',
+                        color: i === 0 ? config.colors.primary : '#374151',
+                        fontWeight: i === 0 ? 500 : 400,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              ) : config.layout.questionStyle === 'overlay' ? (
+                <div className="absolute bottom-0 left-0 right-0 p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.8))' }}>
+                  <p style={{ fontSize: '12px', color: '#fff', fontWeight: 500, marginBottom: '8px' }}>What are your expectations?</p>
+                  {['Growth opportunity', 'Team culture'].map((opt, i) => (
+                    <button key={i} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', marginBottom: '4px', fontSize: '11px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', backgroundColor: 'transparent', cursor: 'pointer' }}>{opt}</button>
+                  ))}
+                </div>
+              ) : (
+                <div className="absolute bottom-0 left-0 right-0 bg-white p-4">
+                  <p style={{ fontSize: '12px', color: '#1f2937', fontWeight: 500, marginBottom: '8px' }}>What are your expectations?</p>
+                  {['Growth opportunity', 'Team culture'].map((opt, i) => (
+                    <button key={i} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', marginBottom: '4px', fontSize: '11px', borderRadius: '8px', border: '1px solid #e5e7eb', color: '#374151', backgroundColor: 'white', cursor: 'pointer' }}>{opt}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* End screen */}
+          {previewScreen === 'end' && (
+            <div className="flex flex-col items-center justify-center h-[420px] p-8 text-center">
+              {config.logo && (
+                <img src={config.logo} alt="Logo" className="max-h-10 mb-6" />
+              )}
+              <div className="mb-4">
+                <svg className="w-16 h-16 mx-auto" style={{ color: config.colors.accent }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h1 style={{ color: config.colors.text, fontSize: headingSize, fontWeight: 600, marginBottom: '0.5rem' }}>
+                All Done!
+              </h1>
+              <p style={{ color: config.colors.text, opacity: 0.7, fontSize: bodySize, marginBottom: '2rem', maxWidth: '320px' }}>
+                {endMessage}
+              </p>
+              {(config.endScreen.ctaText || config.endScreen.redirectUrl) && (
+                <button style={btnPreviewStyle}>
+                  {config.endScreen.ctaText || 'Back to Website'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
