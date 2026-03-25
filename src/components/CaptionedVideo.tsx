@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 
 interface Segment {
   start: number
@@ -13,7 +13,10 @@ export interface CaptionStyle {
   fontSize: number
   color: string
   backgroundColor: string
-  position: 'bottom' | 'top'
+  position: 'bottom' | 'top' | 'custom'
+  // Custom position as percentage (0-100)
+  customX?: number
+  customY?: number
 }
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
@@ -22,6 +25,8 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   color: '#ffffff',
   backgroundColor: 'rgba(0, 0, 0, 0.75)',
   position: 'bottom',
+  customX: 50,
+  customY: 85,
 }
 
 const FONT_OPTIONS = [
@@ -58,8 +63,12 @@ export default function CaptionedVideo({
   className,
 }: CaptionedVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const captionRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null)
 
   useEffect(() => {
     const video = videoRef.current
@@ -74,10 +83,96 @@ export default function CaptionedVideo({
     ? segments.find((s) => currentTime >= s.start && currentTime <= s.end)
     : null
 
+  // Draggable caption logic
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    if (!onStyleChange) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+
+    dragStartRef.current = {
+      x: clientX,
+      y: clientY,
+      startX: captionStyle.customX ?? 50,
+      startY: captionStyle.customY ?? 85,
+    }
+  }, [captionStyle, onStyleChange])
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if (!dragStartRef.current || !containerRef.current) return
+      const container = containerRef.current.getBoundingClientRect()
+
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+
+      const deltaXPercent = ((clientX - dragStartRef.current.x) / container.width) * 100
+      const deltaYPercent = ((clientY - dragStartRef.current.y) / container.height) * 100
+
+      const newX = Math.max(5, Math.min(95, dragStartRef.current.startX + deltaXPercent))
+      const newY = Math.max(5, Math.min(95, dragStartRef.current.startY + deltaYPercent))
+
+      onStyleChange?.({
+        ...captionStyle,
+        position: 'custom',
+        customX: newX,
+        customY: newY,
+      })
+    }
+
+    const handleEnd = () => {
+      setIsDragging(false)
+      dragStartRef.current = null
+    }
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleEnd)
+    window.addEventListener('touchmove', handleMove, { passive: false })
+    window.addEventListener('touchend', handleEnd)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleEnd)
+      window.removeEventListener('touchmove', handleMove)
+      window.removeEventListener('touchend', handleEnd)
+    }
+  }, [isDragging, captionStyle, onStyleChange])
+
+  // Caption position styles
+  const getCaptionPositionStyle = (): React.CSSProperties => {
+    if (captionStyle.position === 'custom') {
+      return {
+        position: 'absolute',
+        left: `${captionStyle.customX ?? 50}%`,
+        top: `${captionStyle.customY ?? 85}%`,
+        transform: 'translate(-50%, -50%)',
+      }
+    }
+    if (captionStyle.position === 'top') {
+      return {
+        position: 'absolute',
+        left: '50%',
+        top: '48px',
+        transform: 'translateX(-50%)',
+      }
+    }
+    return {
+      position: 'absolute',
+      left: '50%',
+      bottom: '48px',
+      transform: 'translateX(-50%)',
+    }
+  }
+
   return (
     <div className="relative">
       {/* Video */}
-      <div className={`relative rounded-md overflow-hidden bg-black ${className || ''}`}>
+      <div ref={containerRef} className={`relative rounded-md overflow-hidden bg-black ${className || ''}`}>
         <video
           ref={videoRef}
           src={src}
@@ -88,12 +183,16 @@ export default function CaptionedVideo({
           onEnded={onEnded}
         />
 
-        {/* Caption overlay */}
+        {/* Caption overlay — draggable */}
         {currentSegment && (
           <div
-            className={`absolute left-0 right-0 flex justify-center pointer-events-none px-4 ${
-              captionStyle.position === 'top' ? 'top-12' : 'bottom-12'
-            }`}
+            ref={captionRef}
+            style={getCaptionPositionStyle()}
+            className={`px-4 max-w-[90%] z-10 ${
+              onStyleChange ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'
+            } ${isDragging ? 'opacity-80' : ''}`}
+            onMouseDown={handleDragStart}
+            onTouchStart={handleDragStart}
           >
             <span
               style={{
@@ -103,13 +202,22 @@ export default function CaptionedVideo({
                 backgroundColor: captionStyle.backgroundColor,
                 padding: '4px 12px',
                 borderRadius: '4px',
-                maxWidth: '90%',
                 textAlign: 'center',
                 lineHeight: 1.4,
+                display: 'inline-block',
+                userSelect: 'none',
+                whiteSpace: 'nowrap',
               }}
             >
               {currentSegment.text}
             </span>
+          </div>
+        )}
+
+        {/* Drag hint — show when captions enabled and editable */}
+        {captionsEnabled && onStyleChange && !currentSegment && segments.length > 0 && (
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 bg-black/40 px-2 py-0.5 rounded pointer-events-none">
+            Drag captions to reposition
           </div>
         )}
       </div>
@@ -175,46 +283,66 @@ export default function CaptionedVideo({
                 />
               </div>
 
-              {/* Background Color */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 w-20 flex-shrink-0">BG Color</label>
-                <select
-                  value={captionStyle.backgroundColor}
-                  onChange={(e) => onStyleChange({ ...captionStyle, backgroundColor: e.target.value })}
-                  className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded"
-                >
-                  <option value="rgba(0, 0, 0, 0.75)">Black (75%)</option>
-                  <option value="rgba(0, 0, 0, 0.5)">Black (50%)</option>
-                  <option value="rgba(0, 0, 0, 0.9)">Black (90%)</option>
-                  <option value="rgba(255, 255, 255, 0.75)">White (75%)</option>
-                  <option value="rgba(0, 0, 255, 0.6)">Blue (60%)</option>
-                  <option value="rgba(255, 0, 0, 0.6)">Red (60%)</option>
-                  <option value="transparent">None</option>
-                </select>
+              {/* Background Color Palette */}
+              <div>
+                <label className="text-xs text-gray-600 mb-1.5 block">Background</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { color: 'rgba(0, 0, 0, 0.9)', label: 'Black 90%' },
+                    { color: 'rgba(0, 0, 0, 0.75)', label: 'Black 75%' },
+                    { color: 'rgba(0, 0, 0, 0.5)', label: 'Black 50%' },
+                    { color: 'rgba(0, 0, 0, 0.3)', label: 'Black 30%' },
+                    { color: 'rgba(255, 255, 255, 0.9)', label: 'White 90%' },
+                    { color: 'rgba(255, 255, 255, 0.6)', label: 'White 60%' },
+                    { color: 'rgba(37, 99, 235, 0.8)', label: 'Blue' },
+                    { color: 'rgba(220, 38, 38, 0.8)', label: 'Red' },
+                    { color: 'rgba(22, 163, 74, 0.8)', label: 'Green' },
+                    { color: 'rgba(234, 179, 8, 0.8)', label: 'Yellow' },
+                    { color: 'rgba(147, 51, 234, 0.8)', label: 'Purple' },
+                    { color: 'rgba(249, 115, 22, 0.8)', label: 'Orange' },
+                    { color: 'rgba(236, 72, 153, 0.8)', label: 'Pink' },
+                    { color: 'rgba(20, 184, 166, 0.8)', label: 'Teal' },
+                    { color: 'transparent', label: 'None' },
+                  ].map(({ color, label }) => (
+                    <button
+                      key={color}
+                      title={label}
+                      onClick={() => onStyleChange({ ...captionStyle, backgroundColor: color })}
+                      className={`w-6 h-6 rounded border-2 transition-all ${
+                        captionStyle.backgroundColor === color
+                          ? 'border-blue-500 scale-110 ring-1 ring-blue-300'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                      style={{
+                        background: color === 'transparent'
+                          ? 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%) 50% / 8px 8px'
+                          : color,
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
 
               {/* Position */}
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-600 w-20 flex-shrink-0">Position</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => onStyleChange({ ...captionStyle, position: 'bottom' })}
-                    className={`text-xs px-3 py-1 rounded ${
-                      captionStyle.position === 'bottom' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                    }`}
-                  >
-                    Bottom
-                  </button>
-                  <button
-                    onClick={() => onStyleChange({ ...captionStyle, position: 'top' })}
-                    className={`text-xs px-3 py-1 rounded ${
-                      captionStyle.position === 'top' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                    }`}
-                  >
-                    Top
-                  </button>
+                <div className="flex gap-1.5">
+                  {(['top', 'bottom', 'custom'] as const).map((pos) => (
+                    <button
+                      key={pos}
+                      onClick={() => onStyleChange({ ...captionStyle, position: pos })}
+                      className={`text-xs px-2.5 py-1 rounded capitalize ${
+                        captionStyle.position === pos ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                      }`}
+                    >
+                      {pos === 'custom' ? 'Free' : pos}
+                    </button>
+                  ))}
                 </div>
               </div>
+              {captionStyle.position === 'custom' && (
+                <p className="text-[10px] text-gray-400 -mt-1">Drag the caption on the video to position it</p>
+              )}
             </div>
           )}
         </div>

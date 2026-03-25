@@ -617,6 +617,7 @@ export default function FlowBuilderPage() {
                       setVideos((prev) => [video, ...prev])
                       fetchFlow()
                     }}
+                    onClose={() => setPopupStepId(null)}
                   />
                 ) : null}
               </div>

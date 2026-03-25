@@ -74,6 +74,7 @@ interface StepEditorPanelProps {
   onUpdateOption: (optionId: string, data: { optionText?: string; nextStepId?: string | null }) => void
   onDeleteOption: (stepId: string, optionId: string) => void
   onVideoUploaded?: (video: Video) => void
+  onClose?: () => void
 }
 
 export default function StepEditorPanel({
@@ -86,6 +87,7 @@ export default function StepEditorPanel({
   onUpdateOption,
   onDeleteOption,
   onVideoUploaded,
+  onClose,
 }: StepEditorPanelProps) {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -251,13 +253,16 @@ export default function StepEditorPanel({
   const handleGenerateTitle = async () => {
     setGeneratingTitle(true)
     try {
+      const videoTranscript = transcript?.text || step.video?.transcript || ''
+      const videoSummary = step.video?.summary || ''
+      const bulletPoints = step.video?.bulletPoints?.join(', ') || ''
       const res = await fetch('/api/ai/suggest-questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          transcript: transcript?.text || step.video?.transcript || null,
+          transcript: videoTranscript,
           stepTitle: step.title,
-          flowContext: `Generate ONLY a short descriptive title (3-6 words) for this video interview step. Respond in JSON: {"question": "The Title Here", "options": []}`,
+          flowContext: `Based on this video content, generate a short descriptive title (3-8 words) that summarizes what the video is about. The title should be like a section heading — descriptive and professional. Video summary: "${videoSummary}". Key points: ${bulletPoints}. Respond in JSON: {"question": "The Descriptive Title", "options": []}`,
         }),
       })
       if (res.ok) {
@@ -276,15 +281,33 @@ export default function StepEditorPanel({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header with Save/Cancel */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-gray-900">Edit Step</h2>
-        <button
-          onClick={() => onDeleteStep(step.id)}
-          className="text-red-600 hover:text-red-800 text-sm"
-        >
-          Delete Step
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onDeleteStep(step.id)}
+            className="text-red-600 hover:text-red-800 text-xs"
+          >
+            Delete
+          </button>
+          {onClose && (
+            <>
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Done
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Desktop: side-by-side | Mobile: stacked */}
@@ -295,7 +318,16 @@ export default function StepEditorPanel({
           <div className="flex gap-2">
             <select
               value={step.videoId || ''}
-              onChange={(e) => onUpdateStep(step.id, { videoId: e.target.value || null })}
+              onChange={(e) => {
+                const videoId = e.target.value || null
+                const selectedVideo = videos.find(v => v.id === videoId)
+                const updates: Partial<Step> = { videoId }
+                // Auto-set title from video displayName if step has default/empty title
+                if (selectedVideo?.displayName && (!step.title || step.title === 'New Step' || step.title === 'Untitled Step')) {
+                  updates.title = selectedVideo.displayName
+                }
+                onUpdateStep(step.id, updates)
+              }}
               className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">No video selected</option>
@@ -342,7 +374,7 @@ export default function StepEditorPanel({
                 captionsEnabled={captionsEnabled}
                 captionStyle={captionStyle}
                 onStyleChange={setCaptionStyle}
-                showStyleEditor={captionsEnabled}
+                showStyleEditor={false}
               />
             </div>
           )}
@@ -466,6 +498,88 @@ export default function StepEditorPanel({
                   </div>
                 )}
               </div>
+
+              {/* Caption style editor — shown when captions enabled */}
+              {captionsEnabled && ((transcript && transcript.segments.length > 0) || (videoSegments && videoSegments.length > 0)) && (
+                <div className="bg-gray-50 rounded-md p-3 border border-gray-200">
+                  <span className="text-xs font-medium text-gray-500 uppercase mb-2 block">Caption Style</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-500">Font</label>
+                      <select
+                        value={captionStyle.fontFamily}
+                        onChange={e => setCaptionStyle({ ...captionStyle, fontFamily: e.target.value })}
+                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                      >
+                        <option value="Arial, sans-serif">Arial</option>
+                        <option value="'Courier New', monospace">Courier</option>
+                        <option value="Georgia, serif">Georgia</option>
+                        <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+                        <option value="Verdana, sans-serif">Verdana</option>
+                        <option value="Impact, sans-serif">Impact</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500">Size</label>
+                      <select
+                        value={captionStyle.fontSize}
+                        onChange={e => setCaptionStyle({ ...captionStyle, fontSize: Number(e.target.value) })}
+                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                      >
+                        <option value={12}>Small</option>
+                        <option value={16}>Medium</option>
+                        <option value={20}>Large</option>
+                        <option value={24}>X-Large</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500">Color</label>
+                      <div className="flex gap-1">
+                        <input
+                          type="color"
+                          value={captionStyle.color}
+                          onChange={e => setCaptionStyle({ ...captionStyle, color: e.target.value })}
+                          className="w-6 h-6 rounded cursor-pointer border border-gray-300"
+                        />
+                        <span className="text-[10px] text-gray-400 self-center">{captionStyle.color}</span>
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-[10px] text-gray-500 mb-1 block">Background</label>
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { c: 'rgba(0, 0, 0, 0.9)', l: '90%' },
+                          { c: 'rgba(0, 0, 0, 0.75)', l: '75%' },
+                          { c: 'rgba(0, 0, 0, 0.5)', l: '50%' },
+                          { c: 'rgba(255, 255, 255, 0.8)', l: 'W' },
+                          { c: 'rgba(37, 99, 235, 0.8)', l: 'B' },
+                          { c: 'rgba(220, 38, 38, 0.8)', l: 'R' },
+                          { c: 'rgba(22, 163, 74, 0.8)', l: 'G' },
+                          { c: 'rgba(234, 179, 8, 0.8)', l: 'Y' },
+                          { c: 'rgba(147, 51, 234, 0.8)', l: 'P' },
+                          { c: 'transparent', l: '∅' },
+                        ].map(({ c, l }) => (
+                          <button
+                            key={c}
+                            title={l}
+                            onClick={() => setCaptionStyle({ ...captionStyle, backgroundColor: c })}
+                            className={`w-5 h-5 rounded border transition-all ${
+                              captionStyle.backgroundColor === c
+                                ? 'border-blue-500 ring-1 ring-blue-300 scale-110'
+                                : 'border-gray-300'
+                            }`}
+                            style={{
+                              background: c === 'transparent'
+                                ? 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%) 50% / 6px 6px'
+                                : c,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Transcript text */}
               {transcript && (
