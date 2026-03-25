@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { type BrandingConfig, DEFAULT_BRANDING, mergeBranding } from '@/lib/branding'
 
 interface BrandingEditorProps {
@@ -41,15 +41,64 @@ const PATTERN_OPTIONS = [
 ]
 
 export default function BrandingEditor({ branding: rawBranding, onUpdate, flowName, startMessage, endMessage }: BrandingEditorProps) {
-  const config = mergeBranding(rawBranding)
+  // Local state for instant preview — debounced save to API
+  const [config, setConfig] = useState<BrandingConfig>(() => mergeBranding(rawBranding))
   const [activeSection, setActiveSection] = useState<string>('colors')
   const [uploading, setUploading] = useState(false)
+  const [savedPalettes, setSavedPalettes] = useState<Array<{ name: string; primary: string; bg: string; text: string; accent: string }>>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('hiringflow_palettes') || '[]') } catch { return [] }
+  })
+  const [newPaletteName, setNewPaletteName] = useState('')
+  const [showSavePalette, setShowSavePalette] = useState(false)
+
+  const savePalette = () => {
+    if (!newPaletteName.trim()) return
+    const palette = { name: newPaletteName.trim(), primary: config.colors.primary, bg: config.colors.background, text: config.colors.text, accent: config.colors.accent }
+    const updated = [...savedPalettes, palette]
+    setSavedPalettes(updated)
+    localStorage.setItem('hiringflow_palettes', JSON.stringify(updated))
+    setNewPaletteName('')
+    setShowSavePalette(false)
+  }
+
+  const deletePalette = (idx: number) => {
+    const updated = savedPalettes.filter((_, i) => i !== idx)
+    setSavedPalettes(updated)
+    localStorage.setItem('hiringflow_palettes', JSON.stringify(updated))
+  }
   const logoInputRef = useRef<HTMLInputElement>(null)
   const bgInputRef = useRef<HTMLInputElement>(null)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const update = (partial: Partial<BrandingConfig>) => {
-    onUpdate({ ...config, ...partial })
-  }
+  // Sync from parent when rawBranding changes (e.g. flow switch)
+  useEffect(() => {
+    setConfig(mergeBranding(rawBranding))
+  }, [JSON.stringify(rawBranding)])
+
+  const update = useCallback((partial: Partial<BrandingConfig>) => {
+    setConfig((prev) => {
+      const next = {
+        ...prev,
+        ...partial,
+        colors: { ...prev.colors, ...(partial.colors || {}) },
+        typography: { ...prev.typography, ...(partial.typography || {}) },
+        buttons: { ...prev.buttons, ...(partial.buttons || {}) },
+        background: { ...prev.background, ...(partial.background || {}) },
+        startScreen: { ...prev.startScreen, ...(partial.startScreen || {}) },
+        endScreen: { ...prev.endScreen, ...(partial.endScreen || {}) },
+        layout: { ...prev.layout, ...(partial.layout || {}) },
+      }
+      // Debounced save to API
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+      saveTimeoutRef.current = setTimeout(() => onUpdate(next), 800)
+      return next
+    })
+  }, [onUpdate])
+
+  useEffect(() => {
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current) }
+  }, [])
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -149,6 +198,68 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Saved palettes */}
+            {savedPalettes.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase mb-2 block">Saved Palettes</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {savedPalettes.map((palette, idx) => (
+                    <div key={idx} className="relative group">
+                      <button
+                        onClick={() => update({
+                          colors: { primary: palette.primary, background: palette.bg, text: palette.text, accent: palette.accent },
+                          background: { ...config.background, value: palette.bg },
+                        })}
+                        className="w-full p-2 rounded-lg border border-gray-200 hover:border-blue-400 transition-all text-left"
+                      >
+                        <div className="flex gap-1 mb-1">
+                          <span className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: palette.primary }} />
+                          <span className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: palette.bg }} />
+                          <span className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: palette.accent }} />
+                        </div>
+                        <span className="text-[10px] text-gray-500 truncate block">{palette.name}</span>
+                      </button>
+                      <button
+                        onClick={() => deletePalette(idx)}
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Save current as palette */}
+            <div>
+              {showSavePalette ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newPaletteName}
+                    onChange={(e) => setNewPaletteName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && savePalette()}
+                    placeholder="Palette name"
+                    className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  <button onClick={savePalette} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700">Save</button>
+                  <button onClick={() => { setShowSavePalette(false); setNewPaletteName('') }} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowSavePalette(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Save current colors as palette
+                </button>
+              )}
             </div>
 
             {[
