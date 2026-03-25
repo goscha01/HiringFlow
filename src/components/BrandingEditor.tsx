@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { type BrandingConfig, DEFAULT_BRANDING, mergeBranding } from '@/lib/branding'
+import { type BrandingConfig, type LogoPosition, DEFAULT_BRANDING, DEFAULT_LOGO_SETTINGS, mergeBranding } from '@/lib/branding'
 
 interface BrandingEditorProps {
   branding: Partial<BrandingConfig> | null
@@ -54,6 +54,58 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   const [showSavePalette, setShowSavePalette] = useState(false)
   const [editingPaletteIdx, setEditingPaletteIdx] = useState<number | null>(null)
   const [colorsBeforeEdit, setColorsBeforeEdit] = useState<BrandingConfig['colors'] | null>(null)
+  const [draggingLogo, setDraggingLogo] = useState(false)
+  const previewRef = useRef<HTMLDivElement>(null)
+  const logoDragStart = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null)
+
+  const screenKey = previewScreen === 'start' ? 'startScreen' : previewScreen === 'step' ? 'stepScreen' : 'endScreen'
+  const currentLogoSettings = config.logoSettings?.[screenKey] || DEFAULT_LOGO_SETTINGS![screenKey]
+
+  const handleLogoDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    setDraggingLogo(true)
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+    logoDragStart.current = {
+      x: clientX, y: clientY,
+      startX: currentLogoSettings.position.x,
+      startY: currentLogoSettings.position.y,
+    }
+  }
+
+  useEffect(() => {
+    if (!draggingLogo) return
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if (!logoDragStart.current || !previewRef.current) return
+      const rect = previewRef.current.getBoundingClientRect()
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
+      const dx = ((clientX - logoDragStart.current.x) / rect.width) * 100
+      const dy = ((clientY - logoDragStart.current.y) / rect.height) * 100
+      const newX = Math.max(5, Math.min(95, logoDragStart.current.startX + dx))
+      const newY = Math.max(3, Math.min(90, logoDragStart.current.startY + dy))
+      const newSettings = { ...config.logoSettings || DEFAULT_LOGO_SETTINGS! }
+      newSettings[screenKey] = { ...newSettings[screenKey], position: { x: newX, y: newY } }
+      update({ logoSettings: newSettings })
+    }
+    const handleEnd = () => { setDraggingLogo(false); logoDragStart.current = null }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleEnd)
+    window.addEventListener('touchmove', handleMove, { passive: false })
+    window.addEventListener('touchend', handleEnd)
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleEnd)
+      window.removeEventListener('touchmove', handleMove)
+      window.removeEventListener('touchend', handleEnd)
+    }
+  }, [draggingLogo, config.logoSettings, screenKey])
+
+  const toggleLogoForScreen = (screen: 'startScreen' | 'stepScreen' | 'endScreen') => {
+    const newSettings = { ...config.logoSettings || DEFAULT_LOGO_SETTINGS! }
+    newSettings[screen] = { ...newSettings[screen], enabled: !newSettings[screen].enabled }
+    update({ logoSettings: newSettings })
+  }
 
   const savePalette = () => {
     if (!newPaletteName.trim()) return
@@ -740,38 +792,67 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
       <div className="lg:w-1/2">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs font-medium text-gray-500 uppercase">Preview</label>
-          <div className="flex rounded-md border border-gray-300 overflow-hidden">
-            {(['start', 'step', 'end'] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setPreviewScreen(s)}
-                className={`px-3 py-1 text-xs capitalize ${
-                  previewScreen === s ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-                }`}
-              >
-                {s === 'step' ? 'Video Step' : s === 'start' ? 'Start' : 'End'}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            {/* Logo toggle for current screen */}
+            {config.logo && (
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <button
+                  onClick={() => toggleLogoForScreen(screenKey)}
+                  className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                    currentLogoSettings.enabled ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+                    currentLogoSettings.enabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`} />
+                </button>
+                <span className="text-[10px] text-gray-500">Logo</span>
+              </label>
+            )}
+            <div className="flex rounded-md border border-gray-300 overflow-hidden">
+              {(['start', 'step', 'end'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setPreviewScreen(s)}
+                  className={`px-3 py-1 text-xs capitalize ${
+                    previewScreen === s ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {s === 'step' ? 'Video Step' : s === 'start' ? 'Start' : 'End'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div
-          className="rounded-lg border border-gray-200 overflow-hidden shadow-lg"
+          ref={previewRef}
+          className="rounded-lg border border-gray-200 overflow-hidden shadow-lg relative"
           style={{
             background: getBackground(),
             fontFamily: config.typography.fontFamily,
             minHeight: '420px',
           }}
         >
+          {/* Draggable logo overlay — absolute positioned */}
+          {config.logo && currentLogoSettings.enabled && (
+            <div
+              onMouseDown={handleLogoDragStart}
+              onTouchStart={handleLogoDragStart}
+              className={`absolute z-10 cursor-grab active:cursor-grabbing ${draggingLogo ? 'opacity-70' : ''}`}
+              style={{
+                left: `${currentLogoSettings.position.x}%`,
+                top: `${currentLogoSettings.position.y}%`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              <img src={config.logo} alt="Logo" className="max-h-10 pointer-events-none" />
+              <div className="text-[8px] text-center text-white/40 mt-0.5">drag to move</div>
+            </div>
+          )}
+
           {/* Start screen */}
           {previewScreen === 'start' && (
             <div className="flex flex-col items-center justify-center h-[420px] p-8 text-center">
-              {config.logo && (
-                <img
-                  src={config.logo}
-                  alt="Logo"
-                  className={`max-h-12 mb-6 ${config.startScreen.logoPosition === 'top-left' ? 'self-start' : ''}`}
-                />
-              )}
               <h1 style={{ color: config.colors.text, fontSize: headingSize, fontWeight: 600, marginBottom: '0.5rem' }}>
                 {flowName || 'Flow Name'}
               </h1>
@@ -847,9 +928,6 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
           {/* End screen */}
           {previewScreen === 'end' && (
             <div className="flex flex-col items-center justify-center h-[420px] p-8 text-center">
-              {config.logo && (
-                <img src={config.logo} alt="Logo" className="max-h-10 mb-6" />
-              )}
               <div className="mb-4">
                 <svg className="w-16 h-16 mx-auto" style={{ color: config.colors.accent }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />

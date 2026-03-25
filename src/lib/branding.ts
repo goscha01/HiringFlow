@@ -1,5 +1,15 @@
+export interface LogoPosition {
+  x: number  // percentage 0-100
+  y: number  // percentage 0-100
+}
+
 export interface BrandingConfig {
   logo?: string
+  logoSettings?: {
+    startScreen: { enabled: boolean; position: LogoPosition }
+    stepScreen: { enabled: boolean; position: LogoPosition }
+    endScreen: { enabled: boolean; position: LogoPosition }
+  }
   colors: {
     primary: string
     background: string
@@ -43,7 +53,14 @@ export interface BrandingConfig {
   customCss?: string
 }
 
+export const DEFAULT_LOGO_SETTINGS: BrandingConfig['logoSettings'] = {
+  startScreen: { enabled: true, position: { x: 50, y: 15 } },
+  stepScreen: { enabled: false, position: { x: 10, y: 5 } },
+  endScreen: { enabled: true, position: { x: 50, y: 15 } },
+}
+
 export const DEFAULT_BRANDING: BrandingConfig = {
+  logoSettings: DEFAULT_LOGO_SETTINGS,
   colors: {
     primary: '#2563eb',
     background: '#111827',
@@ -91,6 +108,11 @@ export function mergeBranding(partial?: Partial<BrandingConfig> | null): Brandin
     startScreen: { ...DEFAULT_BRANDING.startScreen, ...partial.startScreen },
     endScreen: { ...DEFAULT_BRANDING.endScreen, ...partial.endScreen },
     layout: { ...DEFAULT_BRANDING.layout, ...partial.layout },
+    logoSettings: {
+      startScreen: { ...DEFAULT_LOGO_SETTINGS!.startScreen, ...partial.logoSettings?.startScreen },
+      stepScreen: { ...DEFAULT_LOGO_SETTINGS!.stepScreen, ...partial.logoSettings?.stepScreen },
+      endScreen: { ...DEFAULT_LOGO_SETTINGS!.endScreen, ...partial.logoSettings?.endScreen },
+    },
   }
 }
 
