@@ -38,54 +38,37 @@ export async function uploadVideoFile(
   return uploadViaApi(file, onProgress)
 }
 
-// Production: get client token, then PUT directly to blob.vercel-storage.com
+// Production: use @vercel/blob/client upload with server-generated token
 async function uploadViaBlob(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
-  // Step 1: Get a scoped client token + store URL from our API
   onProgress?.(5)
-  const tokenRes = await fetch('/api/videos/upload-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename: file.name }),
-  })
 
-  if (!tokenRes.ok) throw new Error('Failed to get upload token')
-  const { clientToken, storeUrl } = await tokenRes.json()
-
-  // Step 2: Upload directly to Vercel Blob storage via fetch
+  // Fake progress since blob client upload doesn't support progress
   let progressInterval: ReturnType<typeof setInterval> | undefined
   let fakeProgress = 10
   if (onProgress) {
     progressInterval = setInterval(() => {
-      fakeProgress = Math.min(fakeProgress + 3, 90)
+      fakeProgress = Math.min(fakeProgress + 2, 85)
       onProgress(fakeProgress)
-    }, 300)
+    }, 500)
   }
 
   try {
-    const putRes = await fetch(`${storeUrl}/${file.name}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${clientToken}`,
-        'Content-Type': file.type || 'video/mp4',
-        'x-api-version': '7',
-      },
-      body: file,
+    // Use handleUploadUrl approach: client sends file to our API which returns a token,
+    // then client uploads directly to blob storage
+    const { upload } = await import('@vercel/blob/client')
+
+    const blob = await upload(file.name, file, {
+      access: 'public',
+      handleUploadUrl: '/api/videos/upload-url',
     })
 
     if (progressInterval) clearInterval(progressInterval)
+    onProgress?.(90)
 
-    if (!putRes.ok) {
-      const errText = await putRes.text()
-      throw new Error(`Blob upload failed: ${putRes.status} ${errText}`)
-    }
-
-    const blob = await putRes.json()
-    onProgress?.(95)
-
-    // Step 3: Register in DB + trigger analysis server-side (fire-and-forget)
+    // Register in DB + trigger analysis
     const regRes = await fetch('/api/videos/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
