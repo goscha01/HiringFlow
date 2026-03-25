@@ -1156,20 +1156,34 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
             return (
             <div className={`relative ${isMobile ? 'h-[500px]' : 'h-[420px]'} ${useOverlay ? '' : 'flex'}`}>
-              {/* Video area — always centered vertically */}
+              {/* Video area — centered vertically, full screen on mobile */}
+              {isMobile ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                  <div className={`bg-black/40 rounded-lg flex items-center justify-center ${
+                    config.layout.videoAspect === 'vertical' ? 'w-full h-full' :
+                    config.layout.videoAspect === 'square' ? 'w-[260px] aspect-square' :
+                    'w-full aspect-video'
+                  }`}>
+                    <svg className="w-12 h-12 text-white/40" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </div>
+                </div>
+              ) : (
               <div className={`flex-1 flex items-center justify-center p-4 ${
                 !useOverlay && config.layout.videoPosition === 'right' ? 'order-2' : ''
               }`}>
                 <div className={`bg-black/40 rounded-lg flex items-center justify-center ${
-                  config.layout.videoAspect === 'vertical' ? (isMobile ? 'w-[120px]' : 'w-[140px]') + ' aspect-[9/16]' :
-                  config.layout.videoAspect === 'square' ? (isMobile ? 'w-[160px]' : 'w-[200px]') + ' aspect-square' :
-                  'w-full ' + (isMobile ? 'max-w-[240px]' : 'max-w-[280px]') + ' aspect-video'
+                  config.layout.videoAspect === 'vertical' ? 'w-[140px] aspect-[9/16]' :
+                  config.layout.videoAspect === 'square' ? 'w-[200px] aspect-square' :
+                  'w-full max-w-[280px] aspect-video'
                 }`}>
                   <svg className="w-10 h-10 text-white/40" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </div>
               </div>
+              )}
 
               {/* Questions panel */}
               {useOverlay ? (
