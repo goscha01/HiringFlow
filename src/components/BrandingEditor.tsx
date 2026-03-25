@@ -873,9 +873,9 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Question Panel Style</label>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Question Panel (Desktop)</label>
               <div className="flex gap-2">
-                {(['sidebar', 'overlay', 'below'] as const).map((s) => (
+                {(['sidebar', 'overlay'] as const).map((s) => (
                   <button
                     key={s}
                     onClick={() => update({ layout: { ...config.layout, questionStyle: s } })}
@@ -1122,11 +1122,8 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
           {/* Video step screen */}
           {previewScreen === 'step' && (() => {
             const isMobile = previewDevice === 'mobile'
-            const isBelow = config.layout.questionStyle === 'below'
             const isOverlay = config.layout.questionStyle === 'overlay'
-            const isSidebar = config.layout.questionStyle === 'sidebar'
-            // On mobile: always overlay. On desktop below: stack vertically. On desktop sidebar: side by side.
-            const useVerticalLayout = isMobile || isBelow
+            // Mobile: always overlay. Desktop: sidebar or overlay.
             const useOverlay = isMobile || isOverlay
 
             const questionOptions = ['Growth opportunity', 'Team culture', 'Compensation']
@@ -1158,13 +1155,10 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
             )
 
             return (
-            <div className={`relative ${isMobile ? 'h-[500px]' : 'h-[420px]'} ${!useVerticalLayout && !useOverlay ? 'flex' : 'flex flex-col'}`}>
-              {/* Video area */}
-              <div className={`flex items-center justify-center p-4 ${
-                useVerticalLayout ? 'flex-1' : 'flex-1'
-              } ${
-                !useVerticalLayout && config.layout.videoPosition === 'center' ? 'mx-auto' :
-                !useVerticalLayout && config.layout.videoPosition === 'right' ? 'order-2' : ''
+            <div className={`relative ${isMobile ? 'h-[500px]' : 'h-[420px]'} ${useOverlay ? '' : 'flex'}`}>
+              {/* Video area — always centered vertically */}
+              <div className={`flex-1 flex items-center justify-center p-4 ${
+                !useOverlay && config.layout.videoPosition === 'right' ? 'order-2' : ''
               }`}>
                 <div className={`bg-black/40 rounded-lg flex items-center justify-center ${
                   config.layout.videoAspect === 'vertical' ? (isMobile ? 'w-[120px]' : 'w-[140px]') + ' aspect-[9/16]' :
@@ -1182,18 +1176,11 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                 <div className="absolute bottom-0 left-0 right-0 p-3" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.85))' }}>
                   {renderOptions(true)}
                 </div>
-              ) : isSidebar && !isMobile ? (
+              ) : (
                 <div className={`w-[170px] bg-white/95 p-3 flex flex-col justify-center ${
                   config.layout.videoPosition === 'right' ? 'order-1' : ''
                 }`}>
                   {renderOptions(false)}
-                </div>
-              ) : (
-                /* Below */
-                <div className="bg-white/95 px-4 py-3 flex-shrink-0">
-                  <div className="max-w-[280px] mx-auto">
-                    {renderOptions(false)}
-                  </div>
                 </div>
               )}
             </div>

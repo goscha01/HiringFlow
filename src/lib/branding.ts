@@ -57,7 +57,7 @@ export interface BrandingConfig {
   layout: {
     videoPosition: 'left' | 'center' | 'right'
     videoAspect: 'horizontal' | 'vertical' | 'square'
-    questionStyle: 'sidebar' | 'overlay' | 'below'
+    questionStyle: 'sidebar' | 'overlay'
     progressIndicator: 'bar' | 'steps' | 'none'
   }
   customCss?: string
