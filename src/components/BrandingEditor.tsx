@@ -1156,18 +1156,12 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
             return (
             <div className={`relative ${isMobile ? 'h-[500px]' : 'h-[420px]'} ${useOverlay ? '' : 'flex'}`}>
-              {/* Video area — centered vertically, full screen on mobile */}
+              {/* Video area — full screen on mobile, centered on desktop */}
               {isMobile ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                  <div className={`bg-black/40 rounded-lg flex items-center justify-center ${
-                    config.layout.videoAspect === 'vertical' ? 'w-full h-full' :
-                    config.layout.videoAspect === 'square' ? 'w-[260px] aspect-square' :
-                    'w-full aspect-video'
-                  }`}>
-                    <svg className="w-12 h-12 text-white/40" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </div>
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                  <svg className="w-16 h-16 text-white/30" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
                 </div>
               ) : (
               <div className={`flex-1 flex items-center justify-center p-4 ${
