@@ -1120,68 +1120,85 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
           })()}
 
           {/* Video step screen */}
-          {previewScreen === 'step' && (
-            <div className={`${previewDevice === 'mobile' ? 'relative h-[500px]' : 'flex h-[420px]'}`}>
+          {previewScreen === 'step' && (() => {
+            const isMobile = previewDevice === 'mobile'
+            const isBelow = config.layout.questionStyle === 'below'
+            const isOverlay = config.layout.questionStyle === 'overlay'
+            const isSidebar = config.layout.questionStyle === 'sidebar'
+            // On mobile: always overlay. On desktop below: stack vertically. On desktop sidebar: side by side.
+            const useVerticalLayout = isMobile || isBelow
+            const useOverlay = isMobile || isOverlay
+
+            const questionOptions = ['Growth opportunity', 'Team culture', 'Compensation']
+            const optBtnRadius = config.buttons.shape === 'pill' ? '9999px' : config.buttons.shape === 'square' ? '3px' : '8px'
+
+            const renderOptions = (dark: boolean) => (
+              <>
+                <p style={{ fontSize: '11px', color: dark ? '#fff' : config.colors.primary, fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Sample Step
+                </p>
+                <p style={{ fontSize: '12px', color: dark ? '#fff' : '#1f2937', fontWeight: 500, marginBottom: '10px' }}>
+                  What are your expectations?
+                </p>
+                {questionOptions.map((opt, i) => (
+                  <button
+                    key={i}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '6px 10px', marginBottom: '5px', fontSize: '11px',
+                      borderRadius: optBtnRadius,
+                      border: dark ? '1px solid rgba(255,255,255,0.3)' : `1.5px solid ${i === 0 ? config.colors.primary : '#e5e7eb'}`,
+                      backgroundColor: dark ? 'transparent' : (i === 0 ? `${config.colors.primary}10` : 'white'),
+                      color: dark ? '#fff' : (i === 0 ? config.colors.primary : '#374151'),
+                      fontWeight: i === 0 ? 500 : 400, cursor: 'pointer',
+                    }}
+                  >{opt}</button>
+                ))}
+              </>
+            )
+
+            return (
+            <div className={`relative ${isMobile ? 'h-[500px]' : 'h-[420px]'} ${!useVerticalLayout && !useOverlay ? 'flex' : 'flex flex-col'}`}>
               {/* Video area */}
-              <div className="flex-1 flex items-center justify-center p-4">
+              <div className={`flex items-center justify-center p-4 ${
+                useVerticalLayout ? 'flex-1' : 'flex-1'
+              } ${
+                !useVerticalLayout && config.layout.videoPosition === 'center' ? 'mx-auto' :
+                !useVerticalLayout && config.layout.videoPosition === 'right' ? 'order-2' : ''
+              }`}>
                 <div className={`bg-black/40 rounded-lg flex items-center justify-center ${
-                  config.layout.videoAspect === 'vertical' ? 'w-[140px] aspect-[9/16]' :
-                  config.layout.videoAspect === 'square' ? 'w-[200px] aspect-square' :
-                  'w-full max-w-[280px] aspect-video'
+                  config.layout.videoAspect === 'vertical' ? (isMobile ? 'w-[120px]' : 'w-[140px]') + ' aspect-[9/16]' :
+                  config.layout.videoAspect === 'square' ? (isMobile ? 'w-[160px]' : 'w-[200px]') + ' aspect-square' :
+                  'w-full ' + (isMobile ? 'max-w-[240px]' : 'max-w-[280px]') + ' aspect-video'
                 }`}>
-                  <svg className="w-12 h-12 text-white/40" fill="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-10 h-10 text-white/40" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </div>
               </div>
-              {/* Questions — sidebar on desktop, overlay on mobile */}
-              {config.layout.questionStyle === 'sidebar' && previewDevice === 'desktop' ? (
-                <div className="w-[180px] bg-white/95 p-4 flex flex-col justify-center">
-                  <p style={{ fontSize: '11px', color: config.colors.primary, fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Sample Step
-                  </p>
-                  <p style={{ fontSize: '13px', color: '#1f2937', fontWeight: 500, marginBottom: '12px' }}>
-                    What are your expectations?
-                  </p>
-                  {['Growth opportunity', 'Team culture', 'Compensation'].map((opt, i) => (
-                    <button
-                      key={i}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '6px 10px',
-                        marginBottom: '6px',
-                        fontSize: '11px',
-                        borderRadius: config.buttons.shape === 'pill' ? '9999px' : config.buttons.shape === 'square' ? '3px' : '8px',
-                        border: `1.5px solid ${i === 0 ? config.colors.primary : '#e5e7eb'}`,
-                        backgroundColor: i === 0 ? `${config.colors.primary}10` : 'white',
-                        color: i === 0 ? config.colors.primary : '#374151',
-                        fontWeight: i === 0 ? 500 : 400,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {opt}
-                    </button>
-                  ))}
+
+              {/* Questions panel */}
+              {useOverlay ? (
+                <div className="absolute bottom-0 left-0 right-0 p-3" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.85))' }}>
+                  {renderOptions(true)}
                 </div>
-              ) : (config.layout.questionStyle === 'overlay' || previewDevice === 'mobile') ? (
-                <div className="absolute bottom-0 left-0 right-0 p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.8))' }}>
-                  <p style={{ fontSize: '12px', color: '#fff', fontWeight: 500, marginBottom: '8px' }}>What are your expectations?</p>
-                  {['Growth opportunity', 'Team culture'].map((opt, i) => (
-                    <button key={i} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', marginBottom: '4px', fontSize: '11px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', backgroundColor: 'transparent', cursor: 'pointer' }}>{opt}</button>
-                  ))}
+              ) : isSidebar && !isMobile ? (
+                <div className={`w-[170px] bg-white/95 p-3 flex flex-col justify-center ${
+                  config.layout.videoPosition === 'right' ? 'order-1' : ''
+                }`}>
+                  {renderOptions(false)}
                 </div>
               ) : (
-                <div className="absolute bottom-0 left-0 right-0 bg-white p-4">
-                  <p style={{ fontSize: '12px', color: '#1f2937', fontWeight: 500, marginBottom: '8px' }}>What are your expectations?</p>
-                  {['Growth opportunity', 'Team culture'].map((opt, i) => (
-                    <button key={i} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', marginBottom: '4px', fontSize: '11px', borderRadius: '8px', border: '1px solid #e5e7eb', color: '#374151', backgroundColor: 'white', cursor: 'pointer' }}>{opt}</button>
-                  ))}
+                /* Below */
+                <div className="bg-white/95 px-4 py-3 flex-shrink-0">
+                  <div className="max-w-[280px] mx-auto">
+                    {renderOptions(false)}
+                  </div>
                 </div>
               )}
             </div>
-          )}
+            )
+          })()}
 
           {/* End screen */}
           {previewScreen === 'end' && (
