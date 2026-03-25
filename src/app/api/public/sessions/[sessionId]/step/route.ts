@@ -25,9 +25,8 @@ export async function GET(
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   }
 
-  if (!session.flow.isPublished) {
-    return NextResponse.json({ error: 'Flow not available' }, { status: 404 })
-  }
+  // Allow access if flow is published OR if this is a preview session (already authenticated at creation)
+  // Session creation already validates ownership for unpublished flows
 
   // Session is finished
   if (session.finishedAt) {

@@ -37,10 +37,6 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    if (!session.flow.isPublished) {
-      return NextResponse.json({ error: 'Flow not available' }, { status: 404 })
-    }
-
     if (session.finishedAt) {
       return NextResponse.json({ error: 'Session already finished' }, { status: 400 })
     }
