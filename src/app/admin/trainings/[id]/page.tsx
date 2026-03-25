@@ -12,6 +12,36 @@ interface Quiz { id: string; title: string; requiredPassing: boolean; passingGra
 interface Section { id: string; title: string; sortOrder: number; contents: Content[]; quiz: Quiz | null }
 interface Training { id: string; title: string; slug: string; description: string | null; coverImage: string | null; isPublished: boolean; timeLimit: Record<string, unknown> | null; pricing: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
 
+function VideoUploadButton({ onUploaded }: { onUploaded: (video: Video) => void }) {
+  const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('video/')) return
+    setUploading(true)
+    setProgress(0)
+    try {
+      const result = await uploadVideoFile(file, (p) => setProgress(p))
+      if (result.id) {
+        onUploaded({ id: result.id!, filename: result.filename, url: result.url, displayName: null })
+      }
+    } catch {}
+    setUploading(false)
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  return (
+    <label className={`px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors whitespace-nowrap ${
+      uploading ? 'bg-gray-100 text-gray-400 cursor-wait' : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+    }`}>
+      {uploading ? `${progress}%` : 'Upload'}
+      <input ref={inputRef} type="file" accept="video/*" onChange={handleUpload} disabled={uploading} className="hidden" />
+    </label>
+  )
+}
+
 export default function TrainingEditorPage() {
   const params = useParams()
   const router = useRouter()
@@ -274,16 +304,24 @@ export default function TrainingEditorPage() {
 
                     {content.type === 'video' ? (
                       <div className="space-y-2">
-                        <select
-                          value={content.videoId || ''}
-                          onChange={(e) => updateContent(currentSection.id, content.id, { videoId: e.target.value || null })}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-                        >
-                          <option value="">Select video...</option>
-                          {videos.map(v => (
-                            <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>
-                          ))}
-                        </select>
+                        <div className="flex gap-2">
+                          <select
+                            value={content.videoId || ''}
+                            onChange={(e) => updateContent(currentSection.id, content.id, { videoId: e.target.value || null })}
+                            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                          >
+                            <option value="">Select video...</option>
+                            {videos.map(v => (
+                              <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>
+                            ))}
+                          </select>
+                          <VideoUploadButton
+                            onUploaded={(video) => {
+                              setVideos(prev => [video, ...prev])
+                              updateContent(currentSection.id, content.id, { videoId: video.id })
+                            }}
+                          />
+                        </div>
                         <div className="flex gap-4">
                           <label className="flex items-center gap-2 text-xs text-gray-600">
                             <input type="checkbox" checked={content.requiredWatch} onChange={(e) => updateContent(currentSection.id, content.id, { requiredWatch: e.target.checked })} />
