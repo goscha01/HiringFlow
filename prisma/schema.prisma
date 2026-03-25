@@ -29,6 +29,7 @@ model Video {
   sizeBytes       Int        @map("size_bytes")
   durationSeconds Float?     @map("duration_seconds")
   transcript      String?
+  segments        Json?
   summary         String?
   bulletPoints    String[]   @default([]) @map("bullet_points")
   displayName     String?    @map("display_name")
@@ -67,6 +68,8 @@ model FlowStep {
   questionType    String                @default("single") @map("question_type")
   formEnabled     Boolean               @default(false) @map("form_enabled")
   formConfig      Json?                 @map("form_config")
+  captionsEnabled Boolean               @default(false) @map("captions_enabled")
+  captionStyle    Json?                 @map("caption_style")
   createdAt       DateTime              @default(now()) @map("created_at")
   options         StepOption[]          @relation("StepOptions")
   incomingOptions StepOption[]          @relation("NextStep")

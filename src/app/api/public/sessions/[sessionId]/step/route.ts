@@ -47,6 +47,9 @@ export async function GET(
     questionText: step.questionText,
     stepType: step.stepType,
     questionType: step.questionType,
+    captionsEnabled: step.captionsEnabled,
+    captionStyle: step.captionStyle,
+    segments: step.captionsEnabled && step.video ? (step.video as any).segments || [] : [],
     options: step.options.map((o) => ({
       optionId: o.id,
       text: o.optionText,

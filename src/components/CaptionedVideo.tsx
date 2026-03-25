@@ -41,6 +41,9 @@ interface CaptionedVideoProps {
   captionStyle?: CaptionStyle
   onStyleChange?: (style: CaptionStyle) => void
   showStyleEditor?: boolean
+  autoPlay?: boolean
+  onEnded?: () => void
+  className?: string
 }
 
 export default function CaptionedVideo({
@@ -50,6 +53,9 @@ export default function CaptionedVideo({
   captionStyle = DEFAULT_CAPTION_STYLE,
   onStyleChange,
   showStyleEditor = false,
+  autoPlay = false,
+  onEnded,
+  className,
 }: CaptionedVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -71,13 +77,15 @@ export default function CaptionedVideo({
   return (
     <div className="relative">
       {/* Video */}
-      <div className="relative rounded-md overflow-hidden bg-black">
+      <div className={`relative rounded-md overflow-hidden bg-black ${className || ''}`}>
         <video
           ref={videoRef}
           src={src}
           className="w-full"
           controls
           preload="metadata"
+          autoPlay={autoPlay}
+          onEnded={onEnded}
         />
 
         {/* Caption overlay */}

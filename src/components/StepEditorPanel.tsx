@@ -4,6 +4,12 @@ import { useState, useRef } from 'react'
 import { uploadVideoFile, triggerVideoAnalysis } from '@/lib/upload-client'
 import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from './CaptionedVideo'
 
+interface Segment {
+  start: number
+  end: number
+  text: string
+}
+
 interface Video {
   id: string
   filename: string
@@ -12,6 +18,7 @@ interface Video {
   summary?: string | null
   bulletPoints?: string[]
   transcript?: string | null
+  segments?: Segment[] | null
 }
 
 interface Option {
@@ -44,6 +51,8 @@ interface Step {
   questionType: 'single' | 'multiselect' | 'button'
   formEnabled?: boolean
   formConfig?: FormConfig | null
+  captionsEnabled?: boolean
+  captionStyle?: CaptionStyle | null
   options: Option[]
 }
 
@@ -87,11 +96,26 @@ export default function StepEditorPanel({
   const [activeTab, setActiveTab] = useState<'quiz' | 'form'>('quiz')
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
-  const [captionsEnabled, setCaptionsEnabled] = useState(false)
-  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_CAPTION_STYLE)
+  const [captionsEnabled, setCaptionsEnabledState] = useState(step.captionsEnabled || false)
+  const [captionStyle, setCaptionStyleState] = useState<CaptionStyle>(
+    (step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE
+  )
+
+  // Load segments from video record on mount
+  const videoSegments = step.video?.segments as Segment[] | null | undefined
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const formConfig: FormConfig = (step.formConfig as FormConfig) || DEFAULT_FORM_CONFIG
+
+  // Persist caption settings to step
+  const setCaptionsEnabled = (enabled: boolean) => {
+    setCaptionsEnabledState(enabled)
+    onUpdateStep(step.id, { captionsEnabled: enabled } as Partial<Step>)
+  }
+  const setCaptionStyle = (style: CaptionStyle) => {
+    setCaptionStyleState(style)
+    onUpdateStep(step.id, { captionStyle: style } as Partial<Step>)
+  }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -298,7 +322,7 @@ export default function StepEditorPanel({
             <div className="mt-2">
               <CaptionedVideo
                 src={step.video.url}
-                segments={transcript?.segments || []}
+                segments={transcript?.segments || videoSegments || []}
                 captionsEnabled={captionsEnabled}
                 captionStyle={captionStyle}
                 onStyleChange={setCaptionStyle}
@@ -306,7 +330,7 @@ export default function StepEditorPanel({
               />
 
               {/* Captions toggle */}
-              {transcript && transcript.segments.length > 0 && (
+              {((transcript && transcript.segments.length > 0) || (videoSegments && videoSegments.length > 0)) && (
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     onClick={() => setCaptionsEnabled(!captionsEnabled)}

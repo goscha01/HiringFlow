@@ -72,6 +72,7 @@ Respond in JSON format:
       where: { id: video.id },
       data: {
         transcript,
+        segments: segments as any,
         displayName: analysisResult.displayName || null,
         summary: analysisResult.summary || null,
         bulletPoints: analysisResult.bulletPoints || [],

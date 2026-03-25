@@ -3,11 +3,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import VideoRecorder from '@/components/VideoRecorder'
+import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from '@/components/CaptionedVideo'
 
 interface StepOption {
   optionId: string
   text: string
   nextStepId: string | null
+}
+
+interface Segment {
+  start: number
+  end: number
+  text: string
 }
 
 interface StepData {
@@ -17,6 +24,9 @@ interface StepData {
   questionText: string | null
   stepType: 'question' | 'submission'
   questionType: 'single' | 'multiselect' | 'button'
+  captionsEnabled?: boolean
+  captionStyle?: CaptionStyle | null
+  segments?: Segment[]
   options: StepOption[]
   finished?: boolean
 }
@@ -34,7 +44,7 @@ export default function SessionPlayerPage() {
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
   const [textMessage, setTextMessage] = useState('')
   const [recordedVideo, setRecordedVideo] = useState<Blob | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+
 
   useEffect(() => {
     fetchStep()
@@ -164,14 +174,17 @@ export default function SessionPlayerPage() {
       {/* Video Section */}
       <div className="flex-1 flex items-center justify-center p-4">
         {step.videoUrl ? (
-          <video
-            ref={videoRef}
-            src={step.videoUrl}
-            className="max-w-full max-h-[60vh] rounded-lg shadow-2xl"
-            controls
-            autoPlay
-            onEnded={handleVideoEnd}
-          />
+          <div className="w-full max-w-2xl">
+            <CaptionedVideo
+              src={step.videoUrl}
+              segments={step.segments || []}
+              captionsEnabled={step.captionsEnabled || false}
+              captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
+              autoPlay
+              onEnded={handleVideoEnd}
+              className="rounded-lg shadow-2xl"
+            />
+          </div>
         ) : (
           <div className="text-white text-center">
             <h2 className="text-2xl font-semibold mb-4">{step.title}</h2>

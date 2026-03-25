@@ -34,7 +34,7 @@ export async function POST(
     // Save transcript to video record
     await prisma.video.update({
       where: { id: video.id },
-      data: { transcript },
+      data: { transcript, segments: segments as any },
     })
 
     return NextResponse.json({ text: transcript, segments })
