@@ -6,6 +6,8 @@ import Link from 'next/link'
 import FlowSchemaView from '@/components/FlowSchemaView'
 import StepEditorPanel from '@/components/StepEditorPanel'
 import StepPreviewModal from '@/components/StepPreviewModal'
+import BrandingEditor from '@/components/BrandingEditor'
+import { type BrandingConfig } from '@/lib/branding'
 
 interface Video {
   id: string
@@ -38,6 +40,7 @@ interface Flow {
   isPublished: boolean
   startMessage: string
   endMessage: string
+  branding: Record<string, unknown> | null
   steps: Step[]
 }
 
@@ -51,7 +54,7 @@ export default function FlowBuilderPage() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [viewMode, setViewMode] = useState<'editor' | 'schema'>(
+  const [viewMode, setViewMode] = useState<'editor' | 'schema' | 'branding'>(
     searchParams.get('view') === 'schema' ? 'schema' : 'editor'
   )
   const [popupStepId, setPopupStepId] = useState<string | null>(null)
@@ -469,6 +472,16 @@ export default function FlowBuilderPage() {
             >
               Schema
             </button>
+            <button
+              onClick={() => setViewMode('branding')}
+              className={`px-3 py-1.5 text-sm ${
+                viewMode === 'branding'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Branding
+            </button>
           </div>
           <button
             onClick={() => window.open(`/f/${flow.slug}?preview=true`, '_blank')}
@@ -536,7 +549,23 @@ export default function FlowBuilderPage() {
         </div>
       </div>
 
-      {viewMode === 'schema' ? (
+      {viewMode === 'branding' ? (
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto">
+          <BrandingEditor
+            branding={flow.branding as Partial<BrandingConfig> | null}
+            onUpdate={(branding) => {
+              fetch(`/api/flows/${flow.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ branding }),
+              }).then(() => fetchFlow())
+            }}
+            flowName={flow.name}
+            startMessage={flow.startMessage}
+            endMessage={flow.endMessage}
+          />
+        </div>
+      ) : viewMode === 'schema' ? (
         <div className="flex-1 min-h-0 relative">
           <FlowSchemaView
             steps={flow.steps}

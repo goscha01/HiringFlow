@@ -48,6 +48,7 @@ model Flow {
   isPublished  Boolean    @default(false) @map("is_published")
   startMessage String     @default("Welcome to the video interview") @map("start_message")
   endMessage   String     @default("Thank you for your participation!") @map("end_message")
+  branding     Json?
   createdAt    DateTime   @default(now()) @map("created_at")
   steps        FlowStep[]
   sessions     Session[]

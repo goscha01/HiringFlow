@@ -79,7 +79,7 @@ export async function PATCH(
 
   try {
     const body = await request.json()
-    const { name, isPublished, startMessage, endMessage } = body
+    const { name, isPublished, startMessage, endMessage, branding } = body
 
     const updated = await prisma.flow.update({
       where: { id: params.id },
@@ -88,6 +88,7 @@ export async function PATCH(
         ...(isPublished !== undefined && { isPublished }),
         ...(startMessage !== undefined && { startMessage }),
         ...(endMessage !== undefined && { endMessage }),
+        ...(branding !== undefined && { branding }),
       },
     })
 
