@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { title, description, timeLimit, pricing } = body
+  const { title, description, timeLimit, pricing, coverImage } = body
 
   const training = await prisma.training.create({
     data: {
@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
       title: title || 'Untitled Training',
       slug: nanoid(10),
       description,
+      coverImage: coverImage || null,
       timeLimit: timeLimit || { type: 'unlimited' },
       pricing: pricing || { type: 'free' },
     },

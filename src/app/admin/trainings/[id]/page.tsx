@@ -10,7 +10,7 @@ interface Content { id: string; type: string; sortOrder: number; videoId: string
 interface Question { id: string; questionText: string; questionType: string; sortOrder: number; options: Array<{ text: string; isCorrect: boolean }> }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: Question[] }
 interface Section { id: string; title: string; sortOrder: number; contents: Content[]; quiz: Quiz | null }
-interface Training { id: string; title: string; slug: string; description: string | null; isPublished: boolean; timeLimit: Record<string, unknown> | null; pricing: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
+interface Training { id: string; title: string; slug: string; description: string | null; coverImage: string | null; isPublished: boolean; timeLimit: Record<string, unknown> | null; pricing: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
 
 export default function TrainingEditorPage() {
   const params = useParams()
@@ -22,6 +22,25 @@ export default function TrainingEditorPage() {
   const [loading, setLoading] = useState(true)
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [editingQuiz, setEditingQuiz] = useState<string | null>(null)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const coverRef = useRef<HTMLInputElement>(null)
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingCover(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
+      if (res.ok) {
+        const { url } = await res.json()
+        updateTraining({ coverImage: url } as Partial<Training>)
+      }
+    } catch {}
+    setUploadingCover(false)
+    if (coverRef.current) coverRef.current.value = ''
+  }
 
   useEffect(() => {
     Promise.all([
@@ -138,6 +157,34 @@ export default function TrainingEditorPage() {
             {training.isPublished ? 'Published' : 'Publish'}
           </button>
         </div>
+      </div>
+
+      {/* Cover image */}
+      <div className="mb-6">
+        {training.coverImage ? (
+          <div className="relative rounded-xl overflow-hidden">
+            <img src={training.coverImage} alt="Cover" className="w-full h-48 object-cover" />
+            <div className="absolute top-3 right-3 flex gap-2">
+              <label className="px-3 py-1.5 text-xs bg-white/90 rounded-lg cursor-pointer hover:bg-white shadow">
+                Change
+                <input ref={coverRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
+              </label>
+              <button onClick={() => updateTraining({ coverImage: null } as Partial<Training>)} className="px-3 py-1.5 text-xs bg-red-500/90 text-white rounded-lg hover:bg-red-600 shadow">
+                Remove
+              </button>
+            </div>
+          </div>
+        ) : (
+          <label className="block w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 transition-colors flex items-center justify-center">
+            <div className="text-center">
+              <svg className="w-10 h-10 mx-auto text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-sm text-gray-400">{uploadingCover ? 'Uploading...' : 'Add cover image'}</span>
+            </div>
+            <input ref={coverRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" disabled={uploadingCover} />
+          </label>
+        )}
       </div>
 
       {/* Progress steps */}

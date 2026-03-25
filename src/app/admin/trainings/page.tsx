@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 
 interface Training {
@@ -8,6 +8,7 @@ interface Training {
   title: string
   slug: string
   description: string | null
+  coverImage: string | null
   isPublished: boolean
   timeLimit: { type: string; value?: number; date?: string } | null
   pricing: { type: string; price?: number; currency?: string } | null
@@ -23,7 +24,27 @@ export default function TrainingsPage() {
   const [newTitle, setNewTitle] = useState('')
   const [newTimeLimit, setNewTimeLimit] = useState<{ type: string; value?: number }>({ type: 'unlimited' })
   const [newPricing, setNewPricing] = useState<{ type: string; price?: number }>({ type: 'free' })
+  const [newCoverImage, setNewCoverImage] = useState<string | null>(null)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const coverInputRef = useRef<HTMLInputElement>(null)
   const [creating, setCreating] = useState(false)
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingCover(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
+      if (res.ok) {
+        const { url } = await res.json()
+        setNewCoverImage(url)
+      }
+    } catch {}
+    setUploadingCover(false)
+    if (coverInputRef.current) coverInputRef.current.value = ''
+  }
 
   useEffect(() => { fetchTrainings() }, [])
 
@@ -39,13 +60,14 @@ export default function TrainingsPage() {
     const res = await fetch('/api/trainings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTitle, timeLimit: newTimeLimit, pricing: newPricing }),
+      body: JSON.stringify({ title: newTitle, timeLimit: newTimeLimit, pricing: newPricing, coverImage: newCoverImage }),
     })
     if (res.ok) {
       setShowCreate(false)
       setNewTitle('')
       setNewTimeLimit({ type: 'unlimited' })
       setNewPricing({ type: 'free' })
+      setNewCoverImage(null)
       fetchTrainings()
     }
     setCreating(false)
@@ -88,6 +110,26 @@ export default function TrainingsPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cover Image</label>
+                {newCoverImage ? (
+                  <div className="relative">
+                    <img src={newCoverImage} alt="Cover" className="w-full h-32 object-cover rounded-lg" />
+                    <button onClick={() => setNewCoverImage(null)} className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full text-xs flex items-center justify-center hover:bg-black/70">&times;</button>
+                  </div>
+                ) : (
+                  <label className="block w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors flex items-center justify-center">
+                    <div className="text-center">
+                      <svg className="w-8 h-8 mx-auto text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-xs text-gray-500">{uploadingCover ? 'Uploading...' : 'Upload cover image'}</span>
+                    </div>
+                    <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" disabled={uploadingCover} />
+                  </label>
+                )}
               </div>
 
               <div>
@@ -191,6 +233,11 @@ export default function TrainingsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {trainings.map((t) => (
             <div key={t.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+              {t.coverImage && (
+                <Link href={`/admin/trainings/${t.id}`}>
+                  <img src={t.coverImage} alt={t.title} className="w-full h-36 object-cover" />
+                </Link>
+              )}
               <Link href={`/admin/trainings/${t.id}`} className="block p-5">
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="font-semibold text-gray-900 text-sm">{t.title}</h3>
