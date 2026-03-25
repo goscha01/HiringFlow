@@ -15,6 +15,7 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   videos       Video[]
   flows        Flow[]
+  trainings    Training[]
 
   @@map("users")
 }
@@ -33,8 +34,9 @@ model Video {
   summary         String?
   bulletPoints    String[]   @default([]) @map("bullet_points")
   displayName     String?    @map("display_name")
-  createdAt       DateTime   @default(now()) @map("created_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
   steps           FlowStep[]
+  trainingContents TrainingContent[]
 
   @@map("videos")
 }
@@ -139,4 +141,97 @@ model CandidateSubmission {
 
   @@unique([sessionId, stepId])
   @@map("candidate_submissions")
+}
+
+// ============ TRAININGS ============
+
+model Training {
+  id            String            @id @default(uuid())
+  ownerUserId   String            @map("owner_user_id")
+  owner         User              @relation(fields: [ownerUserId], references: [id])
+  title         String
+  slug          String            @unique
+  description   String?
+  coverImage    String?           @map("cover_image")
+  timeLimit     Json?             @map("time_limit") // { type: 'unlimited' | 'days' | 'calendar', value?: number, date?: string }
+  pricing       Json?             // { type: 'free' | 'paid', price?: number, currency?: string }
+  passingGrade  Int               @default(80) @map("passing_grade")
+  isPublished   Boolean           @default(false) @map("is_published")
+  branding      Json?
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  sections      TrainingSection[]
+  enrollments   TrainingEnrollment[]
+
+  @@map("trainings")
+}
+
+model TrainingSection {
+  id          String             @id @default(uuid())
+  trainingId  String             @map("training_id")
+  training    Training           @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  title       String
+  sortOrder   Int                @default(0) @map("sort_order")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  contents    TrainingContent[]
+  quiz        TrainingQuiz?
+
+  @@map("training_sections")
+}
+
+model TrainingContent {
+  id          String          @id @default(uuid())
+  sectionId   String          @map("section_id")
+  section     TrainingSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  type        String          // 'video' | 'text'
+  sortOrder   Int             @default(0) @map("sort_order")
+  // Video fields
+  videoId     String?         @map("video_id")
+  video       Video?          @relation(fields: [videoId], references: [id])
+  requiredWatch Boolean       @default(true) @map("required_watch")
+  autoplayNext  Boolean       @default(true) @map("autoplay_next")
+  // Text fields
+  textContent String?         @map("text_content")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@map("training_contents")
+}
+
+model TrainingQuiz {
+  id              String             @id @default(uuid())
+  sectionId       String             @unique @map("section_id")
+  section         TrainingSection    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  title           String
+  requiredPassing Boolean            @default(true) @map("required_passing")
+  passingGrade    Int                @default(80) @map("passing_grade")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  questions       TrainingQuestion[]
+
+  @@map("training_quizzes")
+}
+
+model TrainingQuestion {
+  id           String       @id @default(uuid())
+  quizId       String       @map("quiz_id")
+  quiz         TrainingQuiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionText String       @map("question_text")
+  questionType String       @default("single") @map("question_type") // 'single' | 'multiselect'
+  sortOrder    Int          @default(0) @map("sort_order")
+  options      Json         // [{ text: string, isCorrect: boolean }]
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@map("training_questions")
+}
+
+model TrainingEnrollment {
+  id          String    @id @default(uuid())
+  trainingId  String    @map("training_id")
+  training    Training  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  userName    String?   @map("user_name")
+  userEmail   String?   @map("user_email")
+  progress    Json?     // { completedSections: string[], quizScores: { sectionId: score }[] }
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@map("training_enrollments")
 }
