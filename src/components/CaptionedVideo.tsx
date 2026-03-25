@@ -67,6 +67,7 @@ export default function CaptionedVideo({
   const captionRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
+  const [activeColorTarget, setActiveColorTarget] = useState<'text' | 'bg' | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null)
 
@@ -236,96 +237,217 @@ export default function CaptionedVideo({
             Caption Style
           </button>
 
-          {showSettings && onStyleChange && (
+          {showSettings && onStyleChange && (() => {
+            const COLOR_PALETTE = [
+              { color: '#ffffff', label: 'White' },
+              { color: '#000000', label: 'Black' },
+              { color: '#f3f4f6', label: 'Light Gray' },
+              { color: '#6b7280', label: 'Gray' },
+              { color: '#374151', label: 'Dark Gray' },
+              { color: '#ef4444', label: 'Red' },
+              { color: '#f97316', label: 'Orange' },
+              { color: '#eab308', label: 'Yellow' },
+              { color: '#22c55e', label: 'Green' },
+              { color: '#14b8a6', label: 'Teal' },
+              { color: '#3b82f6', label: 'Blue' },
+              { color: '#8b5cf6', label: 'Purple' },
+              { color: '#ec4899', label: 'Pink' },
+              { color: '#a855f7', label: 'Violet' },
+              { color: 'transparent', label: 'None' },
+            ]
+            const OPACITY_OPTIONS = [
+              { value: 1, label: '100%' },
+              { value: 0.9, label: '90%' },
+              { value: 0.75, label: '75%' },
+              { value: 0.5, label: '50%' },
+              { value: 0.3, label: '30%' },
+            ]
+
+            const applyColor = (hex: string, target: 'text' | 'bg') => {
+              if (target === 'text') {
+                onStyleChange({ ...captionStyle, color: hex })
+              } else {
+                if (hex === 'transparent') {
+                  onStyleChange({ ...captionStyle, backgroundColor: 'transparent' })
+                } else {
+                  // Parse current opacity or default to 0.75
+                  const match = captionStyle.backgroundColor.match(/[\d.]+\)$/)
+                  const opacity = match ? parseFloat(match[0]) : 0.75
+                  const r = parseInt(hex.slice(1, 3), 16)
+                  const g = parseInt(hex.slice(3, 5), 16)
+                  const b = parseInt(hex.slice(5, 7), 16)
+                  onStyleChange({ ...captionStyle, backgroundColor: `rgba(${r}, ${g}, ${b}, ${opacity})` })
+                }
+              }
+            }
+
+            const applyOpacity = (opacity: number) => {
+              const match = captionStyle.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+              if (match) {
+                onStyleChange({ ...captionStyle, backgroundColor: `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${opacity})` })
+              }
+            }
+
+            const getActiveHex = (target: 'text' | 'bg') => {
+              if (target === 'text') return captionStyle.color
+              if (captionStyle.backgroundColor === 'transparent') return 'transparent'
+              const match = captionStyle.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
+              if (match) {
+                const hex = '#' + [match[1], match[2], match[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('')
+                return hex
+              }
+              return captionStyle.backgroundColor
+            }
+
+            const getCurrentOpacity = () => {
+              const match = captionStyle.backgroundColor.match(/([\d.]+)\)$/)
+              return match ? parseFloat(match[1]) : 1
+            }
+
+            return (
             <div className="mt-2 p-3 bg-gray-50 rounded-md border border-gray-200 space-y-3">
-              {/* Font */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 w-20 flex-shrink-0">Font</label>
+              {/* Row 1: Font + Size */}
+              <div className="flex items-center gap-3">
                 <select
                   value={captionStyle.fontFamily}
                   onChange={(e) => onStyleChange({ ...captionStyle, fontFamily: e.target.value })}
-                  className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded"
+                  className="flex-1 text-xs px-2 py-1.5 border border-gray-300 rounded"
                 >
                   {FONT_OPTIONS.map((f) => (
                     <option key={f.value} value={f.value}>{f.label}</option>
                   ))}
                 </select>
-              </div>
-
-              {/* Size */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 w-20 flex-shrink-0">Size</label>
-                <input
-                  type="range"
-                  min={10}
-                  max={32}
-                  value={captionStyle.fontSize}
-                  onChange={(e) => onStyleChange({ ...captionStyle, fontSize: Number(e.target.value) })}
-                  className="flex-1"
-                />
-                <span className="text-xs text-gray-500 w-8">{captionStyle.fontSize}px</span>
-              </div>
-
-              {/* Text Color */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 w-20 flex-shrink-0">Text Color</label>
-                <input
-                  type="color"
-                  value={captionStyle.color}
-                  onChange={(e) => onStyleChange({ ...captionStyle, color: e.target.value })}
-                  className="w-8 h-6 rounded border border-gray-300 cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={captionStyle.color}
-                  onChange={(e) => onStyleChange({ ...captionStyle, color: e.target.value })}
-                  className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded"
-                />
-              </div>
-
-              {/* Background Color Palette */}
-              <div>
-                <label className="text-xs text-gray-600 mb-1.5 block">Background</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { color: 'rgba(0, 0, 0, 0.9)', label: 'Black 90%' },
-                    { color: 'rgba(0, 0, 0, 0.75)', label: 'Black 75%' },
-                    { color: 'rgba(0, 0, 0, 0.5)', label: 'Black 50%' },
-                    { color: 'rgba(0, 0, 0, 0.3)', label: 'Black 30%' },
-                    { color: 'rgba(255, 255, 255, 0.9)', label: 'White 90%' },
-                    { color: 'rgba(255, 255, 255, 0.6)', label: 'White 60%' },
-                    { color: 'rgba(37, 99, 235, 0.8)', label: 'Blue' },
-                    { color: 'rgba(220, 38, 38, 0.8)', label: 'Red' },
-                    { color: 'rgba(22, 163, 74, 0.8)', label: 'Green' },
-                    { color: 'rgba(234, 179, 8, 0.8)', label: 'Yellow' },
-                    { color: 'rgba(147, 51, 234, 0.8)', label: 'Purple' },
-                    { color: 'rgba(249, 115, 22, 0.8)', label: 'Orange' },
-                    { color: 'rgba(236, 72, 153, 0.8)', label: 'Pink' },
-                    { color: 'rgba(20, 184, 166, 0.8)', label: 'Teal' },
-                    { color: 'transparent', label: 'None' },
-                  ].map(({ color, label }) => (
-                    <button
-                      key={color}
-                      title={label}
-                      onClick={() => onStyleChange({ ...captionStyle, backgroundColor: color })}
-                      className={`w-6 h-6 rounded border-2 transition-all ${
-                        captionStyle.backgroundColor === color
-                          ? 'border-blue-500 scale-110 ring-1 ring-blue-300'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                      style={{
-                        background: color === 'transparent'
-                          ? 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%) 50% / 8px 8px'
-                          : color,
-                      }}
-                    />
-                  ))}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onStyleChange({ ...captionStyle, fontSize: Math.max(8, captionStyle.fontSize - 1) })}
+                    className="w-6 h-6 flex items-center justify-center text-xs border border-gray-300 rounded hover:bg-gray-100"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={8}
+                    max={48}
+                    value={captionStyle.fontSize}
+                    onChange={(e) => onStyleChange({ ...captionStyle, fontSize: Math.max(8, Math.min(48, Number(e.target.value) || 16)) })}
+                    className="w-12 text-center text-xs px-1 py-1.5 border border-gray-300 rounded"
+                  />
+                  <button
+                    onClick={() => onStyleChange({ ...captionStyle, fontSize: Math.min(48, captionStyle.fontSize + 1) })}
+                    className="w-6 h-6 flex items-center justify-center text-xs border border-gray-300 rounded hover:bg-gray-100"
+                  >
+                    +
+                  </button>
                 </div>
               </div>
 
+              {/* Row 2: Font Color & BG Color toggle buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setActiveColorTarget(activeColorTarget === 'text' ? null : 'text')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${
+                    activeColorTarget === 'text'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span
+                    className="w-4 h-4 rounded border border-gray-400"
+                    style={{ backgroundColor: captionStyle.color }}
+                  />
+                  Font Color
+                </button>
+                <button
+                  onClick={() => setActiveColorTarget(activeColorTarget === 'bg' ? null : 'bg')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${
+                    activeColorTarget === 'bg'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span
+                    className="w-4 h-4 rounded border border-gray-400"
+                    style={{
+                      background: captionStyle.backgroundColor === 'transparent'
+                        ? 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%) 50% / 6px 6px'
+                        : captionStyle.backgroundColor,
+                    }}
+                  />
+                  Background
+                </button>
+              </div>
+
+              {/* Shared color palette */}
+              {activeColorTarget && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {COLOR_PALETTE.map(({ color, label }) => (
+                      <button
+                        key={color}
+                        title={label}
+                        onClick={() => applyColor(color, activeColorTarget)}
+                        className={`w-6 h-6 rounded border-2 transition-all ${
+                          getActiveHex(activeColorTarget) === color
+                            ? 'border-blue-500 scale-110 ring-1 ring-blue-300'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                        style={{
+                          background: color === 'transparent'
+                            ? 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%) 50% / 8px 8px'
+                            : color,
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Opacity — only for background */}
+                  {activeColorTarget === 'bg' && captionStyle.backgroundColor !== 'transparent' && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-gray-500">Opacity:</span>
+                      {OPACITY_OPTIONS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          onClick={() => applyOpacity(value)}
+                          className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            Math.abs(getCurrentOpacity() - value) < 0.05
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Custom hex input */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={getActiveHex(activeColorTarget) === 'transparent' ? '#000000' : getActiveHex(activeColorTarget)}
+                      onChange={(e) => applyColor(e.target.value, activeColorTarget)}
+                      className="w-6 h-6 rounded cursor-pointer border border-gray-300"
+                    />
+                    <input
+                      type="text"
+                      value={activeColorTarget === 'text' ? captionStyle.color : captionStyle.backgroundColor}
+                      onChange={(e) => {
+                        if (activeColorTarget === 'text') {
+                          onStyleChange({ ...captionStyle, color: e.target.value })
+                        } else {
+                          onStyleChange({ ...captionStyle, backgroundColor: e.target.value })
+                        }
+                      }}
+                      className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded font-mono"
+                      placeholder="#hex or rgba(...)"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Position */}
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 w-20 flex-shrink-0">Position</label>
+                <label className="text-xs text-gray-600 flex-shrink-0">Position</label>
                 <div className="flex gap-1.5">
                   {(['top', 'bottom', 'custom'] as const).map((pos) => (
                     <button
@@ -341,10 +463,11 @@ export default function CaptionedVideo({
                 </div>
               </div>
               {captionStyle.position === 'custom' && (
-                <p className="text-[10px] text-gray-400 -mt-1">Drag the caption on the video to position it</p>
+                <p className="text-[10px] text-gray-400 -mt-1">Drag the caption on the video to reposition</p>
               )}
             </div>
-          )}
+            )
+          })()}
         </div>
       )}
     </div>
