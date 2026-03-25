@@ -330,23 +330,25 @@ export default function StepEditorPanel({
   const [colorTarget, setColorTarget] = useState<'text' | 'bg' | null>(null)
   const [generatingTitle, setGeneratingTitle] = useState(false)
   const handleGenerateTitle = async () => {
+    // If video already has a displayName from analysis, use it directly
+    if (step.video?.displayName) {
+      onUpdateStep(step.id, { title: step.video.displayName })
+      return
+    }
+
     setGeneratingTitle(true)
     try {
       const videoTranscript = transcript?.text || step.video?.transcript || ''
       const videoSummary = step.video?.summary || ''
       const bulletPoints = step.video?.bulletPoints?.join(', ') || ''
-      const res = await fetch('/api/ai/suggest-questions', {
+      const res = await fetch('/api/ai/generate-title', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: videoTranscript,
-          stepTitle: step.title,
-          flowContext: `Based on this video content, generate a short descriptive title (3-8 words) that summarizes what the video is about. The title should be like a section heading — descriptive and professional. Video summary: "${videoSummary}". Key points: ${bulletPoints}. Respond in JSON: {"question": "The Descriptive Title", "options": []}`,
-        }),
+        body: JSON.stringify({ transcript: videoTranscript, summary: videoSummary, bulletPoints }),
       })
       if (res.ok) {
         const data = await res.json()
-        if (data.question) onUpdateStep(step.id, { title: data.question })
+        if (data.title) onUpdateStep(step.id, { title: data.title })
       }
     } catch {}
     setGeneratingTitle(false)
