@@ -124,7 +124,7 @@ export default function StepEditorPanel({
             setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
             if (analysis.segments?.length > 0) setCaptionsEnabled(true)
             // Auto-set step title from video analysis
-            if (analysis.displayName && (!step.title || step.title === 'New Step')) {
+            if (analysis.displayName) {
               onUpdateStep(step.id, { title: analysis.displayName })
             }
             onVideoUploaded?.({
@@ -385,6 +385,10 @@ export default function StepEditorPanel({
                         (analysis) => {
                           setAnalyzing(false)
                           setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
+                          if (analysis.segments?.length > 0) setCaptionsEnabled(true)
+                          if (analysis.displayName) {
+                            onUpdateStep(step.id, { title: analysis.displayName })
+                          }
                           onVideoUploaded?.({
                             id: step.video!.id,
                             filename: step.video!.filename,
