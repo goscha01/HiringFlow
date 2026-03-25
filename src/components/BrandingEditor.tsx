@@ -45,6 +45,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   const [config, setConfig] = useState<BrandingConfig>(() => mergeBranding(rawBranding))
   const [activeSection, setActiveSection] = useState<string>('colors')
   const [previewScreen, setPreviewScreen] = useState<'start' | 'step' | 'end'>('start')
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop')
   const [uploading, setUploading] = useState(false)
   const [savedPalettes, setSavedPalettes] = useState<Array<{ name: string; primary: string; bg: string; text: string; secondaryText?: string; accent: string }>>(() => {
     if (typeof window === 'undefined') return []
@@ -790,8 +791,27 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
       {/* Right: Live Preview */}
       <div className="lg:w-1/2">
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs font-medium text-gray-500 uppercase">Preview</label>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-gray-500 uppercase">Preview</label>
+            {/* Device toggle */}
+            <div className="flex rounded-md border border-gray-300 overflow-hidden">
+              <button
+                onClick={() => setPreviewDevice('desktop')}
+                className={`px-2 py-1 ${previewDevice === 'desktop' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                title="Desktop"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" strokeWidth="1.5"/><path d="M8 21h8M12 17v4" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              </button>
+              <button
+                onClick={() => setPreviewDevice('mobile')}
+                className={`px-2 py-1 ${previewDevice === 'mobile' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                title="Mobile"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="3" strokeWidth="1.5"/><circle cx="12" cy="18" r="1" fill="currentColor"/></svg>
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             {/* Logo toggle for current screen */}
             {config.logo && (
@@ -824,13 +844,18 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
             </div>
           </div>
         </div>
+
+        {/* Preview frame */}
+        <div className={`flex justify-center ${previewDevice === 'mobile' ? 'py-4 bg-gray-100 rounded-lg' : ''}`}>
         <div
           ref={previewRef}
-          className="rounded-lg border border-gray-200 overflow-hidden shadow-lg relative"
+          className={`rounded-lg border border-gray-200 overflow-hidden shadow-lg relative transition-all ${
+            previewDevice === 'mobile' ? 'w-[280px] rounded-[24px] border-[6px] border-gray-800' : 'w-full'
+          }`}
           style={{
             background: getBackground(),
             fontFamily: config.typography.fontFamily,
-            minHeight: '420px',
+            minHeight: previewDevice === 'mobile' ? '500px' : '420px',
           }}
         >
           {/* Draggable logo overlay — absolute positioned */}
@@ -852,7 +877,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
           {/* Start screen */}
           {previewScreen === 'start' && (
-            <div className="flex flex-col items-center justify-center h-[420px] p-8 text-center">
+            <div className={`flex flex-col items-center justify-center ${previewDevice === 'mobile' ? 'h-[500px] p-5' : 'h-[420px] p-8'} text-center`}>
               <h1 style={{ color: config.colors.text, fontSize: headingSize, fontWeight: 600, marginBottom: '0.5rem' }}>
                 {flowName || 'Flow Name'}
               </h1>
@@ -867,7 +892,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
           {/* Video step screen */}
           {previewScreen === 'step' && (
-            <div className="flex h-[420px]">
+            <div className={`${previewDevice === 'mobile' ? 'relative h-[500px]' : 'flex h-[420px]'}`}>
               {/* Video area */}
               <div className="flex-1 flex items-center justify-center p-4">
                 <div className="w-full max-w-[280px] bg-black/40 rounded-lg aspect-video flex items-center justify-center">
@@ -876,8 +901,8 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                   </svg>
                 </div>
               </div>
-              {/* Questions sidebar */}
-              {config.layout.questionStyle === 'sidebar' ? (
+              {/* Questions — sidebar on desktop, overlay on mobile */}
+              {config.layout.questionStyle === 'sidebar' && previewDevice === 'desktop' ? (
                 <div className="w-[180px] bg-white/95 p-4 flex flex-col justify-center">
                   <p style={{ fontSize: '11px', color: config.colors.primary, fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Sample Step
@@ -907,7 +932,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                     </button>
                   ))}
                 </div>
-              ) : config.layout.questionStyle === 'overlay' ? (
+              ) : (config.layout.questionStyle === 'overlay' || previewDevice === 'mobile') ? (
                 <div className="absolute bottom-0 left-0 right-0 p-4" style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.8))' }}>
                   <p style={{ fontSize: '12px', color: '#fff', fontWeight: 500, marginBottom: '8px' }}>What are your expectations?</p>
                   {['Growth opportunity', 'Team culture'].map((opt, i) => (
@@ -927,7 +952,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
           {/* End screen */}
           {previewScreen === 'end' && (
-            <div className="flex flex-col items-center justify-center h-[420px] p-8 text-center">
+            <div className={`flex flex-col items-center justify-center ${previewDevice === 'mobile' ? 'h-[500px] p-5' : 'h-[420px] p-8'} text-center`}>
               <div className="mb-4">
                 <svg className="w-16 h-16 mx-auto" style={{ color: config.colors.accent }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -947,6 +972,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
             </div>
           )}
         </div>
+        </div>{/* close preview frame */}
       </div>
     </div>
   )
