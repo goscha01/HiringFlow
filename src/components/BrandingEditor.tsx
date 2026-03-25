@@ -692,6 +692,27 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               </div>
             </div>
             <div>
+              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Video Format</label>
+              <div className="flex gap-2">
+                {([
+                  { key: 'horizontal' as const, label: 'Horizontal', icon: '▬' },
+                  { key: 'vertical' as const, label: 'Vertical', icon: '▮' },
+                  { key: 'square' as const, label: 'Square', icon: '■' },
+                ]).map(({ key, label, icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => update({ layout: { ...config.layout, videoAspect: key } })}
+                    className={`flex-1 py-2 text-xs rounded border flex flex-col items-center gap-1 ${
+                      config.layout.videoAspect === key ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    <span className="text-lg leading-none">{icon}</span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
               <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Question Panel Style</label>
               <div className="flex gap-2">
                 {(['sidebar', 'overlay', 'below'] as const).map((s) => (
@@ -895,7 +916,11 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
             <div className={`${previewDevice === 'mobile' ? 'relative h-[500px]' : 'flex h-[420px]'}`}>
               {/* Video area */}
               <div className="flex-1 flex items-center justify-center p-4">
-                <div className="w-full max-w-[280px] bg-black/40 rounded-lg aspect-video flex items-center justify-center">
+                <div className={`bg-black/40 rounded-lg flex items-center justify-center ${
+                  config.layout.videoAspect === 'vertical' ? 'w-[140px] aspect-[9/16]' :
+                  config.layout.videoAspect === 'square' ? 'w-[200px] aspect-square' :
+                  'w-full max-w-[280px] aspect-video'
+                }`}>
                   <svg className="w-12 h-12 text-white/40" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z" />
                   </svg>

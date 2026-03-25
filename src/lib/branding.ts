@@ -47,6 +47,7 @@ export interface BrandingConfig {
   }
   layout: {
     videoPosition: 'left' | 'center' | 'right'
+    videoAspect: 'horizontal' | 'vertical' | 'square'
     questionStyle: 'sidebar' | 'overlay' | 'below'
     progressIndicator: 'bar' | 'steps' | 'none'
   }
@@ -90,6 +91,7 @@ export const DEFAULT_BRANDING: BrandingConfig = {
   endScreen: {},
   layout: {
     videoPosition: 'left',
+    videoAspect: 'horizontal',
     questionStyle: 'sidebar',
     progressIndicator: 'none',
   },
