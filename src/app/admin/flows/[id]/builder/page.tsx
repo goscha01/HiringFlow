@@ -544,6 +544,12 @@ export default function FlowBuilderPage() {
             endMessage={flow.endMessage}
             selectedStepId={popupStepId || selectedStepId}
             onStepClick={(stepId) => {
+              // Start/End nodes open editor immediately on click
+              if (stepId === '__start__' || stepId === '__end__') {
+                setPopupStepId(stepId)
+                setSelectedStepId(stepId)
+                return
+              }
               if (selectedStepId === stepId && !popupStepId) {
                 // Second click on already-selected node — open editor
                 setPopupStepId(stepId)

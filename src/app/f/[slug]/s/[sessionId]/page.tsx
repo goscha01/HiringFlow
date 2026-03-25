@@ -370,10 +370,10 @@ export default function SessionPlayerPage() {
     <div className="min-h-screen bg-gray-900">
       {/* Desktop: side-by-side */}
       <div className="hidden lg:flex h-screen">
-        {/* Left: Video */}
-        <div className="flex-1 flex items-center justify-center p-6">
+        {/* Left: Video — fill screen height */}
+        <div className="flex-1 flex items-center justify-center p-4">
           {step.videoUrl ? (
-            <div className="w-full max-w-3xl">
+            <div className="w-full h-full flex items-center justify-center">
               <CaptionedVideo
                 src={step.videoUrl}
                 segments={step.segments || []}
@@ -381,7 +381,7 @@ export default function SessionPlayerPage() {
                 captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
                 autoPlay
                 onEnded={handleVideoEnd}
-                className="rounded-lg shadow-2xl"
+                className="rounded-lg shadow-2xl max-h-[calc(100vh-2rem)] w-auto"
               />
             </div>
           ) : (
