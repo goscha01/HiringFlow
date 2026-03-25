@@ -23,14 +23,14 @@ const FONT_OPTIONS = [
 ]
 
 const COLOR_PRESETS = [
-  { name: 'Default Blue', primary: '#2563eb', bg: '#111827', text: '#ffffff', accent: '#3b82f6' },
-  { name: 'Midnight', primary: '#6366f1', bg: '#0f0f23', text: '#e2e8f0', accent: '#818cf8' },
-  { name: 'Forest', primary: '#059669', bg: '#064e3b', text: '#ecfdf5', accent: '#34d399' },
-  { name: 'Sunset', primary: '#ea580c', bg: '#1c1917', text: '#fef3c7', accent: '#f97316' },
-  { name: 'Rose', primary: '#e11d48', bg: '#1a1a2e', text: '#fce7f3', accent: '#fb7185' },
-  { name: 'Corporate', primary: '#1e40af', bg: '#ffffff', text: '#1e293b', accent: '#3b82f6' },
-  { name: 'Minimal Light', primary: '#18181b', bg: '#fafafa', text: '#27272a', accent: '#71717a' },
-  { name: 'Purple Dream', primary: '#7c3aed', bg: '#0c0a1a', text: '#ede9fe', accent: '#a78bfa' },
+  { name: 'Default Blue', primary: '#2563eb', bg: '#111827', text: '#ffffff', secondaryText: '#9ca3af', accent: '#3b82f6' },
+  { name: 'Midnight', primary: '#6366f1', bg: '#0f0f23', text: '#e2e8f0', secondaryText: '#94a3b8', accent: '#818cf8' },
+  { name: 'Forest', primary: '#059669', bg: '#064e3b', text: '#ecfdf5', secondaryText: '#6ee7b7', accent: '#34d399' },
+  { name: 'Sunset', primary: '#ea580c', bg: '#1c1917', text: '#fef3c7', secondaryText: '#d6d3d1', accent: '#f97316' },
+  { name: 'Rose', primary: '#e11d48', bg: '#1a1a2e', text: '#fce7f3', secondaryText: '#c4b5fd', accent: '#fb7185' },
+  { name: 'Corporate', primary: '#1e40af', bg: '#ffffff', text: '#1e293b', secondaryText: '#64748b', accent: '#3b82f6' },
+  { name: 'Minimal Light', primary: '#18181b', bg: '#fafafa', text: '#27272a', secondaryText: '#a1a1aa', accent: '#71717a' },
+  { name: 'Purple Dream', primary: '#7c3aed', bg: '#0c0a1a', text: '#ede9fe', secondaryText: '#a78bfa', accent: '#a78bfa' },
 ]
 
 const PATTERN_OPTIONS = [
@@ -46,7 +46,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   const [activeSection, setActiveSection] = useState<string>('colors')
   const [previewScreen, setPreviewScreen] = useState<'start' | 'step' | 'end'>('start')
   const [uploading, setUploading] = useState(false)
-  const [savedPalettes, setSavedPalettes] = useState<Array<{ name: string; primary: string; bg: string; text: string; accent: string }>>(() => {
+  const [savedPalettes, setSavedPalettes] = useState<Array<{ name: string; primary: string; bg: string; text: string; secondaryText?: string; accent: string }>>(() => {
     if (typeof window === 'undefined') return []
     try { return JSON.parse(localStorage.getItem('hiringflow_palettes') || '[]') } catch { return [] }
   })
@@ -55,7 +55,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
 
   const savePalette = () => {
     if (!newPaletteName.trim()) return
-    const palette = { name: newPaletteName.trim(), primary: config.colors.primary, bg: config.colors.background, text: config.colors.text, accent: config.colors.accent }
+    const palette = { name: newPaletteName.trim(), primary: config.colors.primary, bg: config.colors.background, text: config.colors.text, secondaryText: config.colors.secondaryText, accent: config.colors.accent }
     const updated = [...savedPalettes, palette]
     setSavedPalettes(updated)
     localStorage.setItem('hiringflow_palettes', JSON.stringify(updated))
@@ -188,7 +188,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                   <button
                     key={preset.name}
                     onClick={() => update({
-                      colors: { primary: preset.primary, background: preset.bg, text: preset.text, accent: preset.accent },
+                      colors: { primary: preset.primary, background: preset.bg, text: preset.text, secondaryText: preset.secondaryText, accent: preset.accent },
                       background: { ...config.background, value: preset.bg },
                     })}
                     className="p-2 rounded-lg border border-gray-200 hover:border-blue-400 transition-all text-left"
@@ -213,7 +213,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                     <div key={idx} className="relative group">
                       <button
                         onClick={() => update({
-                          colors: { primary: palette.primary, background: palette.bg, text: palette.text, accent: palette.accent },
+                          colors: { primary: palette.primary, background: palette.bg, text: palette.text, secondaryText: palette.secondaryText || '#9ca3af', accent: palette.accent },
                           background: { ...config.background, value: palette.bg },
                         })}
                         className="w-full p-2 rounded-lg border border-gray-200 hover:border-blue-400 transition-all text-left"
@@ -269,14 +269,23 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
             {[
               { key: 'primary' as const, label: 'Primary (buttons, links)' },
               { key: 'background' as const, label: 'Background' },
-              { key: 'text' as const, label: 'Text' },
+              { key: 'text' as const, label: 'Heading Text' },
+              { key: 'secondaryText' as const, label: 'Secondary Text (subtitle, description)' },
               { key: 'accent' as const, label: 'Accent (highlights)' },
             ].map(({ key, label }) => (
               <div key={key} className="flex items-center gap-3">
                 <input
                   type="color"
                   value={config.colors[key]}
-                  onChange={(e) => update({ colors: { ...config.colors, [key]: e.target.value } })}
+                  onChange={(e) => {
+                    const newColors = { ...config.colors, [key]: e.target.value }
+                    // Sync background color with background.value
+                    if (key === 'background') {
+                      update({ colors: newColors, background: { ...config.background, value: e.target.value } })
+                    } else {
+                      update({ colors: newColors })
+                    }
+                  }}
                   className="w-8 h-8 rounded cursor-pointer border border-gray-300"
                 />
                 <div className="flex-1">
@@ -284,7 +293,14 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                   <input
                     type="text"
                     value={config.colors[key]}
-                    onChange={(e) => update({ colors: { ...config.colors, [key]: e.target.value } })}
+                    onChange={(e) => {
+                      const newColors = { ...config.colors, [key]: e.target.value }
+                      if (key === 'background') {
+                        update({ colors: newColors, background: { ...config.background, value: e.target.value } })
+                      } else {
+                        update({ colors: newColors })
+                      }
+                    }}
                     className="w-full text-xs px-2 py-1 border border-gray-300 rounded font-mono"
                   />
                 </div>
@@ -660,7 +676,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               <h1 style={{ color: config.colors.text, fontSize: headingSize, fontWeight: 600, marginBottom: '0.5rem' }}>
                 {flowName || 'Flow Name'}
               </h1>
-              <p style={{ color: config.colors.text, opacity: 0.7, fontSize: bodySize, marginBottom: '2rem' }}>
+              <p style={{ color: config.colors.secondaryText, fontSize: bodySize, marginBottom: '2rem' }}>
                 {startMessage}
               </p>
               <button style={btnPreviewStyle}>
@@ -743,7 +759,7 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
               <h1 style={{ color: config.colors.text, fontSize: headingSize, fontWeight: 600, marginBottom: '0.5rem' }}>
                 All Done!
               </h1>
-              <p style={{ color: config.colors.text, opacity: 0.7, fontSize: bodySize, marginBottom: '2rem', maxWidth: '320px' }}>
+              <p style={{ color: config.colors.secondaryText, fontSize: bodySize, marginBottom: '2rem', maxWidth: '320px' }}>
                 {endMessage}
               </p>
               {(config.endScreen.ctaText || config.endScreen.redirectUrl) && (

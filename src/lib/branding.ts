@@ -4,6 +4,7 @@ export interface BrandingConfig {
     primary: string
     background: string
     text: string
+    secondaryText: string
     accent: string
   }
   typography: {
@@ -47,6 +48,7 @@ export const DEFAULT_BRANDING: BrandingConfig = {
     primary: '#2563eb',
     background: '#111827',
     text: '#ffffff',
+    secondaryText: '#9ca3af',
     accent: '#3b82f6',
   },
   typography: {
