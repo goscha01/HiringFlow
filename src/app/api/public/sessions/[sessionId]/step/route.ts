@@ -50,6 +50,8 @@ export async function GET(
     captionsEnabled: step.captionsEnabled,
     captionStyle: step.captionStyle,
     segments: step.captionsEnabled && step.video ? (step.video as any).segments || [] : [],
+    formEnabled: step.formEnabled,
+    formConfig: step.formConfig,
     options: step.options.map((o) => ({
       optionId: o.id,
       text: o.optionText,

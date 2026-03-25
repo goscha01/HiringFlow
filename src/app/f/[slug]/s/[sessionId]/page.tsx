@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import VideoRecorder from '@/components/VideoRecorder'
 import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from '@/components/CaptionedVideo'
@@ -17,6 +17,15 @@ interface Segment {
   text: string
 }
 
+interface FormField {
+  id: string
+  label: string
+  type: string
+  enabled: boolean
+  required: boolean
+  isBuiltIn?: boolean
+}
+
 interface StepData {
   stepId: string
   title: string
@@ -27,6 +36,8 @@ interface StepData {
   captionsEnabled?: boolean
   captionStyle?: CaptionStyle | null
   segments?: Segment[]
+  formEnabled?: boolean
+  formConfig?: { fields: FormField[] } | null
   options: StepOption[]
   finished?: boolean
 }
@@ -44,7 +55,10 @@ export default function SessionPlayerPage() {
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
   const [textMessage, setTextMessage] = useState('')
   const [recordedVideo, setRecordedVideo] = useState<Blob | null>(null)
-
+  // Form state
+  const [showForm, setShowForm] = useState(false)
+  const [formValues, setFormValues] = useState<Record<string, string>>({})
+  const [formSubmitted, setFormSubmitted] = useState(false)
 
   useEffect(() => {
     fetchStep()
@@ -56,6 +70,8 @@ export default function SessionPlayerPage() {
     setSelectedOptions([])
     setTextMessage('')
     setRecordedVideo(null)
+    setFormSubmitted(false)
+    setFormValues({})
     const res = await fetch(`/api/public/sessions/${sessionId}/step`)
     if (res.ok) {
       const data = await res.json()
@@ -63,6 +79,12 @@ export default function SessionPlayerPage() {
         router.push(`/f/${slug}/s/${sessionId}/done`)
       } else {
         setStep(data)
+        // Show form before video if form is enabled
+        if (data.formEnabled && data.formConfig?.fields?.some((f: FormField) => f.enabled)) {
+          setShowForm(true)
+        } else {
+          setShowForm(false)
+        }
       }
     }
     setLoading(false)
@@ -72,9 +94,18 @@ export default function SessionPlayerPage() {
     setVideoEnded(true)
   }
 
+  const handleFormSubmit = () => {
+    // Validate required fields
+    const enabledFields = step?.formConfig?.fields?.filter(f => f.enabled) || []
+    const missingRequired = enabledFields.filter(f => f.required && !formValues[f.id]?.trim())
+    if (missingRequired.length > 0) return
+
+    setFormSubmitted(true)
+    setShowForm(false)
+  }
+
   const selectOption = async (option: StepOption) => {
     if (!step) return
-
     setSubmitting(true)
     const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
       method: 'POST',
@@ -82,9 +113,9 @@ export default function SessionPlayerPage() {
       body: JSON.stringify({
         stepId: step.stepId,
         optionId: option.optionId,
+        formData: formSubmitted ? formValues : undefined,
       }),
     })
-
     if (res.ok) {
       const data = await res.json()
       if (data.finished) {
@@ -98,15 +129,12 @@ export default function SessionPlayerPage() {
 
   const toggleOption = (optionId: string) => {
     setSelectedOptions((prev) =>
-      prev.includes(optionId)
-        ? prev.filter((id) => id !== optionId)
-        : [...prev, optionId]
+      prev.includes(optionId) ? prev.filter((id) => id !== optionId) : [...prev, optionId]
     )
   }
 
   const submitMultiselect = async () => {
     if (!step || selectedOptions.length === 0) return
-
     setSubmitting(true)
     const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
       method: 'POST',
@@ -114,9 +142,9 @@ export default function SessionPlayerPage() {
       body: JSON.stringify({
         stepId: step.stepId,
         optionIds: selectedOptions,
+        formData: formSubmitted ? formValues : undefined,
       }),
     })
-
     if (res.ok) {
       const data = await res.json()
       if (data.finished) {
@@ -130,18 +158,17 @@ export default function SessionPlayerPage() {
 
   const submitSubmission = async () => {
     if (!step || (!textMessage && !recordedVideo)) return
-
     setSubmitting(true)
     const formData = new FormData()
     formData.append('stepId', step.stepId)
     if (textMessage) formData.append('textMessage', textMessage)
     if (recordedVideo) formData.append('video', recordedVideo, 'recording.webm')
+    if (formSubmitted) formData.append('formData', JSON.stringify(formValues))
 
     const res = await fetch(`/api/public/sessions/${sessionId}/submit`, {
       method: 'POST',
       body: formData,
     })
-
     if (res.ok) {
       router.push(`/f/${slug}/s/${sessionId}/done`)
     }
@@ -167,75 +194,113 @@ export default function SessionPlayerPage() {
     )
   }
 
+  // Form screen — shown before video
+  if (showForm && !formSubmitted) {
+    const enabledFields = step.formConfig?.fields?.filter(f => f.enabled) || []
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">{step.title}</h2>
+          <p className="text-sm text-gray-500 mb-6">Please fill in the following before we begin</p>
+
+          <div className="space-y-4">
+            {enabledFields.map((field) => (
+              <div key={field.id}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {field.label}
+                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                </label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    value={formValues[field.id] || ''}
+                    onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })}
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={field.label}
+                  />
+                ) : (
+                  <input
+                    type={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : 'text'}
+                    value={formValues[field.id] || ''}
+                    onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={field.label}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={handleFormSubmit}
+            className="w-full mt-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const showOptions = !step.videoUrl || videoEnded
 
-  return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
-      {/* Video Section */}
-      <div className="flex-1 flex items-center justify-center p-4">
-        {step.videoUrl ? (
-          <div className="w-full max-w-2xl">
-            <CaptionedVideo
-              src={step.videoUrl}
-              segments={step.segments || []}
-              captionsEnabled={step.captionsEnabled || false}
-              captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
-              autoPlay
-              onEnded={handleVideoEnd}
-              className="rounded-lg shadow-2xl"
-            />
-          </div>
-        ) : (
-          <div className="text-white text-center">
-            <h2 className="text-2xl font-semibold mb-4">{step.title}</h2>
-          </div>
-        )}
-      </div>
+  // Question/options rendering (shared between mobile overlay and desktop sidebar)
+  const renderQuestionContent = (overlay = false) => {
+    const containerClass = overlay
+      ? 'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6 pt-16'
+      : ''
+    const textColorClass = overlay ? 'text-white' : 'text-gray-900'
+    const optionBorderClass = overlay
+      ? 'border-white/30 hover:border-white/60 hover:bg-white/10 text-white'
+      : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-gray-900'
+    const optionSelectedClass = overlay
+      ? 'border-blue-400 bg-blue-500/30 text-white'
+      : 'border-blue-500 bg-blue-50 text-gray-900'
+    const disabledClass = overlay
+      ? 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+      : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
 
-      {/* Question & Options Section */}
-      <div className="bg-white rounded-t-3xl p-6 pb-8 shadow-lg">
+    return (
+      <div className={containerClass}>
         {step.questionText && (
-          <h2 className="text-lg font-semibold text-gray-900 text-center mb-6">
+          <h2 className={`text-lg font-semibold ${textColorClass} ${overlay ? 'text-left' : 'text-center'} mb-4`}>
             {step.questionText}
           </h2>
         )}
 
-        {/* Question Step - Options */}
         {(step.stepType || 'question') === 'question' && (
-          <div className="max-w-md mx-auto">
-            {/* Single/Button: Click to submit immediately */}
+          <div className={overlay ? '' : 'max-w-md mx-auto'}>
+            {/* Single/Button */}
             {((step.questionType || 'single') === 'single' || step.questionType === 'button') && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {step.options.map((option) => (
                   <button
                     key={option.optionId}
                     onClick={() => selectOption(option)}
                     disabled={submitting || (!showOptions && step.videoUrl !== null)}
-                    className={`w-full py-4 px-6 rounded-xl border-2 transition-all ${
+                    className={`w-full py-3 px-5 rounded-xl border-2 transition-all ${
                       step.questionType === 'button' ? 'text-center' : 'text-left'
                     } ${
-                      showOptions || !step.videoUrl
-                        ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50 cursor-pointer'
-                        : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
+                      showOptions || !step.videoUrl ? optionBorderClass : disabledClass
                     } ${submitting ? 'opacity-50' : ''}`}
                   >
-                    <span className="font-medium">{option.text}</span>
+                    <span className="font-medium text-sm">{option.text}</span>
                   </button>
                 ))}
               </div>
             )}
 
-            {/* Multiselect: Checkboxes with Continue */}
+            {/* Multiselect */}
             {step.questionType === 'multiselect' && (
               <>
-                <div className="space-y-3 mb-4">
+                <div className="space-y-2.5 mb-4">
                   {step.options.map((option) => (
                     <label
                       key={option.optionId}
-                      className={`flex items-center w-full py-4 px-6 rounded-xl border-2 cursor-pointer transition-all ${
+                      className={`flex items-center w-full py-3 px-5 rounded-xl border-2 cursor-pointer transition-all ${
                         selectedOptions.includes(option.optionId)
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300'
+                          ? optionSelectedClass
+                          : optionBorderClass
                       } ${!showOptions && step.videoUrl ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <input
@@ -243,16 +308,16 @@ export default function SessionPlayerPage() {
                         checked={selectedOptions.includes(option.optionId)}
                         onChange={() => toggleOption(option.optionId)}
                         disabled={!showOptions && !!step.videoUrl}
-                        className="mr-3 h-5 w-5 text-blue-600 rounded"
+                        className="mr-3 h-4 w-4 text-blue-600 rounded"
                       />
-                      <span className="font-medium">{option.text}</span>
+                      <span className="font-medium text-sm">{option.text}</span>
                     </label>
                   ))}
                 </div>
                 <button
                   onClick={submitMultiselect}
                   disabled={selectedOptions.length === 0 || submitting || (!showOptions && !!step.videoUrl)}
-                  className="w-full py-4 bg-blue-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
                 >
                   {submitting ? 'Submitting...' : `Continue (${selectedOptions.length} selected)`}
                 </button>
@@ -261,38 +326,31 @@ export default function SessionPlayerPage() {
           </div>
         )}
 
-        {/* Submission Step - Video/Text Input */}
+        {/* Submission */}
         {step.stepType === 'submission' && (
-          <div className="max-w-md mx-auto space-y-6">
-            {/* Video Recording Section */}
+          <div className={`space-y-4 ${overlay ? '' : 'max-w-md mx-auto'}`}>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className={`block text-sm font-medium ${overlay ? 'text-white/80' : 'text-gray-700'} mb-2`}>
                 Record a video response (optional)
               </label>
-              <VideoRecorder
-                onRecordComplete={(blob) => setRecordedVideo(blob)}
-                recordedVideo={recordedVideo}
-              />
+              <VideoRecorder onRecordComplete={(blob) => setRecordedVideo(blob)} recordedVideo={recordedVideo} />
             </div>
-
-            {/* Text Message Section */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className={`block text-sm font-medium ${overlay ? 'text-white/80' : 'text-gray-700'} mb-2`}>
                 Or write a message
               </label>
               <textarea
                 value={textMessage}
                 onChange={(e) => setTextMessage(e.target.value)}
-                rows={4}
+                rows={3}
                 placeholder="Type your response here..."
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-
             <button
               onClick={submitSubmission}
               disabled={(!textMessage && !recordedVideo) || submitting}
-              className="w-full py-4 bg-blue-600 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
             >
               {submitting ? 'Submitting...' : 'Submit Response'}
             </button>
@@ -300,10 +358,74 @@ export default function SessionPlayerPage() {
         )}
 
         {!showOptions && step.videoUrl && (step.stepType || 'question') === 'question' && (
-          <p className="text-center text-sm text-gray-500 mt-4">
-            Watch the video to unlock the options
+          <p className={`text-center text-sm ${overlay ? 'text-white/50' : 'text-gray-500'} mt-3`}>
+            Watch the video to unlock options
           </p>
         )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900">
+      {/* Desktop: side-by-side */}
+      <div className="hidden lg:flex h-screen">
+        {/* Left: Video */}
+        <div className="flex-1 flex items-center justify-center p-6">
+          {step.videoUrl ? (
+            <div className="w-full max-w-3xl">
+              <CaptionedVideo
+                src={step.videoUrl}
+                segments={step.segments || []}
+                captionsEnabled={step.captionsEnabled || false}
+                captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
+                autoPlay
+                onEnded={handleVideoEnd}
+                className="rounded-lg shadow-2xl"
+              />
+            </div>
+          ) : (
+            <div className="text-white text-center">
+              <h2 className="text-2xl font-semibold">{step.title}</h2>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Questions */}
+        <div className="w-[400px] bg-white flex flex-col justify-center p-8 overflow-y-auto">
+          {step.title && (
+            <h3 className="text-sm font-medium text-gray-400 mb-4 uppercase tracking-wide">{step.title}</h3>
+          )}
+          {renderQuestionContent(false)}
+        </div>
+      </div>
+
+      {/* Mobile: video with overlay questions */}
+      <div className="lg:hidden flex flex-col min-h-screen">
+        <div className="flex-1 relative flex items-center justify-center">
+          {step.videoUrl ? (
+            <div className="w-full h-full">
+              <CaptionedVideo
+                src={step.videoUrl}
+                segments={step.segments || []}
+                captionsEnabled={step.captionsEnabled || false}
+                captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
+                autoPlay
+                onEnded={handleVideoEnd}
+                className="w-full h-full object-cover"
+              />
+              {/* Overlay questions on mobile */}
+              {renderQuestionContent(true)}
+            </div>
+          ) : (
+            <div className="text-white text-center p-6">
+              <h2 className="text-2xl font-semibold mb-6">{step.title}</h2>
+              <div className="bg-white rounded-2xl p-6">
+                {renderQuestionContent(false)}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
