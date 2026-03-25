@@ -52,6 +52,8 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
   })
   const [newPaletteName, setNewPaletteName] = useState('')
   const [showSavePalette, setShowSavePalette] = useState(false)
+  const [editingPaletteIdx, setEditingPaletteIdx] = useState<number | null>(null)
+  const [colorsBeforeEdit, setColorsBeforeEdit] = useState<BrandingConfig['colors'] | null>(null)
 
   const savePalette = () => {
     if (!newPaletteName.trim()) return
@@ -132,8 +134,14 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
     { id: 'css', label: 'Custom CSS' },
   ]
 
-  const headingSize = config.typography.headingSize === 'lg' ? '2rem' : config.typography.headingSize === 'sm' ? '1.25rem' : '1.5rem'
-  const bodySize = config.typography.bodySize === 'lg' ? '1.125rem' : config.typography.bodySize === 'sm' ? '0.875rem' : '1rem'
+  const getNumericSize = (size: number | 'sm' | 'md' | 'lg', fallback: number): number => {
+    if (typeof size === 'number') return size
+    const map = { sm: fallback - 4, md: fallback, lg: fallback + 8 }
+    return map[size] || fallback
+  }
+
+  const headingSize = `${getNumericSize(config.typography.headingSize, 24)}px`
+  const bodySize = `${getNumericSize(config.typography.bodySize, 16)}px`
 
   const getBackground = () => {
     if (config.background.type === 'gradient') {
@@ -212,11 +220,18 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                   {savedPalettes.map((palette, idx) => (
                     <div key={idx} className="relative group">
                       <button
-                        onClick={() => update({
-                          colors: { primary: palette.primary, background: palette.bg, text: palette.text, secondaryText: palette.secondaryText || '#9ca3af', accent: palette.accent },
-                          background: { ...config.background, value: palette.bg },
-                        })}
-                        className="w-full p-2 rounded-lg border border-gray-200 hover:border-blue-400 transition-all text-left"
+                        onClick={() => {
+                          // Save current colors so we can cancel
+                          setColorsBeforeEdit({ ...config.colors })
+                          setEditingPaletteIdx(idx)
+                          update({
+                            colors: { primary: palette.primary, background: palette.bg, text: palette.text, secondaryText: palette.secondaryText || '#9ca3af', accent: palette.accent },
+                            background: { ...config.background, value: palette.bg },
+                          })
+                        }}
+                        className={`w-full p-2 rounded-lg border transition-all text-left ${
+                          editingPaletteIdx === idx ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200 hover:border-blue-400'
+                        }`}
                       >
                         <div className="flex gap-1 mb-1">
                           <span className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: palette.primary }} />
@@ -225,15 +240,56 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                         </div>
                         <span className="text-[10px] text-gray-500 truncate block">{palette.name}</span>
                       </button>
-                      <button
-                        onClick={() => deletePalette(idx)}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        x
-                      </button>
+                      {editingPaletteIdx !== idx && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deletePalette(idx) }}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          x
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
+
+                {/* Update / Cancel bar when editing a palette */}
+                {editingPaletteIdx !== null && (
+                  <div className="flex items-center gap-2 mt-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                    <span className="text-xs text-blue-700 flex-1">
+                      Editing <strong>{savedPalettes[editingPaletteIdx]?.name}</strong> — adjust colors below then update
+                    </span>
+                    <button
+                      onClick={() => {
+                        // Overwrite the palette with current colors
+                        const updated = savedPalettes.map((p, i) =>
+                          i === editingPaletteIdx
+                            ? { ...p, primary: config.colors.primary, bg: config.colors.background, text: config.colors.text, secondaryText: config.colors.secondaryText, accent: config.colors.accent }
+                            : p
+                        )
+                        setSavedPalettes(updated)
+                        localStorage.setItem('hiringflow_palettes', JSON.stringify(updated))
+                        setEditingPaletteIdx(null)
+                        setColorsBeforeEdit(null)
+                      }}
+                      className="px-3 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Update
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Revert to colors before editing
+                        if (colorsBeforeEdit) {
+                          update({ colors: colorsBeforeEdit, background: { ...config.background, value: colorsBeforeEdit.background } })
+                        }
+                        setEditingPaletteIdx(null)
+                        setColorsBeforeEdit(null)
+                      }}
+                      className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -312,52 +368,74 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
         {/* Typography */}
         {activeSection === 'typography' && (
           <div className="space-y-4">
+            {/* Load Google Fonts */}
+            {FONT_OPTIONS.filter(f => f.url).map((f) => (
+              <link key={f.value} rel="stylesheet" href={f.url} />
+            ))}
+
             <div>
-              <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Font Family</label>
-              <select
-                value={config.typography.fontFamily}
-                onChange={(e) => {
-                  const font = FONT_OPTIONS.find(f => f.value === e.target.value)
-                  update({ typography: { ...config.typography, fontFamily: e.target.value, fontUrl: font?.url } })
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-              >
+              <label className="text-xs font-medium text-gray-500 uppercase mb-2 block">Font Family</label>
+              <div className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-1">
                 {FONT_OPTIONS.map((f) => (
-                  <option key={f.value} value={f.value}>{f.label}</option>
+                  <button
+                    key={f.value}
+                    onClick={() => update({ typography: { ...config.typography, fontFamily: f.value, fontUrl: f.url } })}
+                    className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
+                      config.typography.fontFamily === f.value
+                        ? 'bg-blue-50 border border-blue-300 text-blue-800'
+                        : 'hover:bg-gray-50 text-gray-700'
+                    }`}
+                    style={{ fontFamily: f.value }}
+                  >
+                    <span className="text-sm">{f.label}</span>
+                    <span className="block text-xs text-gray-400" style={{ fontFamily: f.value }}>
+                      The quick brown fox jumps over the lazy dog
+                    </span>
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Heading Size</label>
-                <div className="flex gap-1">
-                  {(['sm', 'md', 'lg'] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => update({ typography: { ...config.typography, headingSize: s } })}
-                      className={`flex-1 py-1.5 text-xs rounded ${
-                        config.typography.headingSize === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {s.toUpperCase()}
-                    </button>
-                  ))}
+                <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Heading Size (px)</label>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => update({ typography: { ...config.typography, headingSize: Math.max(14, getNumericSize(config.typography.headingSize, 24) - 1) } })}
+                    className="w-7 h-7 flex items-center justify-center text-sm border border-gray-300 rounded hover:bg-gray-100"
+                  >−</button>
+                  <input
+                    type="number"
+                    min={14}
+                    max={48}
+                    value={getNumericSize(config.typography.headingSize, 24)}
+                    onChange={(e) => update({ typography: { ...config.typography, headingSize: Math.max(14, Math.min(48, Number(e.target.value) || 24)) } })}
+                    className="w-14 text-center text-sm px-1 py-1.5 border border-gray-300 rounded"
+                  />
+                  <button
+                    onClick={() => update({ typography: { ...config.typography, headingSize: Math.min(48, getNumericSize(config.typography.headingSize, 24) + 1) } })}
+                    className="w-7 h-7 flex items-center justify-center text-sm border border-gray-300 rounded hover:bg-gray-100"
+                  >+</button>
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Body Size</label>
-                <div className="flex gap-1">
-                  {(['sm', 'md', 'lg'] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => update({ typography: { ...config.typography, bodySize: s } })}
-                      className={`flex-1 py-1.5 text-xs rounded ${
-                        config.typography.bodySize === s ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {s.toUpperCase()}
-                    </button>
-                  ))}
+                <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Body Size (px)</label>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => update({ typography: { ...config.typography, bodySize: Math.max(10, getNumericSize(config.typography.bodySize, 16) - 1) } })}
+                    className="w-7 h-7 flex items-center justify-center text-sm border border-gray-300 rounded hover:bg-gray-100"
+                  >−</button>
+                  <input
+                    type="number"
+                    min={10}
+                    max={24}
+                    value={getNumericSize(config.typography.bodySize, 16)}
+                    onChange={(e) => update({ typography: { ...config.typography, bodySize: Math.max(10, Math.min(24, Number(e.target.value) || 16)) } })}
+                    className="w-14 text-center text-sm px-1 py-1.5 border border-gray-300 rounded"
+                  />
+                  <button
+                    onClick={() => update({ typography: { ...config.typography, bodySize: Math.min(24, getNumericSize(config.typography.bodySize, 16) + 1) } })}
+                    className="w-7 h-7 flex items-center justify-center text-sm border border-gray-300 rounded hover:bg-gray-100"
+                  >+</button>
                 </div>
               </div>
             </div>
@@ -431,9 +509,30 @@ export default function BrandingEditor({ branding: rawBranding, onUpdate, flowNa
                 ))}
               </div>
             </div>
-            {/* Button preview */}
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 flex justify-center">
-              <button style={btnPreviewStyle}>{config.startScreen.ctaText || 'Start Interview'}</button>
+            {/* Button preview — normal + hover side by side */}
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-center gap-6">
+                <div className="text-center">
+                  <span className="text-[10px] text-gray-400 block mb-2">Normal</span>
+                  <button style={btnPreviewStyle}>{config.startScreen.ctaText || 'Start Interview'}</button>
+                </div>
+                <div className="text-center">
+                  <span className="text-[10px] text-gray-400 block mb-2">Hover</span>
+                  <button style={{
+                    ...btnPreviewStyle,
+                    ...(config.buttons.hoverEffect === 'darken' && {
+                      filter: 'brightness(0.85)',
+                    }),
+                    ...(config.buttons.hoverEffect === 'lighten' && {
+                      filter: 'brightness(1.2)',
+                    }),
+                    ...(config.buttons.hoverEffect === 'lift' && {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    }),
+                  }}>{config.startScreen.ctaText || 'Start Interview'}</button>
+                </div>
+              </div>
             </div>
           </div>
         )}

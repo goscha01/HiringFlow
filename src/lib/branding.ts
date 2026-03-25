@@ -10,8 +10,8 @@ export interface BrandingConfig {
   typography: {
     fontFamily: string
     fontUrl?: string
-    headingSize: 'sm' | 'md' | 'lg'
-    bodySize: 'sm' | 'md' | 'lg'
+    headingSize: number | 'sm' | 'md' | 'lg'
+    bodySize: number | 'sm' | 'md' | 'lg'
   }
   buttons: {
     shape: 'rounded' | 'pill' | 'square'
@@ -107,8 +107,8 @@ export function brandingToCssVars(branding: BrandingConfig): Record<string, stri
     '--brand-text': branding.colors.text,
     '--brand-accent': branding.colors.accent,
     '--brand-font': branding.typography.fontFamily,
-    '--brand-heading-size': headingSizes[branding.typography.headingSize],
-    '--brand-body-size': bodySizes[branding.typography.bodySize],
+    '--brand-heading-size': typeof branding.typography.headingSize === 'number' ? `${branding.typography.headingSize}px` : headingSizes[branding.typography.headingSize],
+    '--brand-body-size': typeof branding.typography.bodySize === 'number' ? `${branding.typography.bodySize}px` : bodySizes[branding.typography.bodySize],
     '--brand-btn-radius': borderRadius[branding.buttons.shape],
     '--brand-btn-padding': btnPadding[branding.buttons.size],
   }
