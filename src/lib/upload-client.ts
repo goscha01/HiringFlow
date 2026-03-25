@@ -38,65 +38,67 @@ export async function uploadVideoFile(
   return uploadViaApi(file, onProgress)
 }
 
-// Production: use @vercel/blob/client upload with server-generated token
+// Production: stream file to our Edge API which PUTs to Vercel Blob
+// Edge runtime has no body size limit, so large videos work
 async function uploadViaBlob(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<UploadResult> {
   onProgress?.(5)
 
-  // Fake progress since blob client upload doesn't support progress
-  let progressInterval: ReturnType<typeof setInterval> | undefined
-  let fakeProgress = 10
-  if (onProgress) {
-    progressInterval = setInterval(() => {
-      fakeProgress = Math.min(fakeProgress + 2, 85)
-      onProgress(fakeProgress)
-    }, 500)
-  }
+  // Use XMLHttpRequest for real progress tracking
+  const blobResult = await new Promise<{ url: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
 
-  try {
-    // Use handleUploadUrl approach: client sends file to our API which returns a token,
-    // then client uploads directly to blob storage
-    const { upload } = await import('@vercel/blob/client')
-
-    const blob = await upload(file.name, file, {
-      access: 'public',
-      handleUploadUrl: '/api/videos/upload-url',
-    })
-
-    if (progressInterval) clearInterval(progressInterval)
-    onProgress?.(90)
-
-    // Register in DB + trigger analysis
-    const regRes = await fetch('/api/videos/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: blob.url,
-        filename: file.name,
-        mimeType: file.type || 'video/mp4',
-        sizeBytes: file.size,
-        analyze: true,
-      }),
-    })
-
-    onProgress?.(100)
-
-    if (!regRes.ok) throw new Error('Failed to register video')
-
-    const video = await regRes.json()
-    return {
-      id: video.id,
-      url: video.url,
-      storageKey: video.storageKey,
-      filename: video.filename,
-      mimeType: video.mimeType,
-      sizeBytes: video.sizeBytes,
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 85))
+      }
     }
-  } catch (error) {
-    if (progressInterval) clearInterval(progressInterval)
-    throw error
+
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        resolve(JSON.parse(xhr.responseText))
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status}`))
+      }
+    }
+
+    xhr.onerror = () => reject(new Error('Upload failed'))
+
+    xhr.open('POST', '/api/videos/upload-url')
+    xhr.setRequestHeader('x-filename', file.name)
+    xhr.setRequestHeader('Content-Type', file.type || 'video/mp4')
+    xhr.send(file)
+  })
+
+  onProgress?.(90)
+
+  // Register in DB + trigger analysis
+  const regRes = await fetch('/api/videos/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: blobResult.url,
+      filename: file.name,
+      mimeType: file.type || 'video/mp4',
+      sizeBytes: file.size,
+      analyze: true,
+    }),
+  })
+
+  onProgress?.(100)
+
+  if (!regRes.ok) throw new Error('Failed to register video')
+
+  const video = await regRes.json()
+  return {
+    id: video.id,
+    url: video.url,
+    storageKey: video.storageKey,
+    filename: video.filename,
+    mimeType: video.mimeType,
+    sizeBytes: video.sizeBytes,
   }
 }
 

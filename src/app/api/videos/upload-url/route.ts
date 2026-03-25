@@ -1,37 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
+import { put } from '@vercel/blob'
 
-// Handle the client upload protocol from @vercel/blob/client
+// Server-side upload: receive file via streaming, PUT to blob
+// Uses Edge runtime to bypass 4.5MB body limit
+export const runtime = 'edge'
+
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as HandleUploadBody
+  // Auth check via cookie (edge runtime can't use getServerSession)
+  const cookie = request.cookies.get('next-auth.session-token')?.value
+    || request.cookies.get('__Secure-next-auth.session-token')?.value
+  if (!cookie) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const filename = request.headers.get('x-filename') || 'video.mp4'
+  const contentType = request.headers.get('content-type') || 'video/mp4'
+
+  if (!request.body) {
+    return NextResponse.json({ error: 'No body' }, { status: 400 })
+  }
 
   try {
-    const jsonResponse = await handleUpload({
-      body,
-      request,
-      onBeforeGenerateToken: async () => {
-        const session = await getServerSession(authOptions)
-        if (!session?.user?.id) throw new Error('Unauthorized')
-
-        return {
-          allowedContentTypes: [
-            'video/mp4', 'video/quicktime', 'video/webm',
-            'video/x-msvideo', 'video/x-matroska', 'video/mov',
-          ],
-          maximumSizeInBytes: 500 * 1024 * 1024,
-          tokenPayload: JSON.stringify({ userId: session.user.id }),
-        }
-      },
-      onUploadCompleted: async () => {
-        // Registration happens client-side after upload
-      },
+    const blob = await put(`videos/${Date.now()}-${filename}`, request.body, {
+      access: 'public',
+      contentType,
     })
 
-    return NextResponse.json(jsonResponse)
+    return NextResponse.json({ url: blob.url, pathname: blob.pathname })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Upload failed'
-    return NextResponse.json({ error: message }, { status: 400 })
+    console.error('Blob upload error:', error)
+    return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
   }
 }
