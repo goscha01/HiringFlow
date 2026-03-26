@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getVideoUrl } from '@/lib/storage'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -21,7 +22,20 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   })
 
   if (!training) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(training)
+
+  // Add video URLs
+  const withUrls = {
+    ...training,
+    sections: training.sections.map((section) => ({
+      ...section,
+      contents: section.contents.map((content) => ({
+        ...content,
+        video: content.video ? { ...content.video, url: getVideoUrl(content.video.storageKey) } : null,
+      })),
+    })),
+  }
+
+  return NextResponse.json(withUrls)
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {

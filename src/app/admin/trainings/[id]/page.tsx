@@ -4,13 +4,14 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { uploadVideoFile } from '@/lib/upload-client'
+import { type BrandingConfig, mergeBranding } from '@/lib/branding'
 
 interface Video { id: string; filename: string; url: string; displayName?: string | null }
 interface Content { id: string; type: string; sortOrder: number; videoId: string | null; video: Video | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
 interface Question { id: string; questionText: string; questionType: string; sortOrder: number; options: Array<{ text: string; isCorrect: boolean }> }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: Question[] }
 interface Section { id: string; title: string; sortOrder: number; contents: Content[]; quiz: Quiz | null }
-interface Training { id: string; title: string; slug: string; description: string | null; coverImage: string | null; isPublished: boolean; timeLimit: Record<string, unknown> | null; pricing: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
+interface Training { id: string; title: string; slug: string; description: string | null; coverImage: string | null; isPublished: boolean; timeLimit: Record<string, unknown> | null; pricing: Record<string, unknown> | null; branding: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
 
 function VideoUploadButton({ onUploaded }: { onUploaded: (video: Video) => void }) {
   const [uploading, setUploading] = useState(false)
@@ -508,16 +509,31 @@ export default function TrainingEditorPage() {
       </div>
 
       {/* Preview Modal */}
-      {previewOpen && previewSection && (
+      {previewOpen && previewSection && (() => {
+        const brand = mergeBranding(training.branding as Partial<BrandingConfig> | null)
+        const btnStyle: React.CSSProperties = {
+          backgroundColor: brand.buttons.style === 'filled' ? brand.colors.primary : 'transparent',
+          color: brand.buttons.style === 'filled' ? '#fff' : brand.colors.primary,
+          border: brand.buttons.style === 'outline' ? `2px solid ${brand.colors.primary}` : 'none',
+          borderRadius: brand.buttons.shape === 'pill' ? '9999px' : brand.buttons.shape === 'square' ? '4px' : '12px',
+          padding: brand.buttons.size === 'compact' ? '8px 16px' : brand.buttons.size === 'large' ? '16px 32px' : '12px 24px',
+          fontSize: '14px', fontWeight: 500, cursor: 'pointer',
+        }
+
+        return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setPreviewOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+            style={{ backgroundColor: brand.colors.background, fontFamily: brand.typography.fontFamily, color: brand.colors.text }}
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Preview header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b">
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: `1px solid ${brand.colors.accent}30` }}>
               <div>
-                <h3 className="font-semibold text-gray-900">{training.title}</h3>
-                <p className="text-xs text-gray-400">Section {previewSectionIdx + 1} of {training.sections.length}: {previewSection.title}</p>
+                <h3 className="font-semibold" style={{ color: brand.colors.text }}>{training.title}</h3>
+                <p className="text-xs" style={{ color: brand.colors.secondaryText }}>Section {previewSectionIdx + 1} of {training.sections.length}: {previewSection.title}</p>
               </div>
-              <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              <button onClick={() => setPreviewOpen(false)} className="text-xl" style={{ color: brand.colors.secondaryText }}>&times;</button>
             </div>
 
             {/* Preview content */}
@@ -547,20 +563,20 @@ export default function TrainingEditorPage() {
                               <button onClick={() => setPreviewContentIdx(previewContentIdx - 1)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Back</button>
                             )}
                             {previewContentIdx < previewSection.contents.length - 1 ? (
-                              <button onClick={() => setPreviewContentIdx(previewContentIdx + 1)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Next</button>
+                              <button onClick={() => setPreviewContentIdx(previewContentIdx + 1)} style={btnStyle}>Next</button>
                             ) : previewSection.quiz ? (
-                              <button onClick={() => { setPreviewMode('quiz'); setQuizAnswers({}); setQuizSubmitted(false) }} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700">Take Quiz</button>
+                              <button onClick={() => { setPreviewMode('quiz'); setQuizAnswers({}); setQuizSubmitted(false) }} style={btnStyle}>Take Quiz</button>
                             ) : previewSectionIdx < training.sections.length - 1 ? (
-                              <button onClick={() => { setPreviewSectionIdx(previewSectionIdx + 1); setPreviewContentIdx(0) }} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Next Section</button>
+                              <button onClick={() => { setPreviewSectionIdx(previewSectionIdx + 1); setPreviewContentIdx(0) }} style={btnStyle}>Next Section</button>
                             ) : (
-                              <button onClick={() => setPreviewOpen(false)} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">Complete</button>
+                              <button onClick={() => setPreviewOpen(false)} style={btnStyle}>Complete</button>
                             )}
                           </div>
                         </div>
                       </div>
                     )
                   })() : previewSection.quiz ? (
-                    <button onClick={() => { setPreviewMode('quiz'); setQuizAnswers({}); setQuizSubmitted(false) }} className="w-full py-4 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700">Take Quiz</button>
+                    <button onClick={() => { setPreviewMode('quiz'); setQuizAnswers({}); setQuizSubmitted(false) }} style={{ ...btnStyle, width: '100%', padding: '16px' }}>Take Quiz</button>
                   ) : (
                     <div className="text-center py-8 text-gray-400">This section has no content</div>
                   )}
@@ -646,7 +662,7 @@ export default function TrainingEditorPage() {
                           <div className="flex gap-2">
                             <button onClick={() => { setQuizAnswers({}); setQuizSubmitted(false) }} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Retry</button>
                             {previewSectionIdx < training.sections.length - 1 && (
-                              <button onClick={() => { setPreviewSectionIdx(previewSectionIdx + 1); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false) }} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Next Section</button>
+                              <button onClick={() => { setPreviewSectionIdx(previewSectionIdx + 1); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false) }} style={btnStyle}>Next Section</button>
                             )}
                           </div>
                         </>
@@ -657,7 +673,7 @@ export default function TrainingEditorPage() {
                         <button
                           onClick={() => setQuizSubmitted(true)}
                           disabled={Object.keys(quizAnswers).length < previewSection.quiz!.questions.length}
-                          className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                          style={{ ...btnStyle, opacity: Object.keys(quizAnswers).length < previewSection.quiz!.questions.length ? 0.5 : 1 }}
                         >
                           Submit Quiz
                         </button>
@@ -669,27 +685,27 @@ export default function TrainingEditorPage() {
             </div>
 
             {/* Section progress bar */}
-            <div className="px-6 py-3 border-t bg-gray-50">
+            <div className="px-6 py-3" style={{ borderTop: `1px solid ${brand.colors.accent}20`, backgroundColor: `${brand.colors.background}` }}>
               <div className="flex gap-1">
                 {training.sections.map((s, i) => (
                   <button
                     key={s.id}
                     onClick={() => { setPreviewSectionIdx(i); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false) }}
-                    className={`flex-1 h-1.5 rounded-full transition-colors ${
-                      i < previewSectionIdx ? 'bg-green-500' : i === previewSectionIdx ? 'bg-blue-500' : 'bg-gray-200'
-                    }`}
+                    className="flex-1 h-1.5 rounded-full transition-colors"
+                    style={{ backgroundColor: i < previewSectionIdx ? brand.colors.accent : i === previewSectionIdx ? brand.colors.primary : `${brand.colors.text}20` }}
                     title={s.title}
                   />
                 ))}
               </div>
               <div className="flex justify-between mt-1">
-                <span className="text-[10px] text-gray-400">{training.sections[0]?.title}</span>
-                <span className="text-[10px] text-gray-400">{training.sections[training.sections.length - 1]?.title}</span>
+                <span className="text-[10px]" style={{ color: brand.colors.secondaryText }}>{training.sections[0]?.title}</span>
+                <span className="text-[10px]" style={{ color: brand.colors.secondaryText }}>{training.sections[training.sections.length - 1]?.title}</span>
               </div>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
