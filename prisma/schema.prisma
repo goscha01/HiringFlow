@@ -100,7 +100,7 @@ model StepOption {
 model Session {
   id             String                @id @default(uuid())
   flowId         String                @map("flow_id")
-  flow           Flow                  @relation(fields: [flowId], references: [id])
+  flow           Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
   candidateName  String?               @map("candidate_name")
   candidateEmail String?               @map("candidate_email")
   candidatePhone String?               @map("candidate_phone")
