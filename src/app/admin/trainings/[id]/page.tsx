@@ -160,9 +160,17 @@ export default function TrainingEditorPage() {
     refresh()
   }
 
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewSectionIdx, setPreviewSectionIdx] = useState(0)
+  const [previewContentIdx, setPreviewContentIdx] = useState(0)
+  const [previewMode, setPreviewMode] = useState<'content' | 'quiz'>('content')
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string[]>>({})
+  const [quizSubmitted, setQuizSubmitted] = useState(false)
+
   if (loading || !training) return <div className="text-center py-12 text-gray-500">Loading...</div>
 
   const currentSection = training.sections.find(s => s.id === activeSection)
+  const previewSection = training.sections[previewSectionIdx]
 
   return (
     <div>
@@ -178,6 +186,12 @@ export default function TrainingEditorPage() {
           />
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => { setPreviewSectionIdx(0); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false); setPreviewOpen(true) }}
+            className="px-4 py-2 text-sm rounded-lg font-medium border border-purple-300 text-purple-600 hover:bg-purple-50"
+          >
+            Preview
+          </button>
           <button
             onClick={() => updateTraining({ isPublished: !training.isPublished })}
             className={`px-4 py-2 text-sm rounded-lg font-medium ${
@@ -394,36 +408,70 @@ export default function TrainingEditorPage() {
                             onBlur={(e) => quizAction(currentSection.id, { action: 'update_question', questionId: q.id, questionText: e.target.value })}
                             className="w-full px-2 py-1 text-sm border border-gray-200 rounded mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
-                          <div className="space-y-1">
-                            {(q.options as Array<{ text: string; isCorrect: boolean }>).map((opt, oi) => (
-                              <div key={oi} className="flex items-center gap-2">
-                                <input
-                                  type={q.questionType === 'multiselect' ? 'checkbox' : 'radio'}
-                                  name={`q-${q.id}`}
-                                  checked={opt.isCorrect}
-                                  onChange={() => {
-                                    const newOpts = (q.options as Array<{ text: string; isCorrect: boolean }>).map((o, i) => ({
-                                      ...o,
-                                      isCorrect: q.questionType === 'multiselect' ? (i === oi ? !o.isCorrect : o.isCorrect) : i === oi,
-                                    }))
-                                    quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                  }}
-                                  className="h-3 w-3"
-                                />
-                                <input
-                                  type="text"
-                                  defaultValue={opt.text}
-                                  onBlur={(e) => {
-                                    const newOpts = (q.options as Array<{ text: string; isCorrect: boolean }>).map((o, i) => i === oi ? { ...o, text: e.target.value } : o)
-                                    quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                  }}
-                                  className={`flex-1 px-2 py-0.5 text-xs border rounded ${opt.isCorrect ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}
-                                />
+                          <div className="space-y-1.5">
+                            {(q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((opt, oi) => (
+                              <div key={oi} className={`rounded-lg border p-2 ${opt.isCorrect ? 'border-green-300 bg-green-50/50' : 'border-gray-200'}`}>
+                                <div className="flex items-center gap-2">
+                                  {/* Correct toggle */}
+                                  <button
+                                    onClick={() => {
+                                      const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => ({
+                                        ...o,
+                                        isCorrect: q.questionType === 'multiselect' ? (i === oi ? !o.isCorrect : o.isCorrect) : i === oi,
+                                      }))
+                                      quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
+                                    }}
+                                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                      opt.isCorrect ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 hover:border-green-400'
+                                    }`}
+                                    title={opt.isCorrect ? 'Correct answer' : 'Mark as correct'}
+                                  >
+                                    {opt.isCorrect && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                                  </button>
+                                  {/* Option text */}
+                                  <input
+                                    type="text"
+                                    defaultValue={opt.text}
+                                    onBlur={(e) => {
+                                      const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => i === oi ? { ...o, text: e.target.value } : o)
+                                      quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
+                                    }}
+                                    className="flex-1 px-2 py-0.5 text-xs border-none bg-transparent focus:outline-none"
+                                    placeholder="Option text"
+                                  />
+                                  {/* Correct/Incorrect label */}
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${opt.isCorrect ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                                    {opt.isCorrect ? 'Correct' : 'Wrong'}
+                                  </span>
+                                  {/* Delete option */}
+                                  {(q.options as Array<{ text: string; isCorrect: boolean }>).length > 2 && (
+                                    <button
+                                      onClick={() => {
+                                        const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).filter((_, i) => i !== oi)
+                                        quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
+                                      }}
+                                      className="text-gray-300 hover:text-red-500 text-xs"
+                                    >&times;</button>
+                                  )}
+                                </div>
+                                {/* Hint / feedback */}
+                                <div className="ml-7 mt-1">
+                                  <input
+                                    type="text"
+                                    defaultValue={opt.hint || ''}
+                                    onBlur={(e) => {
+                                      const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => i === oi ? { ...o, hint: e.target.value } : o)
+                                      quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
+                                    }}
+                                    placeholder={opt.isCorrect ? 'Hint: "Correct! Because..."' : 'Hint: "Not quite. The answer is..."'}
+                                    className="w-full px-2 py-0.5 text-[10px] text-gray-500 border border-dashed border-gray-200 rounded bg-transparent focus:outline-none focus:border-blue-300"
+                                  />
+                                </div>
                               </div>
                             ))}
                             <button
                               onClick={() => {
-                                const newOpts = [...(q.options as Array<{ text: string; isCorrect: boolean }>), { text: 'New option', isCorrect: false }]
+                                const newOpts = [...(q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>), { text: 'New option', isCorrect: false, hint: '' }]
                                 quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
                               }}
                               className="text-[10px] text-blue-600 hover:text-blue-800 mt-1"
@@ -458,6 +506,190 @@ export default function TrainingEditorPage() {
           )}
         </div>
       </div>
+
+      {/* Preview Modal */}
+      {previewOpen && previewSection && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setPreviewOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Preview header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div>
+                <h3 className="font-semibold text-gray-900">{training.title}</h3>
+                <p className="text-xs text-gray-400">Section {previewSectionIdx + 1} of {training.sections.length}: {previewSection.title}</p>
+              </div>
+              <button onClick={() => setPreviewOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+
+            {/* Preview content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {previewMode === 'content' ? (
+                <>
+                  {previewSection.contents.length > 0 ? (() => {
+                    const content = previewSection.contents[previewContentIdx]
+                    if (!content) return null
+                    return (
+                      <div>
+                        {content.type === 'video' && content.video ? (
+                          <div className="rounded-lg overflow-hidden bg-black mb-4">
+                            <video src={content.video.url} controls className="w-full" autoPlay={content.autoplayNext} />
+                          </div>
+                        ) : content.type === 'text' && content.textContent ? (
+                          <div className="prose prose-sm max-w-none mb-4 whitespace-pre-wrap">{content.textContent}</div>
+                        ) : (
+                          <div className="text-center py-8 text-gray-400">No content</div>
+                        )}
+
+                        {/* Content navigation */}
+                        <div className="flex items-center justify-between mt-4">
+                          <span className="text-xs text-gray-400">{previewContentIdx + 1} / {previewSection.contents.length}</span>
+                          <div className="flex gap-2">
+                            {previewContentIdx > 0 && (
+                              <button onClick={() => setPreviewContentIdx(previewContentIdx - 1)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Back</button>
+                            )}
+                            {previewContentIdx < previewSection.contents.length - 1 ? (
+                              <button onClick={() => setPreviewContentIdx(previewContentIdx + 1)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Next</button>
+                            ) : previewSection.quiz ? (
+                              <button onClick={() => { setPreviewMode('quiz'); setQuizAnswers({}); setQuizSubmitted(false) }} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700">Take Quiz</button>
+                            ) : previewSectionIdx < training.sections.length - 1 ? (
+                              <button onClick={() => { setPreviewSectionIdx(previewSectionIdx + 1); setPreviewContentIdx(0) }} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Next Section</button>
+                            ) : (
+                              <button onClick={() => setPreviewOpen(false)} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">Complete</button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })() : previewSection.quiz ? (
+                    <button onClick={() => { setPreviewMode('quiz'); setQuizAnswers({}); setQuizSubmitted(false) }} className="w-full py-4 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700">Take Quiz</button>
+                  ) : (
+                    <div className="text-center py-8 text-gray-400">This section has no content</div>
+                  )}
+                </>
+              ) : (
+                /* Quiz mode */
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-1">{previewSection.quiz!.title}</h3>
+                  <p className="text-xs text-gray-400 mb-4">Passing grade: {previewSection.quiz!.passingGrade}%</p>
+
+                  <div className="space-y-4">
+                    {previewSection.quiz!.questions.map((q, qi) => {
+                      const opts = q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>
+                      const selected = quizAnswers[q.id] || []
+
+                      return (
+                        <div key={q.id} className="bg-gray-50 rounded-lg p-4">
+                          <p className="text-sm font-medium text-gray-800 mb-2">{qi + 1}. {q.questionText}</p>
+                          <div className="space-y-1.5">
+                            {opts.map((opt, oi) => {
+                              const isSelected = selected.includes(String(oi))
+                              const showResult = quizSubmitted
+                              const isCorrectAnswer = opt.isCorrect
+
+                              let bgColor = 'bg-white border-gray-200'
+                              if (showResult && isSelected && isCorrectAnswer) bgColor = 'bg-green-50 border-green-400'
+                              else if (showResult && isSelected && !isCorrectAnswer) bgColor = 'bg-red-50 border-red-400'
+                              else if (showResult && !isSelected && isCorrectAnswer) bgColor = 'bg-green-50/50 border-green-200'
+                              else if (isSelected) bgColor = 'bg-blue-50 border-blue-400'
+
+                              return (
+                                <div key={oi}>
+                                  <button
+                                    onClick={() => {
+                                      if (quizSubmitted) return
+                                      if (q.questionType === 'multiselect') {
+                                        setQuizAnswers(prev => ({
+                                          ...prev,
+                                          [q.id]: isSelected ? selected.filter(s => s !== String(oi)) : [...selected, String(oi)],
+                                        }))
+                                      } else {
+                                        setQuizAnswers(prev => ({ ...prev, [q.id]: [String(oi)] }))
+                                      }
+                                    }}
+                                    className={`w-full text-left px-3 py-2 text-sm rounded-lg border transition-colors ${bgColor} ${quizSubmitted ? '' : 'hover:border-blue-400'}`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium">{opt.text}</span>
+                                      {showResult && isSelected && isCorrectAnswer && <span className="text-green-600 text-xs ml-auto">✓ Correct</span>}
+                                      {showResult && isSelected && !isCorrectAnswer && <span className="text-red-600 text-xs ml-auto">✗ Incorrect</span>}
+                                      {showResult && !isSelected && isCorrectAnswer && <span className="text-green-500 text-[10px] ml-auto">← Correct answer</span>}
+                                    </div>
+                                  </button>
+                                  {showResult && isSelected && opt.hint && (
+                                    <p className={`text-xs mt-0.5 ml-3 ${isCorrectAnswer ? 'text-green-600' : 'text-red-600'}`}>{opt.hint}</p>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Quiz actions */}
+                  <div className="mt-4 flex items-center justify-between">
+                    {quizSubmitted ? (() => {
+                      const total = previewSection.quiz!.questions.length
+                      const correct = previewSection.quiz!.questions.filter(q => {
+                        const opts = q.options as Array<{ isCorrect: boolean }>
+                        const selected = (quizAnswers[q.id] || []).map(Number)
+                        return opts.every((o, i) => o.isCorrect === selected.includes(i))
+                      }).length
+                      const pct = Math.round((correct / total) * 100)
+                      const passed = pct >= previewSection.quiz!.passingGrade
+
+                      return (
+                        <>
+                          <div className={`text-sm font-medium ${passed ? 'text-green-700' : 'text-red-700'}`}>
+                            Score: {correct}/{total} ({pct}%) — {passed ? 'Passed!' : 'Not passed'}
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => { setQuizAnswers({}); setQuizSubmitted(false) }} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Retry</button>
+                            {previewSectionIdx < training.sections.length - 1 && (
+                              <button onClick={() => { setPreviewSectionIdx(previewSectionIdx + 1); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false) }} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">Next Section</button>
+                            )}
+                          </div>
+                        </>
+                      )
+                    })() : (
+                      <>
+                        <span />
+                        <button
+                          onClick={() => setQuizSubmitted(true)}
+                          disabled={Object.keys(quizAnswers).length < previewSection.quiz!.questions.length}
+                          className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          Submit Quiz
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section progress bar */}
+            <div className="px-6 py-3 border-t bg-gray-50">
+              <div className="flex gap-1">
+                {training.sections.map((s, i) => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setPreviewSectionIdx(i); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false) }}
+                    className={`flex-1 h-1.5 rounded-full transition-colors ${
+                      i < previewSectionIdx ? 'bg-green-500' : i === previewSectionIdx ? 'bg-blue-500' : 'bg-gray-200'
+                    }`}
+                    title={s.title}
+                  />
+                ))}
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-[10px] text-gray-400">{training.sections[0]?.title}</span>
+                <span className="text-[10px] text-gray-400">{training.sections[training.sections.length - 1]?.title}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
