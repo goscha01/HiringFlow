@@ -87,7 +87,7 @@ export default function TrainingsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Trainings</h1>
         <button
           onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          className="btn-primary text-sm"
         >
           + New Training
         </button>
@@ -107,7 +107,7 @@ export default function TrainingsPage() {
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="e.g. Onboarding Program"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
               </div>
@@ -140,7 +140,7 @@ export default function TrainingsPage() {
                       key={t}
                       onClick={() => setNewTimeLimit({ type: t })}
                       className={`flex-1 py-2 text-xs capitalize rounded-lg border ${
-                        newTimeLimit.type === t ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                        newTimeLimit.type === t ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'
                       }`}
                     >
                       {t}
@@ -154,14 +154,14 @@ export default function TrainingsPage() {
                     value={newTimeLimit.value || ''}
                     onChange={(e) => setNewTimeLimit({ type: 'days', value: Number(e.target.value) })}
                     placeholder="Number of days"
-                    className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="w-full mt-2 px-3 py-2 border border-surface-border rounded-[8px] text-sm"
                   />
                 )}
                 {newTimeLimit.type === 'calendar' && (
                   <input
                     type="date"
                     onChange={(e) => setNewTimeLimit({ type: 'calendar', value: undefined, ...({ date: e.target.value } as Record<string, string>) })}
-                    className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="w-full mt-2 px-3 py-2 border border-surface-border rounded-[8px] text-sm"
                   />
                 )}
               </div>
@@ -172,7 +172,7 @@ export default function TrainingsPage() {
                   <button
                     onClick={() => setNewPricing({ type: 'free' })}
                     className={`flex-1 py-2 text-xs rounded-lg border ${
-                      newPricing.type === 'free' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                      newPricing.type === 'free' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'
                     }`}
                   >
                     Free
@@ -180,7 +180,7 @@ export default function TrainingsPage() {
                   <button
                     onClick={() => setNewPricing({ type: 'paid', price: 0 })}
                     className={`flex-1 py-2 text-xs rounded-lg border ${
-                      newPricing.type === 'paid' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'
+                      newPricing.type === 'paid' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'
                     }`}
                   >
                     Paid
@@ -196,7 +196,7 @@ export default function TrainingsPage() {
                       value={newPricing.price || ''}
                       onChange={(e) => setNewPricing({ type: 'paid', price: Number(e.target.value) })}
                       placeholder="Price"
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      className="flex-1 px-3 py-2 border border-surface-border rounded-[8px] text-sm"
                     />
                   </div>
                 )}
@@ -204,10 +204,10 @@ export default function TrainingsPage() {
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowCreate(false)} className="flex-1 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <button onClick={() => setShowCreate(false)} className="btn-secondary flex-1 py-2.5 text-sm">
                 Cancel
               </button>
-              <button onClick={createTraining} disabled={creating || !newTitle.trim()} className="flex-1 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              <button onClick={createTraining} disabled={creating || !newTitle.trim()} className="btn-primary flex-1 py-2.5 text-sm disabled:opacity-50">
                 {creating ? 'Creating...' : 'Create Training'}
               </button>
             </div>
@@ -217,7 +217,7 @@ export default function TrainingsPage() {
 
       {/* Training cards */}
       {trainings.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <div className="bg-white rounded-lg border border-surface-border p-12 text-center">
           <div className="w-16 h-16 mx-auto mb-4 bg-blue-50 rounded-full flex items-center justify-center">
             <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -225,14 +225,14 @@ export default function TrainingsPage() {
           </div>
           <h2 className="text-lg font-semibold text-gray-900 mb-2">No trainings yet</h2>
           <p className="text-gray-500 mb-4">Create your first training program</p>
-          <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
             + New Training
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {trainings.map((t) => (
-            <div key={t.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+            <div key={t.id} className="bg-white rounded-lg border border-surface-border overflow-hidden hover:shadow-md transition-shadow">
               {t.coverImage && (
                 <Link href={`/admin/trainings/${t.id}`}>
                   <img src={t.coverImage} alt={t.title} className="w-full h-36 object-cover" />

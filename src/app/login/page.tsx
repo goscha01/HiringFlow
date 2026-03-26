@@ -15,82 +15,80 @@ export default function LoginPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
-
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    })
-
+    const result = await signIn('credentials', { email, password, redirect: false })
     setLoading(false)
-
-    if (result?.error) {
-      setError('Invalid email or password')
-    } else {
-      router.push('/admin/flows')
-      router.refresh()
-    }
+    if (result?.error) setError('Invalid email or password')
+    else { router.push('/admin/flows'); router.refresh() }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full mx-4">
-        <div className="bg-white rounded-lg shadow-md p-8">
-          <h1 className="text-2xl font-bold text-center text-gray-900 mb-8">
-            HiringFlow Admin
-          </h1>
+    <div className="min-h-screen bg-surface flex flex-col">
+      {/* Top banner */}
+      <div className="bg-brand-500 text-white text-center py-3 text-sm">
+        HiringFlow — Video Interview & Training Platform
+      </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-md text-sm">
-                {error}
+      <div className="flex-1 flex items-center justify-center px-4">
+        <div className="w-full max-w-[440px]">
+          {/* Logo */}
+          <div className="flex justify-center mb-8">
+            <div className="w-[54px] h-[54px] bg-brand-500 rounded-[8px] flex items-center justify-center">
+              <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/>
+              </svg>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border border-surface-border p-10">
+            <h1 className="text-2xl font-semibold text-grey-15 text-center mb-2">Welcome Back</h1>
+            <p className="text-grey-35 text-center mb-8">Sign in to your HiringFlow account</p>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {error && (
+                <div className="bg-red-50 text-red-600 px-4 py-3 rounded-[8px] text-sm border border-red-200">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-grey-20 mb-1.5">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-grey-15 placeholder-grey-50"
+                  placeholder="admin@example.com"
+                />
               </div>
-            )}
 
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-medium text-gray-700 mb-1"
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-grey-20 mb-1.5">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full px-4 py-3 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 text-grey-15 placeholder-grey-50"
+                  placeholder="Enter your password"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full btn-primary py-3.5 text-base disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="admin@example.com"
-              />
-            </div>
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
+            </form>
+          </div>
 
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Enter your password"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+          <p className="text-center text-grey-40 text-sm mt-6">
+            &copy; {new Date().getFullYear()} HiringFlow. All rights reserved.
+          </p>
         </div>
       </div>
     </div>

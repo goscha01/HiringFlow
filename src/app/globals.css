@@ -1,7 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+@layer base {
+  body {
+    @apply font-sans text-grey-15 antialiased;
+  }
+}
+
+@layer components {
+  /* Figma-style buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-brand-500 text-white font-medium rounded-[8px] hover:bg-brand-600 transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-surface-light border border-surface-border text-grey-15 font-medium rounded-[8px] hover:bg-surface transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-3 text-grey-15 font-normal rounded-[8px] hover:bg-surface transition-colors;
+  }
+
+  /* Section containers */
+  .section-card {
+    @apply bg-white rounded-lg p-8 lg:p-[50px];
+  }
+  .section-heading {
+    @apply text-2xl font-semibold text-grey-15;
+  }
+  .section-paragraph {
+    @apply text-lg text-grey-35 leading-relaxed;
+  }
+
+  /* Feature number from Benefits */
+  .feature-number {
+    @apply text-[50px] font-extrabold text-grey-15 leading-none;
+  }
 }
