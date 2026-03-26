@@ -255,6 +255,7 @@ export default function TrainingEditorPage() {
               <div className="flex items-center justify-between px-6 py-5 border-b border-surface-border">
                 <div className="flex items-center gap-3 group flex-1">
                   <input
+                    key={currentSection.id}
                     type="text"
                     defaultValue={currentSection.title}
                     onBlur={(e) => { if (e.target.value !== currentSection.title) updateSection(currentSection.id, { title: e.target.value }) }}
