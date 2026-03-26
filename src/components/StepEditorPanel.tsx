@@ -125,10 +125,11 @@ interface Step {
   video: Video | null
   questionText: string | null
   stepOrder: number
-  stepType: 'question' | 'submission'
-  questionType: 'single' | 'multiselect' | 'button'
+  stepType: string
+  questionType: string
   formEnabled?: boolean
   formConfig?: FormConfig | null
+  infoContent?: string | null
   captionsEnabled?: boolean
   captionStyle?: CaptionStyle | null
   options: Option[]
@@ -277,7 +278,7 @@ export default function StepEditorPanel({
         body: JSON.stringify({
           transcript: transcript?.text || step.video?.transcript || null,
           stepTitle: step.title,
-          flowContext: `This is step ${step.stepOrder + 1} in a video interview flow.`,
+          flowContext: `This is step ${step.stepOrder + 1} in an application flow.`,
         }),
       })
       if (res.ok) {
@@ -869,11 +870,13 @@ export default function StepEditorPanel({
                 <label className="block text-sm font-medium text-gray-700 mb-1">Step Type</label>
                 <select
                   value={step.stepType || 'question'}
-                  onChange={(e) => onUpdateStep(step.id, { stepType: e.target.value as 'question' | 'submission' })}
+                  onChange={(e) => onUpdateStep(step.id, { stepType: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="question">Question (Select Options)</option>
-                  <option value="submission">Submission (Video/Text Response)</option>
+                  <option value="question">Question Step</option>
+                  <option value="form">Form Step (Collect Information)</option>
+                  <option value="submission">Submission Step (Video/Text Response)</option>
+                  <option value="info">Info Step (Instructions/Notice)</option>
                 </select>
               </div>
 
@@ -883,13 +886,42 @@ export default function StepEditorPanel({
                   <label className="block text-sm font-medium text-gray-700 mb-1">Question Type</label>
                   <select
                     value={step.questionType || 'single'}
-                    onChange={(e) => onUpdateStep(step.id, { questionType: e.target.value as 'single' | 'multiselect' | 'button' })}
+                    onChange={(e) => onUpdateStep(step.id, { questionType: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="single">Single Choice (Radio)</option>
-                    <option value="multiselect">Multiple Choice (Checkbox)</option>
+                    <option value="single">Single Choice</option>
+                    <option value="multiselect">Multiple Choice</option>
+                    <option value="yesno">Yes / No</option>
                     <option value="button">Quick Action (Buttons)</option>
+                    <option value="text">Short Text Answer</option>
                   </select>
+                </div>
+              )}
+
+              {/* Form Step */}
+              {step.stepType === 'form' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                  <h4 className="font-medium text-blue-800 mb-2">Form Step</h4>
+                  <p className="text-sm text-blue-700 mb-3">
+                    Collect candidate information. Toggle fields below in the Form tab.
+                  </p>
+                  <button onClick={() => setActiveTab('form')} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    Configure Form Fields →
+                  </button>
+                </div>
+              )}
+
+              {/* Info Step */}
+              {step.stepType === 'info' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Info Content</label>
+                  <DebouncedTextarea
+                    value={step.infoContent || ''}
+                    onChange={(val) => onUpdateStep(step.id, { infoContent: val })}
+                    rows={5}
+                    placeholder="Instructions, welcome text, or transition notice..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
               )}
 

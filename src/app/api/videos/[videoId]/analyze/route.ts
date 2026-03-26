@@ -43,7 +43,7 @@ export async function POST(
       messages: [
         {
           role: 'system',
-          content: `You analyze video interview transcripts. Given a transcript, generate:
+          content: `You analyze video transcripts for application flows. Given a transcript, generate:
 1. A short descriptive name (3-6 words) for the video
 2. A one-sentence summary
 3. 3-5 bullet points of key topics covered

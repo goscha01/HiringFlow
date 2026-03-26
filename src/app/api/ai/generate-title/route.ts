@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: 'You generate short, descriptive titles (3-8 words) for video interview steps. The title should summarize the video content like a section heading — professional and clear. Do NOT phrase it as a question. Examples: "Interview Expectations Overview", "Company Culture & Values", "Role Requirements Discussion", "Team Introduction & Workflow". Respond with ONLY the title text, nothing else.',
+          content: 'You generate short, descriptive titles (3-8 words) for application flow steps. The title should summarize the content like a section heading — professional and clear. Do NOT phrase it as a question. Examples: "Role Expectations Overview", "Company Culture & Values", "Requirements Discussion", "Team Introduction & Workflow". Respond with ONLY the title text, nothing else.',
         },
         {
           role: 'user',

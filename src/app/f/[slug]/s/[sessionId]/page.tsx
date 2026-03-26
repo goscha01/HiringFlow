@@ -31,8 +31,10 @@ interface StepData {
   title: string
   videoUrl: string | null
   questionText: string | null
-  stepType: 'question' | 'submission'
-  questionType: 'single' | 'multiselect' | 'button'
+  stepType: string
+  infoContent?: string | null
+  progress?: { current: number; total: number }
+  questionType: string
   captionsEnabled?: boolean
   captionStyle?: CaptionStyle | null
   segments?: Segment[]
@@ -54,6 +56,7 @@ export default function SessionPlayerPage() {
   const [videoEnded, setVideoEnded] = useState(false)
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
   const [textMessage, setTextMessage] = useState('')
+  const [textAnswer, setTextAnswer] = useState('')
   const [recordedVideo, setRecordedVideo] = useState<Blob | null>(null)
   // Form state
   const [showForm, setShowForm] = useState(false)
@@ -69,6 +72,7 @@ export default function SessionPlayerPage() {
     setVideoEnded(false)
     setSelectedOptions([])
     setTextMessage('')
+    setTextAnswer('')
     setRecordedVideo(null)
     setFormSubmitted(false)
     setFormValues({})
@@ -79,8 +83,8 @@ export default function SessionPlayerPage() {
         router.push(`/f/${slug}/s/${sessionId}/done`)
       } else {
         setStep(data)
-        // Show form before video if form is enabled
-        if (data.formEnabled && data.formConfig?.fields?.some((f: FormField) => f.enabled)) {
+        // Show form for form steps or if form is enabled on other steps
+        if ((data.stepType === 'form' || data.formEnabled) && data.formConfig?.fields?.some((f: FormField) => f.enabled)) {
           setShowForm(true)
         } else {
           setShowForm(false)
@@ -357,10 +361,87 @@ export default function SessionPlayerPage() {
           </div>
         )}
 
-        {!showOptions && step.videoUrl && (step.stepType || 'question') === 'question' && (
+        {/* Info Step */}
+        {step.stepType === 'info' && (
+          <div className={overlay ? '' : 'max-w-md mx-auto'}>
+            {step.infoContent && (
+              <p className={`text-sm ${textColorClass} mb-4 whitespace-pre-wrap`}>{step.infoContent}</p>
+            )}
+            <button
+              onClick={async () => {
+                setSubmitting(true)
+                const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ stepId: step.stepId }),
+                })
+                if (res.ok) {
+                  const data = await res.json()
+                  if (data.finished) router.push(`/f/${slug}/s/${sessionId}/done`)
+                  else fetchStep()
+                }
+                setSubmitting(false)
+              }}
+              disabled={submitting}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors"
+            >
+              {submitting ? 'Loading...' : 'Continue'}
+            </button>
+          </div>
+        )}
+
+        {/* Text Answer Question */}
+        {(step.stepType || 'question') === 'question' && step.questionType === 'text' && (
+          <div className={overlay ? '' : 'max-w-md mx-auto'}>
+            <textarea
+              value={textAnswer}
+              onChange={(e) => setTextAnswer(e.target.value)}
+              rows={4}
+              placeholder="Type your answer..."
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+            />
+            <button
+              onClick={async () => {
+                if (!textAnswer.trim()) return
+                setSubmitting(true)
+                const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ stepId: step.stepId, textAnswer }),
+                })
+                if (res.ok) {
+                  const data = await res.json()
+                  if (data.finished) router.push(`/f/${slug}/s/${sessionId}/done`)
+                  else fetchStep()
+                }
+                setSubmitting(false)
+              }}
+              disabled={!textAnswer.trim() || submitting}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors"
+            >
+              {submitting ? 'Submitting...' : 'Submit Answer'}
+            </button>
+          </div>
+        )}
+
+        {!showOptions && step.videoUrl && (step.stepType || 'question') === 'question' && step.questionType !== 'text' && (
           <p className={`text-center text-sm ${overlay ? 'text-white/50' : 'text-gray-500'} mt-3`}>
             Watch the video to unlock options
           </p>
+        )}
+
+        {/* Progress bar */}
+        {step.progress && (
+          <div className="mt-4">
+            <div className="flex gap-1">
+              {Array.from({ length: step.progress.total }).map((_, i) => (
+                <div key={i} className={`flex-1 h-1 rounded-full ${i < step.progress!.current ? 'bg-blue-500' : 'bg-gray-200'}`} />
+              ))}
+            </div>
+            <p className={`text-center text-xs mt-1 ${overlay ? 'text-white/40' : 'text-gray-400'}`}>
+              Step {step.progress.current} of {step.progress.total}
+            </p>
+          </div>
         )}
       </div>
     )

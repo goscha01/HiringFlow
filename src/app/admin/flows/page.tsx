@@ -76,7 +76,7 @@ export default function FlowsPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-[36px] font-semibold text-grey-15">Flows</h1>
-          <p className="text-grey-35 mt-1">Create and manage your video interview flows</p>
+          <p className="text-grey-35 mt-1">Create and manage your application flows</p>
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary">
           + Create Flow
@@ -91,7 +91,7 @@ export default function FlowsPage() {
             </svg>
           </div>
           <h2 className="text-xl font-semibold text-grey-15 mb-2">No flows yet</h2>
-          <p className="text-grey-35 mb-6">Create your first video interview flow</p>
+          <p className="text-grey-35 mb-6">Create your first application flow</p>
           <button onClick={() => setShowModal(true)} className="btn-primary">+ Create Flow</button>
         </div>
       ) : (

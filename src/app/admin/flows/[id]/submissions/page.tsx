@@ -35,6 +35,10 @@ interface Session {
   id: string
   candidateName: string | null
   candidateEmail: string | null
+  candidatePhone: string | null
+  outcome: string | null
+  formData: Record<string, string> | null
+  source: string | null
   startedAt: string
   finishedAt: string | null
   answers: Answer[]
@@ -140,12 +144,15 @@ export default function SubmissionsPage() {
                   <div className="flex items-center gap-2 mt-2">
                     <span
                       className={`px-2 py-0.5 text-xs rounded-full ${
-                        session.finishedAt
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-yellow-100 text-yellow-700'
+                        session.outcome === 'passed' ? 'bg-green-100 text-green-700' :
+                        session.outcome === 'failed' ? 'bg-red-100 text-red-700' :
+                        session.finishedAt ? 'bg-blue-100 text-blue-700' :
+                        'bg-yellow-100 text-yellow-700'
                       }`}
                     >
-                      {session.finishedAt ? 'Completed' : 'In Progress'}
+                      {session.outcome === 'passed' ? 'Passed' :
+                       session.outcome === 'failed' ? 'Failed' :
+                       session.finishedAt ? 'Completed' : 'In Progress'}
                     </span>
                     <span className="text-xs text-gray-400">
                       {session.answers.length} answer

@@ -28,8 +28,13 @@ interface Step {
   video: Video | null
   questionText: string | null
   stepOrder: number
-  stepType: 'question' | 'submission'
-  questionType: 'single' | 'multiselect' | 'button'
+  stepType: string
+  questionType: string
+  infoContent?: string | null
+  formEnabled?: boolean
+  formConfig?: any
+  captionsEnabled?: boolean
+  captionStyle?: any
   options: Option[]
 }
 
@@ -390,7 +395,7 @@ export default function FlowBuilderPage() {
           value={flow.startMessage}
           onChange={(e) => updateFlow({ startMessage: e.target.value })}
           rows={3}
-          placeholder="Welcome to the video interview"
+          placeholder="Welcome! Please complete the following steps."
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>

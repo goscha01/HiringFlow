@@ -7,16 +7,13 @@ export async function POST(
 ) {
   try {
     const body = await request.json()
-    const { stepId, optionId, optionIds } = body
+    const { stepId, optionId, optionIds, formData, textAnswer } = body
 
     // Support both single optionId and array optionIds
     const selectedOptionIds: string[] = optionIds || (optionId ? [optionId] : [])
 
-    if (!stepId || selectedOptionIds.length === 0) {
-      return NextResponse.json(
-        { error: 'stepId and at least one option are required' },
-        { status: 400 }
-      )
+    if (!stepId) {
+      return NextResponse.json({ error: 'stepId is required' }, { status: 400 })
     }
 
     const session = await prisma.session.findUnique({
@@ -43,58 +40,90 @@ export async function POST(
       return NextResponse.json({ error: 'Step not found' }, { status: 404 })
     }
 
-    // Verify all options belong to the step
-    const options = await prisma.stepOption.findMany({
-      where: {
-        id: { in: selectedOptionIds },
-        stepId: stepId,
-      },
-    })
-
-    if (options.length !== selectedOptionIds.length) {
-      return NextResponse.json({ error: 'Invalid option(s)' }, { status: 400 })
+    // Save form data to session if provided
+    if (formData) {
+      const updateData: Record<string, unknown> = { formData }
+      if (formData.name) updateData.candidateName = formData.name
+      if (formData.email) updateData.candidateEmail = formData.email
+      if (formData.phone) updateData.candidatePhone = formData.phone
+      await prisma.session.update({ where: { id: params.sessionId }, data: updateData })
     }
 
-    // Delete existing answers for this step (to handle re-answers and multiselect)
-    await prisma.sessionAnswer.deleteMany({
-      where: {
-        sessionId: params.sessionId,
-        stepId: stepId,
-      },
-    })
-
-    // Create answer(s)
-    await prisma.sessionAnswer.createMany({
-      data: selectedOptionIds.map((oid) => ({
-        sessionId: params.sessionId,
-        stepId: stepId,
-        optionId: oid,
-      })),
-    })
-
-    // Determine next step (use first option's nextStepId)
-    const firstOption = options[0]
-    const nextStepId = firstOption?.nextStepId
-
-    if (nextStepId) {
-      // Update session to next step
-      await prisma.session.update({
-        where: { id: params.sessionId },
-        data: { lastStepId: nextStepId },
+    // For form/info steps, just advance to next step (no options needed)
+    if (step.stepType === 'form' || step.stepType === 'info') {
+      // Find next step by stepOrder
+      const nextStep = await prisma.flowStep.findFirst({
+        where: { flowId: session.flowId, stepOrder: { gt: step.stepOrder } },
+        orderBy: { stepOrder: 'asc' },
       })
-
-      return NextResponse.json({ nextStepId })
-    } else {
-      // End of flow
-      await prisma.session.update({
-        where: { id: params.sessionId },
-        data: {
-          finishedAt: new Date(),
-        },
-      })
-
-      return NextResponse.json({ finished: true })
+      if (nextStep) {
+        await prisma.session.update({ where: { id: params.sessionId }, data: { lastStepId: nextStep.id } })
+        return NextResponse.json({ nextStepId: nextStep.id })
+      } else {
+        await prisma.session.update({ where: { id: params.sessionId }, data: { finishedAt: new Date(), outcome: 'completed' } })
+        return NextResponse.json({ finished: true })
+      }
     }
+
+    // For text answer questions, save as submission
+    if (step.questionType === 'text' && textAnswer) {
+      await prisma.candidateSubmission.upsert({
+        where: { sessionId_stepId: { sessionId: params.sessionId, stepId } },
+        create: { sessionId: params.sessionId, stepId, textMessage: textAnswer },
+        update: { textMessage: textAnswer },
+      })
+    }
+
+    // For question steps with options
+    if (selectedOptionIds.length > 0) {
+      // Verify all options belong to the step
+      const options = await prisma.stepOption.findMany({
+        where: { id: { in: selectedOptionIds }, stepId },
+      })
+      if (options.length !== selectedOptionIds.length) {
+        return NextResponse.json({ error: 'Invalid option(s)' }, { status: 400 })
+      }
+
+      // Delete existing answers for this step
+      await prisma.sessionAnswer.deleteMany({
+        where: { sessionId: params.sessionId, stepId },
+      })
+
+      // Create answer(s)
+      await prisma.sessionAnswer.createMany({
+        data: selectedOptionIds.map((oid) => ({
+          sessionId: params.sessionId,
+          stepId,
+          optionId: oid,
+        })),
+      })
+
+      // Determine next step
+      const firstOption = options[0]
+      const nextStepId = firstOption?.nextStepId
+
+      if (nextStepId) {
+        await prisma.session.update({ where: { id: params.sessionId }, data: { lastStepId: nextStepId } })
+        return NextResponse.json({ nextStepId })
+      }
+    }
+
+    // End of flow — find next step by order or finish
+    const nextStep = await prisma.flowStep.findFirst({
+      where: { flowId: session.flowId, stepOrder: { gt: step.stepOrder } },
+      orderBy: { stepOrder: 'asc' },
+    })
+    if (nextStep) {
+      await prisma.session.update({ where: { id: params.sessionId }, data: { lastStepId: nextStep.id } })
+      return NextResponse.json({ nextStepId: nextStep.id })
+    }
+
+    // Truly end of flow
+    await prisma.session.update({
+      where: { id: params.sessionId },
+      data: { finishedAt: new Date(), outcome: 'completed' },
+    })
+    return NextResponse.json({ finished: true })
   } catch (error) {
     console.error('Submit answer error:', error)
     return NextResponse.json({ error: 'Failed to submit answer' }, { status: 500 })

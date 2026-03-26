@@ -40,6 +40,10 @@ export async function GET(
 
   const step = session.lastStep
 
+  // Count total steps for progress
+  const totalSteps = await prisma.flowStep.count({ where: { flowId: session.flowId } })
+  const currentStepOrder = step.stepOrder
+
   return NextResponse.json({
     stepId: step.id,
     title: step.title,
@@ -47,11 +51,13 @@ export async function GET(
     questionText: step.questionText,
     stepType: step.stepType,
     questionType: step.questionType,
+    infoContent: (step as Record<string, unknown>).infoContent || null,
     captionsEnabled: step.captionsEnabled,
     captionStyle: step.captionStyle,
     segments: step.captionsEnabled && step.video ? (step.video as any).segments || [] : [],
-    formEnabled: step.formEnabled,
+    formEnabled: step.formEnabled || step.stepType === 'form',
     formConfig: step.formConfig,
+    progress: { current: currentStepOrder + 1, total: totalSteps },
     options: step.options.map((o) => ({
       optionId: o.id,
       text: o.optionText,

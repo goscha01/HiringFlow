@@ -48,7 +48,7 @@ model Flow {
   name         String
   slug         String     @unique
   isPublished  Boolean    @default(false) @map("is_published")
-  startMessage String     @default("Welcome to the video interview") @map("start_message")
+  startMessage String     @default("Welcome! Please complete the following steps.") @map("start_message")
   endMessage   String     @default("Thank you for your participation!") @map("end_message")
   branding     Json?
   createdAt    DateTime   @default(now()) @map("created_at")
@@ -67,10 +67,11 @@ model FlowStep {
   video           Video?                @relation(fields: [videoId], references: [id])
   questionText    String?               @map("question_text")
   stepOrder       Int                   @default(0) @map("step_order")
-  stepType        String                @default("question") @map("step_type")
-  questionType    String                @default("single") @map("question_type")
+  stepType        String                @default("question") @map("step_type") // 'question' | 'submission' | 'form' | 'info'
+  questionType    String                @default("single") @map("question_type") // 'single' | 'multiselect' | 'button' | 'yesno' | 'text'
   formEnabled     Boolean               @default(false) @map("form_enabled")
   formConfig      Json?                 @map("form_config")
+  infoContent     String?               @map("info_content") // Rich text for info steps
   captionsEnabled Boolean               @default(false) @map("captions_enabled")
   captionStyle    Json?                 @map("caption_style")
   createdAt       DateTime              @default(now()) @map("created_at")
@@ -102,10 +103,17 @@ model Session {
   flow           Flow                  @relation(fields: [flowId], references: [id])
   candidateName  String?               @map("candidate_name")
   candidateEmail String?               @map("candidate_email")
+  candidatePhone String?               @map("candidate_phone")
+  formData       Json?                 @map("form_data")
   startedAt      DateTime              @default(now()) @map("started_at")
   finishedAt     DateTime?             @map("finished_at")
+  outcome        String?               // 'completed' | 'passed' | 'failed' | 'abandoned'
   lastStepId     String?               @map("last_step_id")
   lastStep       FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
+  // Source attribution (for future ad/campaign tracking)
+  adId           String?               @map("ad_id")
+  campaignId     String?               @map("campaign_id")
+  source         String?
   answers        SessionAnswer[]
   submissions    CandidateSubmission[]
 

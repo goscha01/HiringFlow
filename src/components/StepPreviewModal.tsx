@@ -21,8 +21,8 @@ interface Step {
   video: Video | null
   questionText: string | null
   stepOrder: number
-  stepType: 'question' | 'submission'
-  questionType: 'single' | 'multiselect' | 'button'
+  stepType: string
+  questionType: string
   options: Option[]
 }
 

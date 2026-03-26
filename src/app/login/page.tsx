@@ -25,7 +25,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-surface flex flex-col">
       {/* Top banner */}
       <div className="bg-brand-500 text-white text-center py-3 text-sm">
-        HiringFlow — Video Interview & Training Platform
+        HiringFlow — Application Flows & Training Platform
       </div>
 
       <div className="flex-1 flex items-center justify-center px-4">
