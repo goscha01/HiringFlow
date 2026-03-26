@@ -27,6 +27,7 @@ export default function TrainingPage() {
   const [quizResults, setQuizResults] = useState<{ score: number; correct: number; total: number; passed: boolean; results: QuizResult[] } | null>(null)
   const [submittingQuiz, setSubmittingQuiz] = useState(false)
   const [completed, setCompleted] = useState(false)
+  const [activeLesson, setActiveLesson] = useState<{ sectionIdx: number; contentIdx: number } | null>(null)
 
   useEffect(() => {
     fetch(`/api/public/trainings/${slug}`)
@@ -142,24 +143,99 @@ export default function TrainingPage() {
           </div>
         </div>
 
-        {/* Cover image / video hero */}
+        {/* Video / Cover hero */}
         <div className="max-w-[1596px] mx-auto w-full px-6 lg:px-[80px] py-10">
           <div className="relative rounded-[12px] overflow-hidden bg-[#262626]">
-            {training.coverImage ? (
-              <img src={training.coverImage} alt="" className="w-full h-[300px] lg:h-[480px] object-cover" />
-            ) : (
-              <div className="w-full h-[300px] lg:h-[480px] bg-gradient-to-br from-[#333] to-[#1a1a1a]" />
+            {activeLesson ? (() => {
+              const al = training.sections[activeLesson.sectionIdx]?.contents[activeLesson.contentIdx]
+              if (al?.type === 'video' && al.videoUrl) {
+                return (
+                  <video
+                    key={`${activeLesson.sectionIdx}-${activeLesson.contentIdx}`}
+                    src={al.videoUrl}
+                    controls
+                    autoPlay
+                    className="w-full h-[300px] lg:h-[480px] object-contain bg-black"
+                  />
+                )
+              }
+              if (al?.type === 'text' && al.textContent) {
+                return (
+                  <div className="w-full h-[300px] lg:h-[480px] overflow-y-auto p-10 bg-white">
+                    <div className="max-w-[700px] mx-auto text-[#262626] text-lg leading-relaxed whitespace-pre-wrap">{al.textContent}</div>
+                  </div>
+                )
+              }
+              return <div className="w-full h-[300px] lg:h-[480px] flex items-center justify-center text-[#59595A]">No content</div>
+            })() : (
+              <>
+                {training.coverImage ? (
+                  <img src={training.coverImage} alt="" className="w-full h-[300px] lg:h-[480px] object-cover" />
+                ) : (
+                  <div className="w-full h-[300px] lg:h-[480px] bg-gradient-to-br from-[#333] to-[#1a1a1a]" />
+                )}
+                {/* Play button overlay */}
+                <button
+                  onClick={() => {
+                    // Find first video content
+                    for (let si = 0; si < training.sections.length; si++) {
+                      for (let ci = 0; ci < training.sections[si].contents.length; ci++) {
+                        if (training.sections[si].contents[ci].videoUrl) {
+                          setActiveLesson({ sectionIdx: si, contentIdx: ci })
+                          return
+                        }
+                      }
+                    }
+                    startAtSection(0)
+                  }}
+                  className="absolute inset-0 flex items-center justify-center"
+                >
+                  <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white/30 transition-colors">
+                    <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                  </div>
+                </button>
+              </>
             )}
-            {/* Play button overlay */}
-            <button
-              onClick={() => startAtSection(0)}
-              className="absolute inset-0 flex items-center justify-center"
-            >
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center hover:bg-white/30 transition-colors">
-                <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-              </div>
-            </button>
           </div>
+          {/* Active lesson info bar */}
+          {activeLesson && (() => {
+            const al = training.sections[activeLesson.sectionIdx]?.contents[activeLesson.contentIdx]
+            const sectionTitle = training.sections[activeLesson.sectionIdx]?.title
+            return (
+              <div className="flex items-center justify-between mt-4 px-1">
+                <div>
+                  <p className="text-sm font-medium text-[#262626]">{al?.videoName || al?.textContent?.slice(0, 40) || 'Lesson'}</p>
+                  <p className="text-xs text-[#59595A]">{sectionTitle} · Lesson {String(activeLesson.contentIdx + 1).padStart(2, '0')}</p>
+                </div>
+                <div className="flex gap-2">
+                  {/* Prev */}
+                  <button
+                    onClick={() => {
+                      if (activeLesson.contentIdx > 0) setActiveLesson({ ...activeLesson, contentIdx: activeLesson.contentIdx - 1 })
+                      else if (activeLesson.sectionIdx > 0) {
+                        const prevSection = training.sections[activeLesson.sectionIdx - 1]
+                        setActiveLesson({ sectionIdx: activeLesson.sectionIdx - 1, contentIdx: prevSection.contents.length - 1 })
+                      }
+                    }}
+                    className="px-4 py-2 text-xs border border-[#F1F1F3] rounded-[8px] text-[#59595A] hover:bg-[#F7F7F8]"
+                  >
+                    ← Prev
+                  </button>
+                  {/* Next */}
+                  <button
+                    onClick={() => {
+                      const sec = training.sections[activeLesson.sectionIdx]
+                      if (activeLesson.contentIdx < sec.contents.length - 1) setActiveLesson({ ...activeLesson, contentIdx: activeLesson.contentIdx + 1 })
+                      else if (activeLesson.sectionIdx < training.sections.length - 1) setActiveLesson({ sectionIdx: activeLesson.sectionIdx + 1, contentIdx: 0 })
+                    }}
+                    className="px-4 py-2 text-xs bg-[#FF9500] text-white rounded-[8px] hover:bg-[#EA8500]"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Sections — 2-column grid with big numbers */}
@@ -175,24 +251,35 @@ export default function TrainingPage() {
                 <h3 className="text-lg font-semibold text-[#262626] mb-4 border-b border-[#E4E4E7] pb-3">{s.title}</h3>
                 {/* Lesson rows */}
                 <div className="space-y-0">
-                  {s.contents.map((c, ci) => (
+                  {s.contents.map((c, ci) => {
+                    const isActive = activeLesson?.sectionIdx === si && activeLesson?.contentIdx === ci
+                    return (
                     <button
                       key={c.id}
-                      onClick={() => startAtSection(si)}
-                      className={`w-full flex items-center justify-between py-4 border-b border-[#F1F1F3] text-left hover:bg-[#F7F7F8] transition-colors group ${
-                        ci === 0 ? '' : ''
+                      onClick={() => setActiveLesson({ sectionIdx: si, contentIdx: ci })}
+                      className={`w-full flex items-center justify-between py-4 border-b text-left transition-colors group ${
+                        isActive
+                          ? 'bg-[#FFF7ED] border-[#FFEDD5] -mx-3 px-3 rounded-[8px]'
+                          : 'border-[#F1F1F3] hover:bg-[#F7F7F8]'
                       }`}
                     >
                       <div>
-                        <div className="text-sm font-medium text-[#262626] group-hover:text-[#FF9500]">{c.videoName || c.textContent?.slice(0, 50) || `${c.type === 'video' ? 'Video' : 'Text'} Lesson`}</div>
+                        <div className={`text-sm font-medium ${isActive ? 'text-[#FF9500]' : 'text-[#262626] group-hover:text-[#FF9500]'}`}>
+                          {c.videoName || c.textContent?.slice(0, 50) || `${c.type === 'video' ? 'Video' : 'Text'} Lesson`}
+                        </div>
                         <div className="text-xs text-[#59595A] mt-0.5">Lesson {String(ci + 1).padStart(2, '0')}</div>
                       </div>
-                      <span className="text-xs px-3 py-1.5 border border-[#F1F1F3] rounded-[8px] text-[#59595A] flex items-center gap-1.5 flex-shrink-0">
+                      <span className={`text-xs px-3 py-1.5 rounded-[8px] flex items-center gap-1.5 flex-shrink-0 ${
+                        isActive
+                          ? 'bg-[#FF9500] text-white'
+                          : 'border border-[#F1F1F3] text-[#59595A]'
+                      }`}>
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         {c.type === 'video' ? '1 Hour' : '45 Minutes'}
                       </span>
                     </button>
-                  ))}
+                    )
+                  })}
                   {s.quiz && (
                     <button
                       onClick={() => startAtSection(si)}
