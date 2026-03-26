@@ -164,7 +164,7 @@ export default function TrainingEditorPage() {
                 Change
                 <input ref={coverRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
               </label>
-              <button onClick={() => updateTraining({ coverImage: null } as Partial<Training>)} className="px-4 py-2 text-xs bg-red-500/90 text-white rounded-[8px] hover:bg-red-600 shadow font-medium">
+              <button onClick={() => updateTraining({ coverImage: null } as Partial<Training>)} className="px-4 py-2 text-xs bg-brand-500/90 text-white rounded-[8px] hover:bg-brand-600 shadow font-medium">
                 Remove
               </button>
             </div>
@@ -250,12 +250,12 @@ export default function TrainingEditorPage() {
         {/* Right: Section editor */}
         <div className="flex-1 min-w-0">
           {currentSection ? (
-            <div className="bg-white rounded-[12px] border border-surface-border">
+            <div key={currentSection.id} className="bg-white rounded-[12px] border border-surface-border">
               {/* Section header */}
               <div className="flex items-center justify-between px-6 py-5 border-b border-surface-border">
                 <div className="flex items-center gap-3 group flex-1">
                   <input
-                    key={currentSection.id}
+                    key={`title-${currentSection.id}`}
                     type="text"
                     defaultValue={currentSection.title}
                     onBlur={(e) => { if (e.target.value !== currentSection.title) updateSection(currentSection.id, { title: e.target.value }) }}
@@ -263,7 +263,7 @@ export default function TrainingEditorPage() {
                   />
                   <svg className="w-4 h-4 text-grey-60 group-hover:text-grey-30 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                 </div>
-                <button onClick={() => deleteSection(currentSection.id)} className="text-xs text-red-500 hover:text-red-700 font-medium">Delete</button>
+                <button onClick={() => deleteSection(currentSection.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Delete Section</button>
               </div>
 
               <div className="p-6">
@@ -292,11 +292,17 @@ export default function TrainingEditorPage() {
                         }`}>
                           {content.type === 'video' ? '▶ Video' : '¶ Text'}
                         </span>
-                        <button onClick={() => deleteContent(currentSection.id, content.id)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-grey-50 hover:bg-red-50 hover:text-red-500 transition-colors">&times;</button>
+                        <button onClick={() => deleteContent(currentSection.id, content.id)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-brand-500 hover:bg-brand-50 transition-colors">&times;</button>
                       </div>
 
                       {content.type === 'video' ? (
                         <div className="space-y-3">
+                          {/* Video preview */}
+                          {content.video?.url && (
+                            <div className="rounded-[8px] overflow-hidden bg-black mb-2">
+                              <video src={content.video.url} controls className="w-full max-h-[240px] object-contain" />
+                            </div>
+                          )}
                           <div className="flex gap-2">
                             <select
                               value={content.videoId || ''}
@@ -310,11 +316,11 @@ export default function TrainingEditorPage() {
                           </div>
                           <div className="flex gap-5">
                             <label className="flex items-center gap-2 text-xs text-grey-35 cursor-pointer">
-                              <input type="checkbox" checked={content.requiredWatch} onChange={(e) => updateContent(currentSection.id, content.id, { requiredWatch: e.target.checked })} className="rounded text-brand-500 focus:ring-brand-500" />
+                              <input type="checkbox" checked={content.requiredWatch} onChange={(e) => updateContent(currentSection.id, content.id, { requiredWatch: e.target.checked })} className="rounded accent-[#FF9500]" />
                               Required to watch
                             </label>
                             <label className="flex items-center gap-2 text-xs text-grey-35 cursor-pointer">
-                              <input type="checkbox" checked={content.autoplayNext} onChange={(e) => updateContent(currentSection.id, content.id, { autoplayNext: e.target.checked })} className="rounded text-brand-500 focus:ring-brand-500" />
+                              <input type="checkbox" checked={content.autoplayNext} onChange={(e) => updateContent(currentSection.id, content.id, { autoplayNext: e.target.checked })} className="rounded accent-[#FF9500]" />
                               Autoplay next
                             </label>
                           </div>
@@ -344,12 +350,12 @@ export default function TrainingEditorPage() {
                             className="text-sm font-semibold text-grey-15 bg-transparent border-none focus:outline-none"
                           />
                         </div>
-                        <button onClick={() => deleteQuiz(currentSection.id)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-grey-50 hover:bg-red-50 hover:text-red-500">&times;</button>
+                        <button onClick={() => deleteQuiz(currentSection.id)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-brand-500 hover:bg-brand-50">&times;</button>
                       </div>
 
                       <div className="flex items-center gap-4 mb-4 pb-4 border-b border-[#FFEDD5]">
                         <label className="flex items-center gap-2 text-xs text-grey-35 cursor-pointer">
-                          <input type="checkbox" checked={currentSection.quiz.requiredPassing} onChange={(e) => createOrUpdateQuiz(currentSection.id, { requiredPassing: e.target.checked })} className="rounded text-brand-500" />
+                          <input type="checkbox" checked={currentSection.quiz.requiredPassing} onChange={(e) => createOrUpdateQuiz(currentSection.id, { requiredPassing: e.target.checked })} className="rounded accent-[#FF9500]" />
                           Require passing
                         </label>
                         <div className="flex items-center gap-1.5 text-xs text-grey-35">
@@ -365,7 +371,7 @@ export default function TrainingEditorPage() {
                           <div key={q.id} className="bg-white rounded-[8px] p-4 border border-[#FFEDD5]">
                             <div className="flex items-center justify-between mb-3">
                               <span className="text-[11px] font-bold text-grey-40">Q{String(qi + 1).padStart(2, '0')}</span>
-                              <button onClick={() => quizAction(currentSection.id, { action: 'delete_question', questionId: q.id })} className="text-grey-50 hover:text-red-500 text-xs">&times;</button>
+                              <button onClick={() => quizAction(currentSection.id, { action: 'delete_question', questionId: q.id })} className="text-brand-400 hover:text-brand-600 text-xs">&times;</button>
                             </div>
                             <input
                               type="text"
@@ -406,7 +412,7 @@ export default function TrainingEditorPage() {
                                       <button onClick={() => {
                                         const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).filter((_, i) => i !== oi)
                                         quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                      }} className="text-grey-60 hover:text-red-500 text-xs">&times;</button>
+                                      }} className="text-brand-400 hover:text-brand-600 text-xs">&times;</button>
                                     )}
                                   </div>
                                   <div className="ml-7 mt-1.5">
