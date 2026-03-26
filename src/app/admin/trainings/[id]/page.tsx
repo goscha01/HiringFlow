@@ -280,12 +280,17 @@ export default function TrainingEditorPage() {
             <div>
               {/* Section header */}
               <div className="flex items-center justify-between mb-4">
-                <input
-                  type="text"
-                  defaultValue={currentSection.title}
-                  onBlur={(e) => { if (e.target.value !== currentSection.title) updateSection(currentSection.id, { title: e.target.value }) }}
-                  className="text-lg font-semibold text-gray-900 bg-transparent border-none focus:outline-none"
-                />
+                <div className="flex items-center gap-2 group flex-1">
+                  <input
+                    type="text"
+                    defaultValue={currentSection.title}
+                    onBlur={(e) => { if (e.target.value !== currentSection.title) updateSection(currentSection.id, { title: e.target.value }) }}
+                    className="text-lg font-semibold text-gray-900 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-blue-400 focus:bg-blue-50 rounded px-1 -ml-1"
+                  />
+                  <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </div>
                 <button onClick={() => deleteSection(currentSection.id)} className="text-xs text-red-500 hover:text-red-700">Delete Section</button>
               </div>
 
