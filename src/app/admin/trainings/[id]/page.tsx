@@ -48,12 +48,6 @@ export default function TrainingEditorPage() {
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [uploadingCover, setUploadingCover] = useState(false)
   const coverRef = useRef<HTMLInputElement>(null)
-  const [previewOpen, setPreviewOpen] = useState(false)
-  const [previewSectionIdx, setPreviewSectionIdx] = useState(0)
-  const [previewContentIdx, setPreviewContentIdx] = useState(0)
-  const [previewMode, setPreviewMode] = useState<'content' | 'quiz'>('content')
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, string[]>>({})
-  const [quizSubmitted, setQuizSubmitted] = useState(false)
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -96,7 +90,6 @@ export default function TrainingEditorPage() {
   if (loading || !training) return <div className="flex items-center justify-center py-20"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
 
   const currentSection = training.sections.find(s => s.id === activeSection)
-  const previewSection = training.sections[previewSectionIdx]
 
   return (
     <div>
@@ -118,7 +111,7 @@ export default function TrainingEditorPage() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { setPreviewSectionIdx(0); setPreviewContentIdx(0); setPreviewMode('content'); setQuizAnswers({}); setQuizSubmitted(false); setPreviewOpen(true) }}
+            onClick={() => window.open(`/t/${training.slug}`, '_blank')}
             className="btn-secondary text-sm"
           >
             Preview
@@ -470,8 +463,6 @@ export default function TrainingEditorPage() {
         </div>
       </div>
 
-      {/* Preview modal - keeping existing logic but with updated styles would go here */}
-      {/* Omitted for brevity - preview uses the public /t/[slug] page design */}
     </div>
   )
 }
