@@ -299,8 +299,8 @@ export default function TrainingEditorPage() {
                         <div className="space-y-3">
                           {/* Video preview */}
                           {content.video?.url && (
-                            <div className="rounded-[8px] overflow-hidden bg-black mb-2">
-                              <video src={content.video.url} controls className="w-full max-h-[240px] object-contain" />
+                            <div className="rounded-[8px] overflow-hidden mb-2">
+                              <video src={content.video.url} controls className="w-full rounded-[8px]" />
                             </div>
                           )}
                           <div className="flex gap-2">
