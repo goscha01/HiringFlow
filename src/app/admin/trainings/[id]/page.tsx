@@ -47,6 +47,7 @@ export default function TrainingEditorPage() {
   const [loading, setLoading] = useState(true)
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [uploadingCover, setUploadingCover] = useState(false)
+  const [activeStep, setActiveStep] = useState<number | null>(null)
   const coverRef = useRef<HTMLInputElement>(null)
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -173,31 +174,77 @@ export default function TrainingEditorPage() {
         )}
       </div>
 
-      {/* Progress steps — Figma numbered stats style */}
+      {/* Progress steps — clickable, orange */}
       <div className="bg-white rounded-[12px] border border-surface-border mb-8">
         <div className="px-8 py-5 border-b border-surface-border">
           <h2 className="text-[20px] font-semibold text-grey-15">Setup Progress</h2>
         </div>
         <div className="flex items-center px-[50px] py-6">
           {[
-            { label: 'Create content', done: training.sections.length > 0 },
-            { label: 'Set price', done: !!training.pricing },
-            { label: 'Customize page', done: !!training.description },
-            { label: 'Publish', done: training.isPublished },
-          ].map((step, i, arr) => (
+            { label: 'Create content', done: training.sections.length > 0, step: 0 },
+            { label: 'Set price', done: !!training.pricing, step: 1 },
+            { label: 'Customize page', done: !!training.description, step: 2 },
+            { label: 'Publish', done: training.isPublished, step: 3 },
+          ].map((item, i, arr) => (
             <div key={i} className="flex items-center flex-1">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
-                  step.done ? 'bg-green-500 text-white' : 'bg-surface border border-surface-border text-grey-40'
+              <button
+                onClick={() => setActiveStep(activeStep === item.step ? null : item.step)}
+                className={`flex items-center gap-3 rounded-[8px] px-3 py-2 -mx-3 transition-colors ${
+                  activeStep === item.step ? 'bg-brand-50' : 'hover:bg-surface'
+                }`}
+              >
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+                  item.done ? 'bg-[#FF9500] text-white' : activeStep === item.step ? 'bg-[#FF9500]/20 border-2 border-[#FF9500] text-[#FF9500]' : 'bg-surface border border-surface-border text-grey-40'
                 }`}>
-                  {step.done ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg> : String(i + 1).padStart(2, '0')}
+                  {item.done ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg> : String(i + 1).padStart(2, '0')}
                 </div>
-                <span className={`text-sm font-medium ${step.done ? 'text-green-700' : 'text-grey-35'}`}>{step.label}</span>
-              </div>
+                <span className={`text-sm font-medium ${item.done ? 'text-[#FF9500]' : activeStep === item.step ? 'text-[#FF9500]' : 'text-grey-35'}`}>{item.label}</span>
+              </button>
               {i < arr.length - 1 && <div className="flex-1 h-px bg-surface-border mx-6" />}
             </div>
           ))}
         </div>
+
+        {/* Step panels */}
+        {activeStep === 1 && (
+          <div className="px-8 pb-6 border-t border-surface-border pt-5">
+            <h3 className="text-sm font-semibold text-grey-15 mb-3">Pricing</h3>
+            <div className="flex gap-3 mb-4">
+              <button onClick={() => updateTraining({ pricing: { type: 'free' } } as Partial<Training>)} className={`flex-1 py-3 text-sm rounded-[8px] border font-medium ${(training.pricing as Record<string, unknown>)?.type === 'free' ? 'border-[#FF9500] bg-[#FFF7ED] text-[#FF9500]' : 'border-surface-border text-grey-35'}`}>Free</button>
+              <button onClick={() => updateTraining({ pricing: { type: 'paid', price: 0 } } as Partial<Training>)} className={`flex-1 py-3 text-sm rounded-[8px] border font-medium ${(training.pricing as Record<string, unknown>)?.type === 'paid' ? 'border-[#FF9500] bg-[#FFF7ED] text-[#FF9500]' : 'border-surface-border text-grey-35'}`}>Paid</button>
+            </div>
+            {(training.pricing as Record<string, unknown>)?.type === 'paid' && (
+              <div className="flex items-center gap-2">
+                <span className="text-grey-35">$</span>
+                <input type="number" min={0} step={0.01} defaultValue={Number((training.pricing as Record<string, unknown>)?.price) || 0} onBlur={(e) => updateTraining({ pricing: { type: 'paid', price: Number(e.target.value) } } as Partial<Training>)} className="flex-1 px-4 py-2.5 border border-surface-border rounded-[8px] text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeStep === 2 && (
+          <div className="px-8 pb-6 border-t border-surface-border pt-5">
+            <h3 className="text-sm font-semibold text-grey-15 mb-3">Description</h3>
+            <textarea
+              key={`desc-${training.id}`}
+              defaultValue={training.description || ''}
+              onBlur={(e) => updateTraining({ description: e.target.value } as Partial<Training>)}
+              rows={4}
+              placeholder="Describe your training program..."
+              className="w-full px-4 py-3 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
+            />
+          </div>
+        )}
+
+        {activeStep === 3 && (
+          <div className="px-8 pb-6 border-t border-surface-border pt-5">
+            <h3 className="text-sm font-semibold text-grey-15 mb-3">Publish</h3>
+            <p className="text-sm text-grey-35 mb-4">{training.isPublished ? 'Your training is live.' : 'Publish to make it accessible via the public link.'}</p>
+            <button onClick={() => updateTraining({ isPublished: !training.isPublished })} className={`px-6 py-3 text-sm rounded-[8px] font-medium ${training.isPublished ? 'bg-surface border border-surface-border text-grey-35' : 'bg-[#FF9500] text-white hover:bg-[#EA8500]'}`}>
+              {training.isPublished ? 'Unpublish' : 'Publish Now'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main content area */}
@@ -374,7 +421,7 @@ export default function TrainingEditorPage() {
                             />
                             <div className="space-y-2">
                               {(q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((opt, oi) => (
-                                <div key={oi} className={`rounded-[8px] border p-3 ${opt.isCorrect ? 'border-green-300 bg-green-50/50' : 'border-surface-border'}`}>
+                                <div key={oi} className={`rounded-[8px] border p-3 ${opt.isCorrect ? 'border-[#FFEDD5] bg-[#FFF7ED]' : 'border-surface-border'}`}>
                                   <div className="flex items-center gap-2">
                                     <button
                                       onClick={() => {
@@ -384,7 +431,7 @@ export default function TrainingEditorPage() {
                                         quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
                                       }}
                                       className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                                        opt.isCorrect ? 'border-green-500 bg-green-500 text-white' : 'border-grey-60 hover:border-green-400'
+                                        opt.isCorrect ? 'border-[#FF9500] bg-[#FF9500] text-white' : 'border-grey-60 hover:border-[#FF9500]'
                                       }`}
                                     >
                                       {opt.isCorrect && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
@@ -398,7 +445,7 @@ export default function TrainingEditorPage() {
                                       }}
                                       className="flex-1 px-2 py-0.5 text-xs border-none bg-transparent focus:outline-none text-grey-15"
                                     />
-                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${opt.isCorrect ? 'bg-green-100 text-green-700' : 'bg-surface text-grey-40'}`}>
+                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${opt.isCorrect ? 'bg-[#FFF7ED] text-[#FF9500]' : 'bg-surface text-grey-40'}`}>
                                       {opt.isCorrect ? 'Correct' : 'Wrong'}
                                     </span>
                                     {(q.options as Array<{ text: string; isCorrect: boolean }>).length > 2 && (
