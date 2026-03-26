@@ -201,8 +201,46 @@ export default function TrainingEditorPage() {
           >
             {training.isPublished ? 'Published' : 'Publish'}
           </button>
+          {training.isPublished && (
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/t/${training.slug}`
+                navigator.clipboard.writeText(url)
+                alert(`Link copied!\n${url}`)
+              }}
+              className="px-4 py-2 text-sm rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              Copy Link
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Published URL banner */}
+      {training.isPublished && (
+        <div className="mb-6 flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-lg">
+          <span className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0" />
+          <span className="text-sm text-green-800 font-medium">Live at:</span>
+          <a
+            href={`/t/${training.slug}`}
+            target="_blank"
+            className="text-sm text-green-700 underline hover:text-green-900 truncate"
+          >
+            {typeof window !== 'undefined' ? window.location.origin : ''}/t/{training.slug}
+          </a>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/t/${training.slug}`)
+            }}
+            className="ml-auto text-xs text-green-600 hover:text-green-800 flex-shrink-0"
+          >
+            Copy
+          </button>
+        </div>
+      )}
 
       {/* Cover image */}
       <div className="mb-6">
