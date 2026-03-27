@@ -66,12 +66,20 @@ export async function saveCandidateVideoFile(file: File) {
 }
 
 export function getVideoUrl(storageKey: string): string {
-  // If it's already a full URL (blob), return as-is
-  if (storageKey.startsWith('http')) return storageKey
+  if (storageKey.startsWith('http')) {
+    // Add cache-busting for Vercel Blob URLs to avoid ERR_CACHE_OPERATION_NOT_SUPPORTED
+    const url = new URL(storageKey)
+    url.searchParams.set('v', '1')
+    return url.toString()
+  }
   return `/api/uploads/${storageKey}`
 }
 
 export function getCandidateVideoUrl(storageKey: string): string {
-  if (storageKey.startsWith('http')) return storageKey
+  if (storageKey.startsWith('http')) {
+    const url = new URL(storageKey)
+    url.searchParams.set('v', '1')
+    return url.toString()
+  }
   return `/api/uploads/${storageKey}`
 }
