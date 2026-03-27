@@ -122,6 +122,7 @@ export default function FlowBuilderPage() {
   const [addStepInfoText, setAddStepInfoText] = useState('')
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
   const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
+  const [titleWarning, setTitleWarning] = useState(false)
   const stepVideoInputRef = useRef<HTMLInputElement>(null)
 
   const createStep = async (stepType: string, config?: Record<string, unknown>) => {
@@ -230,19 +231,25 @@ export default function FlowBuilderPage() {
 
   const submitAddStep = () => {
     if (!addStepType) return
+    // Validate title
+    if (!addStepTitle.trim() && !autoTitleEnabled) {
+      setTitleWarning(true)
+      return
+    }
+    setTitleWarning(false)
     const config: Record<string, unknown> = {}
     if (addStepType === 'submission') {
-      config.title = addStepTitle || 'Video Response'
+      config.title = addStepTitle.trim() || 'Video Response'
       config.videoId = addStepVideoId || undefined
     } else if (addStepType === 'question') {
-      config.title = addStepTitle || addStepQuestion || 'Question'
+      config.title = addStepTitle.trim() || addStepQuestion || 'Question'
       config.questionText = addStepQuestion
       config.questionType = addStepQuestionType
     } else if (addStepType === 'form') {
-      config.title = addStepTitle || 'Application Form'
+      config.title = addStepTitle.trim() || 'Application Form'
       config.formConfig = { fields: addStepFormFields }
     } else if (addStepType === 'info') {
-      config.title = addStepTitle || 'Welcome'
+      config.title = addStepTitle.trim() || 'Welcome'
       config.infoContent = addStepInfoText
     }
     createStep(addStepType, config)
@@ -972,11 +979,27 @@ export default function FlowBuilderPage() {
                     <input
                       type="text"
                       value={addStepTitle}
-                      onChange={(e) => setAddStepTitle(e.target.value)}
+                      onChange={(e) => { setAddStepTitle(e.target.value); setTitleWarning(false) }}
                       onFocus={() => { if (autoTitleEnabled) setAutoTitleEnabled(false) }}
                       placeholder={autoTitleEnabled ? 'Will be generated from video transcript...' : 'e.g. Introduction Video'}
-                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${autoTitleEnabled ? 'border-brand-200 bg-brand-50/30 text-grey-40' : 'border-surface-border'}`}
+                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${titleWarning ? 'border-red-400 bg-red-50/30' : autoTitleEnabled ? 'border-brand-200 bg-brand-50/30 text-grey-40' : 'border-surface-border'}`}
                     />
+                    {titleWarning && (
+                      <div className="mt-2 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-[8px]">
+                        <svg className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                        <div className="flex-1">
+                          <p className="text-sm text-red-700 font-medium">Step title is required</p>
+                          <p className="text-xs text-red-600 mt-0.5">Enter a title manually or let AI generate one from the video.</p>
+                          <button
+                            onClick={() => { setAutoTitleEnabled(true); setTitleWarning(false); if (addStepVideoId) generateTitleFromVideo(addStepVideoId) }}
+                            className="mt-2 flex items-center gap-1.5 text-xs font-medium text-brand-500 hover:text-brand-600"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            Generate title automatically
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-grey-20 mb-1.5">Upload Video</label>
