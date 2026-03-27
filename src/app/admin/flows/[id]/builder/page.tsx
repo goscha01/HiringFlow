@@ -951,24 +951,32 @@ export default function FlowBuilderPage() {
               {addStepType === 'submission' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Step Title</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-sm font-medium text-grey-20">Step Title</label>
+                      <button
+                        onClick={() => {
+                          const next = !autoTitleEnabled
+                          setAutoTitleEnabled(next)
+                          if (next && addStepVideoId) generateTitleFromVideo(addStepVideoId)
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        <span className={`text-[11px] ${autoTitleEnabled ? 'text-brand-500' : 'text-grey-40'}`}>
+                          {autoTitleEnabled ? 'AI title' : 'Manual'}
+                        </span>
+                        <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoTitleEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}>
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoTitleEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </div>
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={addStepTitle}
                       onChange={(e) => setAddStepTitle(e.target.value)}
                       onFocus={() => { if (autoTitleEnabled) setAutoTitleEnabled(false) }}
                       placeholder={autoTitleEnabled ? 'Will be generated from video transcript...' : 'e.g. Introduction Video'}
-                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${autoTitleEnabled ? 'border-brand-200 bg-brand-50/30 text-grey-40 cursor-pointer' : 'border-surface-border'}`}
+                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${autoTitleEnabled ? 'border-brand-200 bg-brand-50/30 text-grey-40' : 'border-surface-border'}`}
                     />
-                    {!autoTitleEnabled && (
-                      <button
-                        onClick={() => { setAutoTitleEnabled(true); if (addStepVideoId) generateTitleFromVideo(addStepVideoId) }}
-                        className="flex items-center gap-1.5 mt-2 text-[11px] text-brand-500 hover:text-brand-600"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                        Auto-generate title from video content
-                      </button>
-                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-grey-20 mb-1.5">Upload Video</label>
