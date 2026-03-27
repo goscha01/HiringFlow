@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FlowSchemaView from '@/components/FlowSchemaView'
@@ -13,6 +13,7 @@ interface Video {
   id: string
   filename: string
   url: string
+  displayName?: string | null
 }
 
 interface Option {
@@ -107,6 +108,20 @@ export default function FlowBuilderPage() {
   }
 
   const [showAddStepModal, setShowAddStepModal] = useState(false)
+  const [addStepType, setAddStepType] = useState<string | null>(null)
+  const [addStepTitle, setAddStepTitle] = useState('')
+  const [addStepVideoId, setAddStepVideoId] = useState('')
+  const [addStepQuestion, setAddStepQuestion] = useState('')
+  const [addStepOptions, setAddStepOptions] = useState(['', ''])
+  const [addStepQuestionType, setAddStepQuestionType] = useState('single')
+  const [addStepFormFields, setAddStepFormFields] = useState([
+    { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
+    { id: 'email', label: 'Email', type: 'email', required: true, enabled: true, isBuiltIn: true },
+    { id: 'phone', label: 'Phone', type: 'phone', required: false, enabled: true, isBuiltIn: true },
+  ])
+  const [addStepInfoText, setAddStepInfoText] = useState('')
+  const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
+  const stepVideoInputRef = useRef<HTMLInputElement>(null)
 
   const createStep = async (stepType: string, config?: Record<string, unknown>) => {
     markChanged()
@@ -141,7 +156,58 @@ export default function FlowBuilderPage() {
     }
   }
 
-  const addStep = () => setShowAddStepModal(true)
+  const addStep = () => {
+    setAddStepType(null)
+    setAddStepTitle('')
+    setAddStepVideoId('')
+    setAddStepQuestion('')
+    setAddStepOptions(['', ''])
+    setAddStepQuestionType('single')
+    setAddStepInfoText('')
+    setAddStepFormFields([
+      { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
+      { id: 'email', label: 'Email', type: 'email', required: true, enabled: true, isBuiltIn: true },
+      { id: 'phone', label: 'Phone', type: 'phone', required: false, enabled: true, isBuiltIn: true },
+    ])
+    setShowAddStepModal(true)
+  }
+
+  const handleStepVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('video/')) return
+    setUploadingStepVideo(true)
+    try {
+      const { uploadVideoFile } = await import('@/lib/upload-client')
+      const result = await uploadVideoFile(file)
+      if (result.id) {
+        setAddStepVideoId(result.id)
+        setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+        if (!addStepTitle) setAddStepTitle(file.name.replace(/\.[^.]+$/, ''))
+      }
+    } catch {}
+    setUploadingStepVideo(false)
+    if (stepVideoInputRef.current) stepVideoInputRef.current.value = ''
+  }
+
+  const submitAddStep = () => {
+    if (!addStepType) return
+    const config: Record<string, unknown> = {}
+    if (addStepType === 'submission') {
+      config.title = addStepTitle || 'Video Response'
+      config.videoId = addStepVideoId || undefined
+    } else if (addStepType === 'question') {
+      config.title = addStepTitle || addStepQuestion || 'Question'
+      config.questionText = addStepQuestion
+      config.questionType = addStepQuestionType
+    } else if (addStepType === 'form') {
+      config.title = addStepTitle || 'Application Form'
+      config.formConfig = { fields: addStepFormFields }
+    } else if (addStepType === 'info') {
+      config.title = addStepTitle || 'Welcome'
+      config.infoContent = addStepInfoText
+    }
+    createStep(addStepType, config)
+  }
 
   const updateStep = async (stepId: string, data: Partial<Step>) => {
     markChanged()
@@ -797,77 +863,176 @@ export default function FlowBuilderPage() {
       {/* Add Step Modal */}
       {showAddStepModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowAddStepModal(false)}>
-          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[520px]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-grey-15">Add Step</h2>
+          <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 pb-0">
+              <div className="flex items-center gap-3">
+                {addStepType && (
+                  <button onClick={() => setAddStepType(null)} className="text-grey-40 hover:text-grey-15">&larr;</button>
+                )}
+                <h2 className="text-xl font-semibold text-grey-15">
+                  {!addStepType ? 'Add Step' : addStepType === 'submission' ? 'Video Step' : addStepType === 'question' ? 'Question Step' : addStepType === 'form' ? 'Form Step' : 'Screen Step'}
+                </h2>
+              </div>
               <button onClick={() => setShowAddStepModal(false)} className="text-grey-40 hover:text-grey-15 text-xl">&times;</button>
             </div>
-            <p className="text-sm text-grey-35 mb-6">Choose what type of step to add to your flow.</p>
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Video Step */}
-              <button
-                onClick={() => createStep('submission')}
-                className="flex flex-col items-center gap-3 p-6 rounded-[12px] border-2 border-surface-border hover:border-brand-500 hover:bg-brand-50 transition-all group"
-              >
-                <div className="w-14 h-14 rounded-[12px] bg-brand-50 group-hover:bg-brand-100 flex items-center justify-center transition-colors">
-                  <svg className="w-7 h-7 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <div className="font-semibold text-grey-15 text-sm">Video</div>
-                  <div className="text-[11px] text-grey-40 mt-0.5">Record or upload response</div>
-                </div>
-              </button>
+            <div className="p-6">
+              {/* Phase 1: Choose type */}
+              {!addStepType && (
+                <>
+                  <p className="text-sm text-grey-35 mb-5">Choose what type of step to add.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { type: 'submission', label: 'Video', desc: 'Upload video + title', color: 'brand', icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z' },
+                      { type: 'question', label: 'Question', desc: 'Quiz with options', color: 'blue', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+                      { type: 'form', label: 'Form', desc: 'Collect candidate info', color: 'green', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+                      { type: 'info', label: 'Screen', desc: 'Text, instructions, image', color: 'purple', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+                    ].map(({ type, label, desc, color, icon }) => (
+                      <button
+                        key={type}
+                        onClick={() => setAddStepType(type)}
+                        className={`flex flex-col items-center gap-3 p-6 rounded-[12px] border-2 border-surface-border hover:border-brand-500 hover:bg-brand-50 transition-all group`}
+                      >
+                        <div className={`w-14 h-14 rounded-[12px] bg-${color}-50 group-hover:bg-${color}-100 flex items-center justify-center`}>
+                          <svg className={`w-7 h-7 text-${color}-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={icon} />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <div className="font-semibold text-grey-15 text-sm">{label}</div>
+                          <div className="text-[11px] text-grey-40 mt-0.5">{desc}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
-              {/* Question Step */}
-              <button
-                onClick={() => createStep('question')}
-                className="flex flex-col items-center gap-3 p-6 rounded-[12px] border-2 border-surface-border hover:border-brand-500 hover:bg-brand-50 transition-all group"
-              >
-                <div className="w-14 h-14 rounded-[12px] bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
-                  <svg className="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+              {/* Phase 2: Video config */}
+              {addStepType === 'submission' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Step Title</label>
+                    <input type="text" value={addStepTitle} onChange={(e) => setAddStepTitle(e.target.value)} placeholder="e.g. Introduction Video" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Upload Video</label>
+                    {addStepVideoId ? (
+                      <div className="flex items-center gap-3 p-3 bg-brand-50 rounded-[8px] border border-brand-200">
+                        <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        <span className="text-sm text-brand-700 font-medium">Video uploaded</span>
+                        <button onClick={() => setAddStepVideoId('')} className="ml-auto text-xs text-brand-500">Change</button>
+                      </div>
+                    ) : (
+                      <label className={`block w-full p-6 border-2 border-dashed rounded-[8px] text-center cursor-pointer transition-colors ${uploadingStepVideo ? 'border-brand-300 bg-brand-50' : 'border-surface-divider hover:border-brand-400'}`}>
+                        <svg className="w-10 h-10 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                        <span className="text-sm text-grey-40">{uploadingStepVideo ? 'Uploading...' : 'Click to upload or drag video here'}</span>
+                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} disabled={uploadingStepVideo} className="hidden" />
+                      </label>
+                    )}
+                    <p className="text-xs text-grey-40 mt-2">Or select existing:</p>
+                    <select value={addStepVideoId} onChange={(e) => setAddStepVideoId(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border border-surface-border rounded-[8px]">
+                      <option value="">Choose from library...</option>
+                      {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Video Step</button>
                 </div>
-                <div className="text-center">
-                  <div className="font-semibold text-grey-15 text-sm">Question</div>
-                  <div className="text-[11px] text-grey-40 mt-0.5">Single, multi, yes/no, text</div>
-                </div>
-              </button>
+              )}
 
-              {/* Form Step */}
-              <button
-                onClick={() => createStep('form')}
-                className="flex flex-col items-center gap-3 p-6 rounded-[12px] border-2 border-surface-border hover:border-brand-500 hover:bg-brand-50 transition-all group"
-              >
-                <div className="w-14 h-14 rounded-[12px] bg-green-50 group-hover:bg-green-100 flex items-center justify-center transition-colors">
-                  <svg className="w-7 h-7 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+              {/* Phase 2: Question config */}
+              {addStepType === 'question' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Question</label>
+                    <textarea value={addStepQuestion} onChange={(e) => setAddStepQuestion(e.target.value)} rows={2} placeholder="e.g. What experience do you have?" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Question Type</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'single', label: 'Single Choice' },
+                        { value: 'multiselect', label: 'Multi Choice' },
+                        { value: 'yesno', label: 'Yes / No' },
+                      ].map(({ value, label }) => (
+                        <button key={value} onClick={() => setAddStepQuestionType(value)} className={`py-2 text-xs rounded-[8px] border font-medium ${addStepQuestionType === value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {addStepQuestionType !== 'yesno' && (
+                    <div>
+                      <label className="block text-sm font-medium text-grey-20 mb-1.5">Answer Options</label>
+                      <div className="space-y-2">
+                        {addStepOptions.map((opt, i) => (
+                          <div key={i} className="flex gap-2">
+                            <input type="text" value={opt} onChange={(e) => { const n = [...addStepOptions]; n[i] = e.target.value; setAddStepOptions(n) }} placeholder={`Option ${i + 1}`} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                            {addStepOptions.length > 2 && (
+                              <button onClick={() => setAddStepOptions(addStepOptions.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm px-2">&times;</button>
+                            )}
+                          </div>
+                        ))}
+                        <button onClick={() => setAddStepOptions([...addStepOptions, ''])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add option</button>
+                      </div>
+                    </div>
+                  )}
+                  <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Question Step</button>
                 </div>
-                <div className="text-center">
-                  <div className="font-semibold text-grey-15 text-sm">Form</div>
-                  <div className="text-[11px] text-grey-40 mt-0.5">Name, email, phone, custom</div>
-                </div>
-              </button>
+              )}
 
-              {/* Screen / Info Step */}
-              <button
-                onClick={() => createStep('info')}
-                className="flex flex-col items-center gap-3 p-6 rounded-[12px] border-2 border-surface-border hover:border-brand-500 hover:bg-brand-50 transition-all group"
-              >
-                <div className="w-14 h-14 rounded-[12px] bg-purple-50 group-hover:bg-purple-100 flex items-center justify-center transition-colors">
-                  <svg className="w-7 h-7 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
+              {/* Phase 2: Form config */}
+              {addStepType === 'form' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Form Title</label>
+                    <input type="text" value={addStepTitle} onChange={(e) => setAddStepTitle(e.target.value)} placeholder="e.g. Candidate Information" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-2">Fields</label>
+                    <div className="space-y-2">
+                      {addStepFormFields.map((field, i) => (
+                        <div key={field.id} className="flex items-center gap-3 p-3 rounded-[8px] border border-surface-border">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], enabled: !n[i].enabled }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
+                          </label>
+                          <span className="text-sm text-grey-15 flex-1">{field.label}</span>
+                          <label className="flex items-center gap-1.5 text-xs text-grey-40">
+                            <input type="checkbox" checked={field.required} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], required: !n[i].required }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
+                            Required
+                          </label>
+                          {!field.isBuiltIn && (
+                            <button onClick={() => setAddStepFormFields(addStepFormFields.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm">&times;</button>
+                          )}
+                        </div>
+                      ))}
+                      <button onClick={() => setAddStepFormFields([...addStepFormFields, { id: `custom_${Date.now()}`, label: 'Custom Field', type: 'text', required: false, enabled: true, isBuiltIn: false }])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add custom field</button>
+                    </div>
+                  </div>
+                  <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Form Step</button>
                 </div>
-                <div className="text-center">
-                  <div className="font-semibold text-grey-15 text-sm">Screen</div>
-                  <div className="text-[11px] text-grey-40 mt-0.5">Instructions, welcome, notice</div>
+              )}
+
+              {/* Phase 2: Screen / Info config */}
+              {addStepType === 'info' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Screen Title</label>
+                    <input type="text" value={addStepTitle} onChange={(e) => setAddStepTitle(e.target.value)} placeholder="e.g. Welcome, Next Steps, Thank You" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Content Text</label>
+                    <textarea value={addStepInfoText} onChange={(e) => setAddStepInfoText(e.target.value)} rows={5} placeholder="Instructions, welcome message, or any information to show the candidate..." className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
+                    <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400 transition-colors">
+                      <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      <span className="text-xs text-grey-40">Upload image</span>
+                      <input type="file" accept="image/*" className="hidden" />
+                    </label>
+                  </div>
+                  <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Screen Step</button>
                 </div>
-              </button>
+              )}
             </div>
           </div>
         </div>
