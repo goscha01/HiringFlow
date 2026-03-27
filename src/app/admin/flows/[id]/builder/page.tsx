@@ -121,6 +121,7 @@ export default function FlowBuilderPage() {
   ])
   const [addStepInfoText, setAddStepInfoText] = useState('')
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
+  const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
   const stepVideoInputRef = useRef<HTMLInputElement>(null)
 
   const createStep = async (stepType: string, config?: Record<string, unknown>) => {
@@ -182,11 +183,49 @@ export default function FlowBuilderPage() {
       if (result.id) {
         setAddStepVideoId(result.id)
         setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
-        if (!addStepTitle) setAddStepTitle(file.name.replace(/\.[^.]+$/, ''))
+        if (!autoTitleEnabled && !addStepTitle) setAddStepTitle(file.name.replace(/\.[^.]+$/, ''))
+        // Auto-generate title from transcript if toggle is on
+        if (autoTitleEnabled) generateTitleFromVideo(result.id)
       }
     } catch {}
     setUploadingStepVideo(false)
     if (stepVideoInputRef.current) stepVideoInputRef.current.value = ''
+  }
+
+  const generateTitleFromVideo = async (videoId: string) => {
+    try {
+      // First check if video already has a displayName
+      const vidRes = await fetch(`/api/videos/${videoId}`)
+      if (vidRes.ok) {
+        const vid = await vidRes.json()
+        if (vid.displayName) { setAddStepTitle(vid.displayName); return }
+        if (vid.transcript) {
+          // Generate title from existing transcript
+          const titleRes = await fetch('/api/ai/generate-title', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: vid.transcript, summary: vid.summary, bulletPoints: vid.bulletPoints?.join(', ') }),
+          })
+          if (titleRes.ok) { const { title } = await titleRes.json(); if (title) setAddStepTitle(title) }
+          return
+        }
+      }
+      // If no transcript yet, wait for analysis then generate
+      setAddStepTitle('Generating title...')
+      const analyzeRes = await fetch(`/api/videos/${videoId}/analyze`, { method: 'POST' })
+      if (analyzeRes.ok) {
+        const data = await analyzeRes.json()
+        if (data.displayName) setAddStepTitle(data.displayName)
+        else if (data.transcript) {
+          const titleRes = await fetch('/api/ai/generate-title', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: data.transcript, summary: data.summary }),
+          })
+          if (titleRes.ok) { const { title } = await titleRes.json(); if (title) setAddStepTitle(title) }
+        }
+      }
+    } catch { /* keep whatever title we have */ }
   }
 
   const submitAddStep = () => {
@@ -912,8 +951,19 @@ export default function FlowBuilderPage() {
               {addStepType === 'submission' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Step Title</label>
-                    <input type="text" value={addStepTitle} onChange={(e) => setAddStepTitle(e.target.value)} placeholder="e.g. Introduction Video" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-sm font-medium text-grey-20">Step Title</label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <span className="text-[11px] text-grey-40">Auto-generate from video</span>
+                        <button
+                          onClick={() => setAutoTitleEnabled(!autoTitleEnabled)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoTitleEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoTitleEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </button>
+                      </label>
+                    </div>
+                    <input type="text" value={addStepTitle} onChange={(e) => setAddStepTitle(e.target.value)} placeholder={autoTitleEnabled ? 'Will be generated from video transcript...' : 'e.g. Introduction Video'} disabled={autoTitleEnabled} className={`w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${autoTitleEnabled ? 'bg-surface text-grey-40' : ''}`} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-grey-20 mb-1.5">Upload Video</label>
@@ -931,7 +981,7 @@ export default function FlowBuilderPage() {
                       </label>
                     )}
                     <p className="text-xs text-grey-40 mt-2">Or select existing:</p>
-                    <select value={addStepVideoId} onChange={(e) => setAddStepVideoId(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border border-surface-border rounded-[8px]">
+                    <select value={addStepVideoId} onChange={(e) => { setAddStepVideoId(e.target.value); if (e.target.value && autoTitleEnabled) generateTitleFromVideo(e.target.value) }} className="w-full mt-1 px-3 py-2 text-sm border border-surface-border rounded-[8px]">
                       <option value="">Choose from library...</option>
                       {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
                     </select>
