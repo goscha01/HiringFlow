@@ -817,9 +817,18 @@ export default function FlowBuilderPage() {
                     {popupStep.stepType === 'question' && (
                       <div className="space-y-4">
                         {/* Video (optional) */}
-                        {popupStep.videoId && popupStep.video?.url && (
-                          <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[200px] object-contain" />
+                        {popupStep.video?.url && (
+                          <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[40vh] object-contain" />
                         )}
+                        <div>
+                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Video (optional)</label>
+                          <div className="flex gap-2">
+                            <select value={popupStep.videoId || ''} onChange={(e) => updateStep(popupStep.id, { videoId: e.target.value || null })} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px]">
+                              <option value="">No video</option>
+                              {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                            </select>
+                          </div>
+                        </div>
                         <div>
                           <label className="block text-sm font-medium text-grey-20 mb-1.5">Question</label>
                           <textarea

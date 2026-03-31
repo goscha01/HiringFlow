@@ -70,21 +70,19 @@ const H_GAP = 120
 const V_GAP = 70
 
 // Single output port on the right side of the card
-function getOutputPort(pos: NodePos): { x: number; y: number } {
-  return { x: pos.x + NODE_W, y: pos.y + NODE_H / 2 }
+function getOutputPort(pos: NodePos, w = NODE_W, h = NODE_H): { x: number; y: number } {
+  return { x: pos.x + w, y: pos.y + h / 2 }
 }
 
-// Single input port on the left side of the card
-function getInputPort(pos: NodePos): { x: number; y: number } {
-  return { x: pos.x, y: pos.y + NODE_H / 2 }
+function getInputPort(pos: NodePos, _w = NODE_W, h = NODE_H): { x: number; y: number } {
+  return { x: pos.x, y: pos.y + h / 2 }
 }
 
-// Legacy — still needed for option-level arrow routing (slightly offset per option)
-function getOptionOutputY(step: Step, optionIndex: number, pos: NodePos): number {
+function getOptionOutputY(step: Step, optionIndex: number, pos: NodePos, h = NODE_H): number {
   const count = step.options.length
-  if (count <= 1) return pos.y + NODE_H / 2
+  if (count <= 1) return pos.y + h / 2
   const margin = 30
-  const range = NODE_H - margin * 2
+  const range = h - margin * 2
   return pos.y + margin + (optionIndex / (count - 1)) * range
 }
 
@@ -279,9 +277,8 @@ export default function FlowSchemaView({
         video.onseeked = () => {
           const vw = video.videoWidth
           const vh = video.videoHeight
-          const isP = vw / vh < 0.8
-          const THUMB_W = (isP ? 180 : NODE_W) - 16
-          const THUMB_H_CAP = isP ? 200 : THUMB_H
+          const THUMB_W = NODE_W - 16
+          const THUMB_H_CAP = THUMB_H
           const c = document.createElement('canvas')
           c.width = THUMB_W; c.height = THUMB_H_CAP
           const ctx = c.getContext('2d')
@@ -1329,11 +1326,9 @@ function drawNode(
   }
   const tc = typeColors[step.stepType] || typeColors.question
 
-  // Adjust card size for portrait videos
-  const isPortrait = aspect !== undefined && aspect < 0.8
-  const nodeW = isPortrait ? 180 : NODE_W
-  const thumbH = isPortrait ? 200 : THUMB_H
-  const nodeH = 30 + thumbH + 40
+  const nodeW = NODE_W
+  const thumbH = THUMB_H
+  const nodeH = NODE_H
 
   // Shadow
   ctx.save()
