@@ -717,7 +717,7 @@ export default function FlowBuilderPage() {
               onClick={() => setPopupStepId(null)}
             >
               <div
-                className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[80%] max-h-[80vh] overflow-y-auto p-6"
+                className="bg-white rounded-[12px] shadow-2xl border border-surface-border w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-6"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-4">
