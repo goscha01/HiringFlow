@@ -115,6 +115,7 @@ export default function FlowSchemaView({
   const containerRef = useRef<HTMLDivElement>(null)
   const [positions, setPositions] = useState<Record<string, NodePos>>({})
   const [thumbnails, setThumbnails] = useState<Record<string, HTMLImageElement>>({})
+  const [videoAspects, setVideoAspects] = useState<Record<string, number>>({}) // stepId -> width/height ratio
   const [pan, setPan] = useState({ x: 40, y: 40 })
   const [scale, setScale] = useState(1)
   const [mode, setMode] = useState<InteractionMode>({ type: 'idle' })
@@ -307,11 +308,13 @@ export default function FlowSchemaView({
               dy = 0
             }
             ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh)
+            const aspect = vw / vh
             const img = new Image()
             img.onload = () => {
               if (mounted) {
                 thumbs[step.id] = img
                 setThumbnails({ ...thumbs })
+                setVideoAspects(prev => ({ ...prev, [step.id]: aspect }))
               }
             }
             img.src = c.toDataURL()
@@ -334,6 +337,12 @@ export default function FlowSchemaView({
   }, [pan, scale])
 
   // Hit test: find which step is under the cursor
+  const getNodeSize = useCallback((stepId: string) => {
+    const a = videoAspects[stepId]
+    const isP = a !== undefined && a < 0.8
+    return { w: isP ? 180 : NODE_W, h: 30 + (isP ? 200 : THUMB_H) + 40 }
+  }, [videoAspects])
+
   const hitTestNode = useCallback((cx: number, cy: number): string | null => {
     // Check special nodes
     for (const id of [START_ID, END_ID]) {
@@ -346,7 +355,8 @@ export default function FlowSchemaView({
     for (const step of steps) {
       const pos = posRef.current[step.id]
       if (!pos) continue
-      if (cx >= pos.x && cx <= pos.x + NODE_W && cy >= pos.y && cy <= pos.y + NODE_H) {
+      const sz = getNodeSize(step.id)
+      if (cx >= pos.x && cx <= pos.x + sz.w && cy >= pos.y && cy <= pos.y + sz.h) {
         return step.id
       }
     }
@@ -577,7 +587,7 @@ export default function FlowSchemaView({
       const step = steps[si]
       const pos = positions[step.id]
       if (!pos) continue
-      drawNode(ctx, step, pos, step.id === selectedStepId, thumbnails[step.id], sorted.indexOf(step))
+      drawNode(ctx, step, pos, step.id === selectedStepId, thumbnails[step.id], sorted.indexOf(step), videoAspects[step.id])
 
       // Draw single OUTPUT port (right side)
       const out = getOutputPort(pos)
@@ -594,7 +604,7 @@ export default function FlowSchemaView({
     }
 
     ctx.restore()
-  }, [positions, thumbnails, pan, scale, steps, selectedStepId, hoveredPort, mode, startMessage, endMessage, getEndStepId, selectedArrow])
+  }, [positions, thumbnails, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, mode, startMessage, endMessage, getEndStepId, selectedArrow])
 
   // Animation frame for smooth rendering
   useEffect(() => {
@@ -1307,7 +1317,8 @@ function drawNode(
   pos: NodePos,
   isSelected: boolean,
   thumb?: HTMLImageElement,
-  stepIndex?: number
+  stepIndex?: number,
+  aspect?: number // video width/height ratio
 ) {
   const typeColors: Record<string, { accent: string; light: string }> = {
     submission: { accent: '#FF9500', light: '#FFF7ED' },
@@ -1317,20 +1328,26 @@ function drawNode(
   }
   const tc = typeColors[step.stepType] || typeColors.question
 
+  // Adjust card size for portrait videos
+  const isPortrait = aspect !== undefined && aspect < 0.8
+  const nodeW = isPortrait ? 180 : NODE_W
+  const thumbH = isPortrait ? 200 : THUMB_H
+  const nodeH = 30 + thumbH + 40
+
   // Shadow
   ctx.save()
   ctx.shadowColor = 'rgba(0,0,0,0.1)'
   ctx.shadowBlur = 12
   ctx.shadowOffsetY = 3
   ctx.beginPath()
-  ctx.roundRect(pos.x, pos.y, NODE_W, NODE_H, 12)
+  ctx.roundRect(pos.x, pos.y, nodeW, nodeH, 12)
   ctx.fillStyle = '#ffffff'
   ctx.fill()
   ctx.restore()
 
   // Border — accent color when selected
   ctx.beginPath()
-  ctx.roundRect(pos.x, pos.y, NODE_W, NODE_H, 12)
+  ctx.roundRect(pos.x, pos.y, nodeW, nodeH, 12)
   ctx.strokeStyle = isSelected ? tc.accent : '#E4E4E7'
   ctx.lineWidth = isSelected ? 2.5 : 1
   ctx.stroke()
@@ -1342,14 +1359,14 @@ function drawNode(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   const num = stepIndex !== undefined ? `${stepIndex + 1}. ` : ''
-  const maxLen = Math.floor((NODE_W - 20) / 6)
+  const maxLen = Math.floor((nodeW - 20) / 6)
   const titleText = num + (step.title.length > maxLen - num.length ? step.title.slice(0, maxLen - num.length - 2) + '...' : step.title)
   ctx.fillText(titleText, pos.x + 12, titleY)
 
   // Thin line under title
   ctx.beginPath()
   ctx.moveTo(pos.x + 1, pos.y + 26)
-  ctx.lineTo(pos.x + NODE_W - 1, pos.y + 26)
+  ctx.lineTo(pos.x + nodeW - 1, pos.y + 26)
   ctx.strokeStyle = '#F1F1F3'
   ctx.lineWidth = 1
   ctx.stroke()
@@ -1357,8 +1374,8 @@ function drawNode(
   // === Thumbnail area ===
   const tX = pos.x + 8
   const tY = pos.y + 30
-  const tW = NODE_W - 16
-  const tH = THUMB_H
+  const tW = nodeW - 16
+  const tH = thumbH
 
   if (thumb) {
     ctx.save()
