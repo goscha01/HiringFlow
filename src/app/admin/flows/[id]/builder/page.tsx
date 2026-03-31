@@ -741,19 +741,39 @@ export default function FlowBuilderPage() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-4">
-                  <div className="text-xs text-gray-400 uppercase tracking-wider font-medium">
-                    {popupStepId === '__start__'
-                      ? 'Start Screen'
-                      : popupStepId === '__end__'
-                        ? 'End Screen'
-                        : 'Step Editor'}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      popupStepId === '__start__' ? 'bg-green-100 text-green-700' :
+                      popupStepId === '__end__' ? 'bg-red-100 text-red-700' :
+                      popupStep?.stepType === 'submission' ? 'bg-brand-50 text-brand-600' :
+                      popupStep?.stepType === 'question' ? 'bg-blue-50 text-blue-600' :
+                      popupStep?.stepType === 'form' ? 'bg-green-50 text-green-600' :
+                      popupStep?.stepType === 'info' ? 'bg-purple-50 text-purple-600' :
+                      'bg-surface text-grey-40'
+                    }`}>
+                      {popupStepId === '__start__' ? 'Start Screen' :
+                       popupStepId === '__end__' ? 'End Screen' :
+                       popupStep?.stepType === 'submission' ? 'Video' :
+                       popupStep?.stepType === 'question' ? 'Question' :
+                       popupStep?.stepType === 'form' ? 'Form' :
+                       popupStep?.stepType === 'info' ? 'Screen' : 'Step'}
+                    </span>
+                    {popupStep && (
+                      <input
+                        key={`popup-title-${popupStep.id}`}
+                        type="text"
+                        defaultValue={popupStep.title}
+                        onBlur={(e) => { if (e.target.value !== popupStep.title) updateStep(popupStep.id, { title: e.target.value }) }}
+                        className="text-lg font-semibold text-grey-15 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-brand-400 focus:bg-brand-50 rounded px-1"
+                      />
+                    )}
                   </div>
-                  <button
-                    onClick={() => setPopupStepId(null)}
-                    className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-                  >
-                    &times;
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {popupStep && (
+                      <button onClick={() => { deleteStep(popupStep.id); setPopupStepId(null) }} className="text-xs text-brand-500 hover:text-brand-600">Delete</button>
+                    )}
+                    <button onClick={() => setPopupStepId(null)} className="text-grey-40 hover:text-grey-15 text-xl leading-none">&times;</button>
+                  </div>
                 </div>
 
                 {popupStepId === '__start__' ? (
@@ -761,24 +781,145 @@ export default function FlowBuilderPage() {
                 ) : popupStepId === '__end__' ? (
                   renderEndEditor()
                 ) : popupStep ? (
-                  <StepEditorPanel
-                    step={popupStep}
-                    allSteps={flow.steps}
-                    videos={videos}
-                    onUpdateStep={updateStep}
-                    onDeleteStep={(id) => {
-                      deleteStep(id)
-                      setPopupStepId(null)
-                    }}
-                    onAddOption={addOption}
-                    onUpdateOption={updateOption}
-                    onDeleteOption={deleteOption}
-                    onVideoUploaded={(video) => {
-                      setVideos((prev) => [video, ...prev])
-                      fetchFlow()
-                    }}
-                    onClose={() => setPopupStepId(null)}
-                  />
+                  <div className="space-y-4">
+                    {/* === VIDEO STEP === */}
+                    {popupStep.stepType === 'submission' && (
+                      <div className="space-y-4">
+                        {/* Video select + upload */}
+                        <div>
+                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Video</label>
+                          <div className="flex gap-2">
+                            <select
+                              value={popupStep.videoId || ''}
+                              onChange={(e) => updateStep(popupStep.id, { videoId: e.target.value || null })}
+                              className="flex-1 px-4 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            >
+                              <option value="">Select video...</option>
+                              {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                            </select>
+                            <label className="px-4 py-2.5 text-xs font-medium bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 cursor-pointer">
+                              Upload
+                              <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
+                                const file = e.target.files?.[0]; if (!file) return
+                                const { uploadVideoFile } = await import('@/lib/upload-client')
+                                const result = await uploadVideoFile(file)
+                                if (result.id) {
+                                  setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+                                  updateStep(popupStep.id, { videoId: result.id })
+                                }
+                              }} />
+                            </label>
+                          </div>
+                        </div>
+                        {/* Video preview */}
+                        {popupStep.video?.url && (
+                          <video src={popupStep.video.url} controls className="w-full rounded-[8px]" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* === QUESTION STEP === */}
+                    {popupStep.stepType === 'question' && (
+                      <div className="space-y-4">
+                        {/* Video (optional) */}
+                        {popupStep.videoId && popupStep.video?.url && (
+                          <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[200px] object-contain" />
+                        )}
+                        <div>
+                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Question</label>
+                          <textarea
+                            key={`q-${popupStep.id}`}
+                            defaultValue={popupStep.questionText || ''}
+                            onBlur={(e) => updateStep(popupStep.id, { questionText: e.target.value })}
+                            rows={2}
+                            placeholder="What question should candidates answer?"
+                            className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Question Type</label>
+                          <div className="flex gap-2">
+                            {[{ v: 'single', l: 'Single' }, { v: 'multiselect', l: 'Multi' }, { v: 'yesno', l: 'Yes/No' }, { v: 'button', l: 'Buttons' }, { v: 'text', l: 'Text' }].map(({ v, l }) => (
+                              <button key={v} onClick={() => updateStep(popupStep.id, { questionType: v })} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${popupStep.questionType === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
+                            ))}
+                          </div>
+                        </div>
+                        {/* Options */}
+                        {popupStep.questionType !== 'text' && (
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-sm font-medium text-grey-20">Answer Options</label>
+                              <button onClick={() => addOption(popupStep.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add</button>
+                            </div>
+                            <div className="space-y-2">
+                              {popupStep.options.map((opt) => (
+                                <div key={opt.id} className="flex items-center gap-2 p-3 bg-surface rounded-[8px]">
+                                  <input
+                                    key={`opt-${opt.id}`}
+                                    type="text"
+                                    defaultValue={opt.optionText}
+                                    onBlur={(e) => updateOption(opt.id, { optionText: e.target.value })}
+                                    placeholder="Option text"
+                                    className="flex-1 px-3 py-1.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                  />
+                                  <select
+                                    value={opt.nextStepId || ''}
+                                    onChange={(e) => updateOption(opt.id, { nextStepId: e.target.value || null })}
+                                    className="px-2 py-1.5 text-xs border border-surface-border rounded-[8px]"
+                                  >
+                                    <option value="">End Flow</option>
+                                    {flow.steps.filter(s => s.id !== popupStep.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                                  </select>
+                                  <button onClick={() => deleteOption(popupStep.id, opt.id)} className="text-brand-400 hover:text-brand-600">&times;</button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* === FORM STEP === */}
+                    {popupStep.stepType === 'form' && (
+                      <StepEditorPanel
+                        step={popupStep}
+                        allSteps={flow.steps}
+                        videos={videos}
+                        onUpdateStep={updateStep}
+                        onDeleteStep={(id) => { deleteStep(id); setPopupStepId(null) }}
+                        onAddOption={addOption}
+                        onUpdateOption={updateOption}
+                        onDeleteOption={deleteOption}
+                        onVideoUploaded={(video) => { setVideos(prev => [video, ...prev]); fetchFlow() }}
+                        onClose={() => setPopupStepId(null)}
+                      />
+                    )}
+
+                    {/* === INFO/SCREEN STEP === */}
+                    {popupStep.stepType === 'info' && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Content</label>
+                          <textarea
+                            key={`info-${popupStep.id}`}
+                            defaultValue={popupStep.infoContent || ''}
+                            onBlur={(e) => updateStep(popupStep.id, { infoContent: e.target.value })}
+                            rows={6}
+                            placeholder="Instructions, welcome message, or any information..."
+                            className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
+                          <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400">
+                            <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            <span className="text-xs text-grey-40">Upload image</span>
+                            <input type="file" accept="image/*" className="hidden" />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : null}
               </div>
             </div>
