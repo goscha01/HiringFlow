@@ -132,11 +132,13 @@ export default function FlowSchemaView({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Don't delete if user is typing in an input
         const tag = (e.target as HTMLElement)?.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
+        // Only delete if the step actually exists in the current steps array
         if (selectedStepId && selectedStepId !== START_ID && selectedStepId !== END_ID) {
+          const stepExists = steps.some(s => s.id === selectedStepId)
+          if (!stepExists) return
           e.preventDefault()
           if (confirm('Delete this step?')) {
             onDeleteStep?.(selectedStepId)
