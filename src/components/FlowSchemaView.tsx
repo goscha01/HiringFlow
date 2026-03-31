@@ -1350,51 +1350,85 @@ function drawNode(
     ctx.fillStyle = '#ffffff'
     ctx.fill()
   } else {
+    // Type-specific thumbnail backgrounds and icons
+    const typeColors: Record<string, { bg: string; border: string; icon: string; label: string }> = {
+      submission: { bg: '#FFF7ED', border: '#FFEDD5', icon: '#FF9500', label: 'Video' },
+      question: { bg: '#EFF6FF', border: '#DBEAFE', icon: '#3B82F6', label: 'Question' },
+      form: { bg: '#F0FDF4', border: '#DCFCE7', icon: '#22C55E', label: 'Form' },
+      info: { bg: '#FAF5FF', border: '#F3E8FF', icon: '#A855F7', label: 'Screen' },
+    }
+    const tc = typeColors[step.stepType] || typeColors.question
+
     ctx.beginPath()
     ctx.roundRect(tX, tY, tW, tH, 6)
-    ctx.fillStyle = step.stepType === 'submission' ? '#faf5ff' : '#f8fafc'
+    ctx.fillStyle = tc.bg
     ctx.fill()
-    ctx.strokeStyle = step.stepType === 'submission' ? '#e9d5ff' : '#f1f5f9'
+    ctx.strokeStyle = tc.border
     ctx.lineWidth = 1
     ctx.stroke()
 
-    // Icon
-    ctx.fillStyle = step.stepType === 'submission' ? '#a855f7' : '#cbd5e1'
-    ctx.font = '24px system-ui'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(
-      step.stepType === 'submission' ? '\u270D' : '\u25B6',
-      tX + tW / 2,
-      tY + tH / 2
-    )
+    const cx = tX + tW / 2
+    const cy = tY + tH / 2
+
+    // Draw type-specific icon
+    ctx.fillStyle = tc.icon
+    if (step.stepType === 'submission') {
+      // Video camera icon
+      ctx.beginPath()
+      ctx.roundRect(cx - 18, cy - 10, 24, 20, 3); ctx.fill()
+      ctx.beginPath()
+      ctx.moveTo(cx + 8, cy - 6); ctx.lineTo(cx + 18, cy - 10); ctx.lineTo(cx + 18, cy + 10); ctx.lineTo(cx + 8, cy + 6); ctx.fill()
+    } else if (step.stepType === 'question') {
+      // Question mark with option lines
+      ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText('?', cx, cy - 10)
+      // Mini option lines
+      ctx.fillStyle = tc.border
+      for (let i = 0; i < Math.min(step.options.length, 3); i++) {
+        ctx.beginPath(); ctx.roundRect(cx - 25, cy + 8 + i * 12, 50, 8, 2); ctx.fill()
+      }
+    } else if (step.stepType === 'form') {
+      // Form field lines
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = i === 0 ? tc.icon + '40' : tc.border
+        ctx.beginPath(); ctx.roundRect(cx - 30, cy - 22 + i * 18, 60, 12, 3); ctx.fill()
+        ctx.strokeStyle = tc.icon + '60'; ctx.lineWidth = 0.5; ctx.stroke()
+      }
+    } else {
+      // Screen / info — text lines icon
+      ctx.fillStyle = tc.icon + '30'
+      ctx.beginPath(); ctx.roundRect(cx - 30, cy - 18, 60, 8, 2); ctx.fill()
+      ctx.beginPath(); ctx.roundRect(cx - 30, cy - 6, 45, 8, 2); ctx.fill()
+      ctx.beginPath(); ctx.roundRect(cx - 30, cy + 6, 55, 8, 2); ctx.fill()
+    }
+
+    // Type label badge
+    ctx.font = 'bold 9px system-ui'
+    ctx.fillStyle = tc.icon
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top'
+    ctx.fillText(tc.label, tX + tW - 4, tY + 4)
   }
 
   const textTop = tY + tH + 8
 
   // Title
-  ctx.font = 'bold 12px Inter, system-ui, sans-serif'
-  ctx.fillStyle = '#0f172a'
+  ctx.font = 'bold 11px "Be Vietnam Pro", Inter, system-ui, sans-serif'
+  ctx.fillStyle = '#262626'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
-  const title = step.title.length > 24 ? step.title.slice(0, 22) + '...' : step.title
+  const maxTitleLen = Math.floor((NODE_W - 20) / 6)
+  const title = step.title.length > maxTitleLen ? step.title.slice(0, maxTitleLen - 2) + '...' : step.title
   ctx.fillText(title, pos.x + 10, textTop)
 
   // Subtitle
-  ctx.font = '10px Inter, system-ui, sans-serif'
-  ctx.fillStyle = '#94a3b8'
+  ctx.font = '10px "Be Vietnam Pro", Inter, system-ui, sans-serif'
+  ctx.fillStyle = '#59595A'
   const info =
-    step.stepType === 'submission'
-      ? 'Submission step'
-      : `${step.options.length} option${step.options.length !== 1 ? 's' : ''} \u00B7 ${step.questionType}`
-  ctx.fillText(info, pos.x + 10, textTop + 18)
-
-  // "Preview" hint
-  ctx.font = '9px Inter, system-ui, sans-serif'
-  ctx.fillStyle = '#94a3b8'
-  ctx.textAlign = 'right'
-  ctx.textBaseline = 'top'
-  ctx.fillText('double-click to preview', pos.x + NODE_W - 10, textTop + 34)
+    step.stepType === 'submission' ? 'Video step' :
+    step.stepType === 'form' ? 'Form step' :
+    step.stepType === 'info' ? 'Screen step' :
+    `${step.options.length} option${step.options.length !== 1 ? 's' : ''}`
+  ctx.fillText(info, pos.x + 10, textTop + 16)
 
   // Order badge
   ctx.beginPath()
