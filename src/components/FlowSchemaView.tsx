@@ -128,6 +128,32 @@ export default function FlowSchemaView({
   const modeRef = useRef(mode)
   modeRef.current = mode
 
+  // Keyboard: Delete/Backspace deletes selected step
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't delete if user is typing in an input
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+        if (selectedStepId && selectedStepId !== START_ID && selectedStepId !== END_ID) {
+          e.preventDefault()
+          if (confirm('Delete this step?')) {
+            onDeleteStep?.(selectedStepId)
+          }
+        } else if (selectedArrow) {
+          e.preventDefault()
+          if (confirm('Remove this connection?')) {
+            onOptionUpdate?.(selectedArrow.optionId, { nextStepId: null })
+            setSelectedArrow(null)
+          }
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedStepId, selectedArrow, onDeleteStep, onOptionUpdate])
+
   // Find terminal options (options with no nextStepId) and submission steps
   const getTerminalOptionIds = useCallback(() => {
     const ids: string[] = []
