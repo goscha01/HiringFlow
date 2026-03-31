@@ -282,22 +282,31 @@ export default function FlowSchemaView({
           c.width = THUMB_W; c.height = THUMB_H_CAP
           const ctx = c.getContext('2d')
           if (ctx) {
-            // Cover-crop: fill canvas without distortion
+            // Contain: fit video inside thumbnail, fill bg
             const vw = video.videoWidth
             const vh = video.videoHeight
-            const thumbRatio = THUMB_W / THUMB_H_CAP
             const vidRatio = vw / vh
-            let sx = 0, sy = 0, sw = vw, sh = vh
+            const thumbRatio = THUMB_W / THUMB_H_CAP
+
+            // Fill background
+            ctx.fillStyle = '#1a1a1a'
+            ctx.fillRect(0, 0, THUMB_W, THUMB_H_CAP)
+
+            let dw, dh, dx, dy
             if (vidRatio > thumbRatio) {
-              // Video is wider — crop sides
-              sw = vh * thumbRatio
-              sx = (vw - sw) / 2
+              // Video is wider — fit by width
+              dw = THUMB_W
+              dh = THUMB_W / vidRatio
+              dx = 0
+              dy = (THUMB_H_CAP - dh) / 2
             } else {
-              // Video is taller — crop top/bottom
-              sh = vw / thumbRatio
-              sy = (vh - sh) / 2
+              // Video is taller (portrait) — fit by height
+              dh = THUMB_H_CAP
+              dw = THUMB_H_CAP * vidRatio
+              dx = (THUMB_W - dw) / 2
+              dy = 0
             }
-            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, THUMB_W, THUMB_H_CAP)
+            ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh)
             const img = new Image()
             img.onload = () => {
               if (mounted) {
