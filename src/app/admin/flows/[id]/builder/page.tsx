@@ -150,11 +150,7 @@ export default function FlowBuilderPage() {
       const fullStep = { ...newStep, options: [], stepType: newStep.stepType || 'question', questionType: newStep.questionType || 'single' }
       setFlow((f) => (f ? { ...f, steps: [...f.steps, fullStep] } : null))
       setShowAddStepModal(false)
-      if (viewMode === 'schema') {
-        setPopupStepId(newStep.id)
-      } else {
-        setSelectedStepId(newStep.id)
-      }
+      setSelectedStepId(newStep.id)
     }
   }
 
