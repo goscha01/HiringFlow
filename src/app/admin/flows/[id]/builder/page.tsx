@@ -108,6 +108,24 @@ export default function FlowBuilderPage() {
   }
 
   const [showAddStepModal, setShowAddStepModal] = useState(false)
+  const [modalPos, setModalPos] = useState({ x: 0, y: 0 })
+  const [isDraggingModal, setIsDraggingModal] = useState(false)
+  const modalDragStart = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null)
+
+  useEffect(() => {
+    if (!isDraggingModal) return
+    const handleMove = (e: MouseEvent) => {
+      if (!modalDragStart.current) return
+      setModalPos({
+        x: modalDragStart.current.startX + (e.clientX - modalDragStart.current.x),
+        y: modalDragStart.current.startY + (e.clientY - modalDragStart.current.y),
+      })
+    }
+    const handleUp = () => { setIsDraggingModal(false); modalDragStart.current = null }
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => { window.removeEventListener('mousemove', handleMove); window.removeEventListener('mouseup', handleUp) }
+  }, [isDraggingModal])
   const [addStepType, setAddStepType] = useState<string | null>(null)
   const [addStepTitle, setAddStepTitle] = useState('')
   const [addStepVideoId, setAddStepVideoId] = useState('')
@@ -681,6 +699,7 @@ export default function FlowBuilderPage() {
               // All nodes open editor on single click
               setPopupStepId(stepId)
               setSelectedStepId(stepId)
+              setModalPos({ x: 0, y: 0 })
             }}
             onStepPreview={(stepId) => {
               setPreviewStepId(stepId)
@@ -706,10 +725,17 @@ export default function FlowBuilderPage() {
               onClick={() => setPopupStepId(null)}
             >
               <div
-                className="bg-white rounded-[12px] shadow-2xl border border-surface-border w-full max-w-[520px] max-h-[90vh] overflow-y-auto p-6"
+                className="bg-white rounded-[12px] shadow-2xl border border-surface-border w-full max-w-[480px] max-h-[85vh] overflow-y-auto p-5"
+                style={{ cursor: isDraggingModal ? 'grabbing' : 'default', transform: `translate(${modalPos.x}px, ${modalPos.y}px)` }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between mb-4">
+                <div
+                  className="flex items-center justify-between mb-4 cursor-grab active:cursor-grabbing select-none"
+                  onMouseDown={(e) => {
+                    setIsDraggingModal(true)
+                    modalDragStart.current = { x: e.clientX, y: e.clientY, startX: modalPos.x, startY: modalPos.y }
+                  }}
+                >
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       popupStepId === '__start__' ? 'bg-green-100 text-green-700' :
@@ -782,7 +808,7 @@ export default function FlowBuilderPage() {
                         </div>
                         {/* Video preview */}
                         {popupStep.video?.url && (
-                          <video src={popupStep.video.url} controls className="w-full rounded-[8px]" />
+                          <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[50vh] object-contain" />
                         )}
                       </div>
                     )}

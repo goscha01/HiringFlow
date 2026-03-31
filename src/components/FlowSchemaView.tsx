@@ -268,8 +268,6 @@ export default function FlowSchemaView({
   useEffect(() => {
     const thumbs: Record<string, HTMLImageElement> = {}
     let mounted = true
-    const THUMB_W = NODE_W - 20
-    const THUMB_H_CAP = THUMB_H
 
     steps.forEach((step) => {
       if (step.video?.url) {
@@ -279,13 +277,16 @@ export default function FlowSchemaView({
         video.src = step.video.url
         video.onloadeddata = () => { video.currentTime = 1 }
         video.onseeked = () => {
+          const vw = video.videoWidth
+          const vh = video.videoHeight
+          const isP = vw / vh < 0.8
+          const THUMB_W = (isP ? 180 : NODE_W) - 16
+          const THUMB_H_CAP = isP ? 200 : THUMB_H
           const c = document.createElement('canvas')
           c.width = THUMB_W; c.height = THUMB_H_CAP
           const ctx = c.getContext('2d')
           if (ctx) {
             // Contain: fit video inside thumbnail, fill bg
-            const vw = video.videoWidth
-            const vh = video.videoHeight
             const vidRatio = vw / vh
             const thumbRatio = THUMB_W / THUMB_H_CAP
 
