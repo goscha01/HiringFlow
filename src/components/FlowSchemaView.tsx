@@ -62,11 +62,11 @@ interface SelectedArrow {
   kind?: 'option' | 'start' | 'end'
 }
 
-const NODE_W = 200
-const THUMB_H = 100
-const NODE_H = 10 + THUMB_H + 8 + 44 + 10 // 172
-const PORT_R = 7
-const H_GAP = 100
+const NODE_W = 280
+const THUMB_H = 140
+const NODE_H = 30 + THUMB_H + 40 // 210: title bar + thumb + answer bar
+const PORT_R = 8
+const H_GAP = 120
 const V_GAP = 70
 
 // Single output port on the right side of the card
@@ -564,10 +564,11 @@ export default function FlowSchemaView({
     }
 
     // --- Draw step nodes ---
-    for (const step of steps) {
+    for (let si = 0; si < steps.length; si++) {
+      const step = steps[si]
       const pos = positions[step.id]
       if (!pos) continue
-      drawNode(ctx, step, pos, step.id === selectedStepId, thumbnails[step.id])
+      drawNode(ctx, step, pos, step.id === selectedStepId, thumbnails[step.id], sorted.indexOf(step))
 
       // Draw single OUTPUT port (right side)
       const out = getOutputPort(pos)
@@ -1196,36 +1197,31 @@ function drawConnection(
   isDraft: boolean,
   color?: string
 ) {
-  const lineColor = color || '#94a3b8'
+  const lineColor = color || '#262626'
   const dx = Math.abs(toX - fromX)
-  const cpOffset = Math.max(dx * 0.5, 50)
+  const cpOffset = Math.max(dx * 0.4, 40)
 
   ctx.beginPath()
-  ctx.strokeStyle = isDraft ? '#3b82f6' : lineColor
+  ctx.strokeStyle = isDraft ? '#FF9500' : lineColor
   ctx.lineWidth = isDraft ? 2.5 : 2
   if (isDraft) ctx.setLineDash([6, 4])
-  if (color && !isDraft) ctx.setLineDash([4, 3])
+  else ctx.setLineDash([])
 
   ctx.moveTo(fromX, fromY)
   ctx.bezierCurveTo(fromX + cpOffset, fromY, toX - cpOffset, toY, toX, toY)
   ctx.stroke()
   ctx.setLineDash([])
 
-  // Arrowhead
-  if (!isDraft) {
-    const t = 0.95
-    const bx = bezierPoint(fromX, fromX + cpOffset, toX - cpOffset, toX, t)
-    const by = bezierPoint(fromY, fromY, toY, toY, t)
-    const angle = Math.atan2(toY - by, toX - bx)
+  // Dot endpoints instead of arrowhead
+  ctx.beginPath()
+  ctx.arc(fromX, fromY, 5, 0, Math.PI * 2)
+  ctx.fillStyle = lineColor
+  ctx.fill()
 
-    ctx.beginPath()
-    ctx.fillStyle = lineColor
-    ctx.moveTo(toX, toY)
-    ctx.lineTo(toX - 10 * Math.cos(angle - 0.35), toY - 10 * Math.sin(angle - 0.35))
-    ctx.lineTo(toX - 10 * Math.cos(angle + 0.35), toY - 10 * Math.sin(angle + 0.35))
-    ctx.closePath()
-    ctx.fill()
-  }
+  ctx.beginPath()
+  ctx.arc(toX, toY, 5, 0, Math.PI * 2)
+  ctx.fillStyle = lineColor
+  ctx.fill()
 
   // Label
   if (label) {
@@ -1301,134 +1297,138 @@ function drawNode(
   step: Step,
   pos: NodePos,
   isSelected: boolean,
-  thumb?: HTMLImageElement
+  thumb?: HTMLImageElement,
+  stepIndex?: number
 ) {
+  const typeColors: Record<string, { accent: string; light: string }> = {
+    submission: { accent: '#FF9500', light: '#FFF7ED' },
+    question: { accent: '#3B82F6', light: '#EFF6FF' },
+    form: { accent: '#22C55E', light: '#F0FDF4' },
+    info: { accent: '#A855F7', light: '#FAF5FF' },
+  }
+  const tc = typeColors[step.stepType] || typeColors.question
+
   // Shadow
   ctx.save()
-  ctx.shadowColor = 'rgba(0,0,0,0.08)'
-  ctx.shadowBlur = 8
-  ctx.shadowOffsetY = 2
+  ctx.shadowColor = 'rgba(0,0,0,0.1)'
+  ctx.shadowBlur = 12
+  ctx.shadowOffsetY = 3
   ctx.beginPath()
-  ctx.roundRect(pos.x, pos.y, NODE_W, NODE_H, 10)
-  ctx.fillStyle = isSelected ? '#eff6ff' : '#ffffff'
+  ctx.roundRect(pos.x, pos.y, NODE_W, NODE_H, 12)
+  ctx.fillStyle = '#ffffff'
   ctx.fill()
   ctx.restore()
 
-  // Border
+  // Border — accent color when selected
   ctx.beginPath()
-  ctx.roundRect(pos.x, pos.y, NODE_W, NODE_H, 10)
-  ctx.strokeStyle = isSelected ? '#3b82f6' : '#e2e8f0'
+  ctx.roundRect(pos.x, pos.y, NODE_W, NODE_H, 12)
+  ctx.strokeStyle = isSelected ? tc.accent : '#E4E4E7'
   ctx.lineWidth = isSelected ? 2.5 : 1
   ctx.stroke()
 
-  // Thumbnail area
-  const tX = pos.x + 10
-  const tY = pos.y + 10
-  const tW = NODE_W - 20
+  // === Title bar (top 30px) ===
+  const titleY = pos.y + 6
+  ctx.font = 'bold 11px "Be Vietnam Pro", system-ui'
+  ctx.fillStyle = '#262626'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  const num = stepIndex !== undefined ? `${stepIndex + 1}. ` : ''
+  const maxLen = Math.floor((NODE_W - 20) / 6)
+  const titleText = num + (step.title.length > maxLen - num.length ? step.title.slice(0, maxLen - num.length - 2) + '...' : step.title)
+  ctx.fillText(titleText, pos.x + 12, titleY)
+
+  // Thin line under title
+  ctx.beginPath()
+  ctx.moveTo(pos.x + 1, pos.y + 26)
+  ctx.lineTo(pos.x + NODE_W - 1, pos.y + 26)
+  ctx.strokeStyle = '#F1F1F3'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // === Thumbnail area ===
+  const tX = pos.x + 8
+  const tY = pos.y + 30
+  const tW = NODE_W - 16
   const tH = THUMB_H
 
   if (thumb) {
     ctx.save()
     ctx.beginPath()
-    ctx.roundRect(tX, tY, tW, tH, 6)
+    ctx.roundRect(tX, tY, tW, tH, 8)
     ctx.clip()
     ctx.drawImage(thumb, tX, tY, tW, tH)
     ctx.restore()
 
-    // Play button overlay on thumbnail
+    // Play button overlay
     const cx = tX + tW / 2
     const cy = tY + tH / 2
     ctx.beginPath()
-    ctx.arc(cx, cy, 16, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'
+    ctx.arc(cx, cy, 18, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'
     ctx.fill()
     ctx.beginPath()
-    ctx.moveTo(cx - 5, cy - 8)
-    ctx.lineTo(cx - 5, cy + 8)
-    ctx.lineTo(cx + 8, cy)
+    ctx.moveTo(cx - 6, cy - 9)
+    ctx.lineTo(cx - 6, cy + 9)
+    ctx.lineTo(cx + 9, cy)
     ctx.closePath()
     ctx.fillStyle = '#ffffff'
     ctx.fill()
   } else {
-    // Type-specific thumbnail backgrounds and icons
-    const typeColors: Record<string, { bg: string; border: string; icon: string; label: string }> = {
-      submission: { bg: '#FFF7ED', border: '#FFEDD5', icon: '#FF9500', label: 'Video' },
-      question: { bg: '#EFF6FF', border: '#DBEAFE', icon: '#3B82F6', label: 'Question' },
-      form: { bg: '#F0FDF4', border: '#DCFCE7', icon: '#22C55E', label: 'Form' },
-      info: { bg: '#FAF5FF', border: '#F3E8FF', icon: '#A855F7', label: 'Screen' },
-    }
-    const tc = typeColors[step.stepType] || typeColors.question
-
+    // Type-specific placeholder
     ctx.beginPath()
-    ctx.roundRect(tX, tY, tW, tH, 6)
-    ctx.fillStyle = tc.bg
+    ctx.roundRect(tX, tY, tW, tH, 8)
+    ctx.fillStyle = tc.light
     ctx.fill()
-    ctx.strokeStyle = tc.border
-    ctx.lineWidth = 1
-    ctx.stroke()
 
     const cx = tX + tW / 2
     const cy = tY + tH / 2
 
-    // Draw type-specific icon
-    ctx.fillStyle = tc.icon
+    // Icon
+    ctx.fillStyle = tc.accent
     if (step.stepType === 'submission') {
-      // Video camera icon
       ctx.beginPath()
-      ctx.roundRect(cx - 18, cy - 10, 24, 20, 3); ctx.fill()
+      ctx.roundRect(cx - 20, cy - 12, 26, 24, 4); ctx.fill()
       ctx.beginPath()
-      ctx.moveTo(cx + 8, cy - 6); ctx.lineTo(cx + 18, cy - 10); ctx.lineTo(cx + 18, cy + 10); ctx.lineTo(cx + 8, cy + 6); ctx.fill()
+      ctx.moveTo(cx + 10, cy - 8); ctx.lineTo(cx + 22, cy - 12); ctx.lineTo(cx + 22, cy + 12); ctx.lineTo(cx + 10, cy + 8); ctx.fill()
     } else if (step.stepType === 'question') {
-      // Question mark with option lines
-      ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      ctx.fillText('?', cx, cy - 10)
-      // Mini option lines
-      ctx.fillStyle = tc.border
-      for (let i = 0; i < Math.min(step.options.length, 3); i++) {
-        ctx.beginPath(); ctx.roundRect(cx - 25, cy + 8 + i * 12, 50, 8, 2); ctx.fill()
-      }
+      ctx.font = 'bold 28px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText('?', cx, cy)
     } else if (step.stepType === 'form') {
-      // Form field lines
       for (let i = 0; i < 3; i++) {
-        ctx.fillStyle = i === 0 ? tc.icon + '40' : tc.border
-        ctx.beginPath(); ctx.roundRect(cx - 30, cy - 22 + i * 18, 60, 12, 3); ctx.fill()
-        ctx.strokeStyle = tc.icon + '60'; ctx.lineWidth = 0.5; ctx.stroke()
+        ctx.fillStyle = tc.accent + (i === 0 ? '40' : '20')
+        ctx.beginPath(); ctx.roundRect(cx - 35, cy - 25 + i * 20, 70, 14, 4); ctx.fill()
       }
     } else {
-      // Screen / info — text lines icon
-      ctx.fillStyle = tc.icon + '30'
-      ctx.beginPath(); ctx.roundRect(cx - 30, cy - 18, 60, 8, 2); ctx.fill()
-      ctx.beginPath(); ctx.roundRect(cx - 30, cy - 6, 45, 8, 2); ctx.fill()
-      ctx.beginPath(); ctx.roundRect(cx - 30, cy + 6, 55, 8, 2); ctx.fill()
+      ctx.fillStyle = tc.accent + '30'
+      ctx.beginPath(); ctx.roundRect(cx - 35, cy - 20, 70, 10, 3); ctx.fill()
+      ctx.beginPath(); ctx.roundRect(cx - 35, cy - 4, 50, 10, 3); ctx.fill()
+      ctx.beginPath(); ctx.roundRect(cx - 35, cy + 12, 60, 10, 3); ctx.fill()
     }
-
-    // Type label badge
-    ctx.font = 'bold 9px system-ui'
-    ctx.fillStyle = tc.icon
-    ctx.textAlign = 'right'; ctx.textBaseline = 'top'
-    ctx.fillText(tc.label, tX + tW - 4, tY + 4)
   }
 
-  const textTop = tY + tH + 8
+  // === Bottom answer/info bar ===
+  const barY = tY + tH + 4
+  const barH = 28
 
-  // Title
-  ctx.font = 'bold 11px "Be Vietnam Pro", Inter, system-ui, sans-serif'
-  ctx.fillStyle = '#262626'
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'top'
-  const maxTitleLen = Math.floor((NODE_W - 20) / 6)
-  const title = step.title.length > maxTitleLen ? step.title.slice(0, maxTitleLen - 2) + '...' : step.title
-  ctx.fillText(title, pos.x + 10, textTop)
-
-  // Subtitle
-  ctx.font = '10px "Be Vietnam Pro", Inter, system-ui, sans-serif'
-  ctx.fillStyle = '#59595A'
-  const info =
-    step.stepType === 'submission' ? 'Video step' :
-    step.stepType === 'form' ? 'Form step' :
-    step.stepType === 'info' ? 'Screen step' :
-    `${step.options.length} option${step.options.length !== 1 ? 's' : ''}`
-  ctx.fillText(info, pos.x + 10, textTop + 16)
+  if (step.stepType === 'question' && step.options.length > 0) {
+    // Show answer option count as colored bar
+    const barW = Math.min(step.options.length * 40, tW)
+    ctx.beginPath()
+    ctx.roundRect(pos.x + 8, barY, barW, barH, 6)
+    ctx.fillStyle = tc.accent
+    ctx.fill()
+    ctx.font = 'bold 10px "Be Vietnam Pro", system-ui'
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 8 + barW / 2, barY + barH / 2)
+  } else {
+    // Type label
+    const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form', info: 'Screen' }
+    ctx.font = '10px "Be Vietnam Pro", system-ui'
+    ctx.fillStyle = '#59595A'
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+    ctx.fillText(labels[step.stepType] || 'Step', pos.x + 12, barY + barH / 2)
+  }
 
   // Order badge
   ctx.beginPath()
