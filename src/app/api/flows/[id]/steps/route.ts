@@ -26,7 +26,7 @@ export async function POST(
 
   try {
     const body = await request.json()
-    const { title, videoId, questionText, stepType, questionType } = body
+    const { title, videoId, questionText, stepType, questionType, formEnabled, formConfig, infoContent } = body
 
     // Get current max step order
     const maxOrder = await prisma.flowStep.aggregate({
@@ -43,6 +43,9 @@ export async function POST(
         stepType: stepType || 'question',
         questionType: questionType || 'single',
         stepOrder: (maxOrder._max.stepOrder ?? -1) + 1,
+        ...(formEnabled !== undefined && { formEnabled }),
+        ...(formConfig !== undefined && { formConfig }),
+        ...(infoContent !== undefined && { infoContent }),
       },
       include: {
         video: true,

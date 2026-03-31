@@ -147,9 +147,9 @@ export default function FlowBuilderPage() {
     })
     if (res.ok) {
       const newStep = await res.json()
-      const fullStep = { ...newStep, options: [], stepType: newStep.stepType || 'question', questionType: newStep.questionType || 'single' }
-      setFlow((f) => (f ? { ...f, steps: [...f.steps, fullStep] } : null))
       setShowAddStepModal(false)
+      // Re-fetch full flow to get video data on steps
+      await fetchFlow()
       setSelectedStepId(newStep.id)
     }
   }
