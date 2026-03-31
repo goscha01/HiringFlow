@@ -62,9 +62,9 @@ interface SelectedArrow {
   kind?: 'option' | 'start' | 'end'
 }
 
-const NODE_W = 240
-const THUMB_H = 148 // taller thumbnail area
-const NODE_H = 10 + THUMB_H + 8 + 44 + 10 // 220
+const NODE_W = 200
+const THUMB_H = 100
+const NODE_H = 10 + THUMB_H + 8 + 44 + 10 // 172
 const PORT_R = 7
 const H_GAP = 100
 const V_GAP = 70

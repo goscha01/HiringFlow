@@ -706,7 +706,7 @@ export default function FlowBuilderPage() {
               onClick={() => setPopupStepId(null)}
             >
               <div
-                className="bg-white rounded-[12px] shadow-2xl border border-surface-border w-full max-w-[600px] max-h-[90vh] overflow-y-auto p-6"
+                className="bg-white rounded-[12px] shadow-2xl border border-surface-border w-full max-w-[520px] p-6"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-4">
@@ -782,7 +782,7 @@ export default function FlowBuilderPage() {
                         </div>
                         {/* Video preview */}
                         {popupStep.video?.url && (
-                          <video src={popupStep.video.url} controls className="w-full rounded-[8px]" />
+                          <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[240px] object-contain bg-black" />
                         )}
                       </div>
                     )}
