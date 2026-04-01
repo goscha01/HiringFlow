@@ -1536,12 +1536,25 @@ function drawNode(
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
     ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 16, barY + barH / 2)
   } else {
-    // Type label
-    const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form', info: 'Screen' }
-    ctx.font = '10px "Be Vietnam Pro", system-ui'
-    ctx.fillStyle = '#59595A'
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-    ctx.fillText(labels[step.stepType] || 'Step', pos.x + 12, barY + barH / 2)
+    const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
+    if (btnCfg?.enabled) {
+      // Orange action button
+      ctx.beginPath()
+      ctx.roundRect(pos.x + 8, barY, tW, barH, 6)
+      ctx.fillStyle = '#FF9500'
+      ctx.fill()
+      ctx.font = 'bold 10px "Be Vietnam Pro", system-ui'
+      ctx.fillStyle = '#ffffff'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(btnCfg.text || 'Continue', pos.x + 8 + tW / 2, barY + barH / 2)
+    } else {
+      // Type label
+      const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form', info: 'Screen' }
+      ctx.font = '10px "Be Vietnam Pro", system-ui'
+      ctx.fillStyle = '#59595A'
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+      ctx.fillText(labels[step.stepType] || 'Step', pos.x + 12, barY + barH / 2)
+    }
   }
 
   // Order badge

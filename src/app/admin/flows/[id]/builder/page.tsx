@@ -984,11 +984,31 @@ export default function FlowBuilderPage() {
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
-                          <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400">
-                            <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                            <span className="text-xs text-grey-40">Upload image</span>
-                            <input type="file" accept="image/*" className="hidden" />
-                          </label>
+                          {(popupStep.formConfig as any)?.imageUrl ? (
+                            <div className="relative rounded-[8px] overflow-hidden">
+                              <img src={(popupStep.formConfig as any).imageUrl} alt="" className="w-full h-32 object-cover rounded-[8px]" />
+                              <button
+                                onClick={() => updateStep(popupStep.id, { formConfig: { imageUrl: null } } as any)}
+                                className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full text-xs flex items-center justify-center hover:bg-black/70"
+                              >&times;</button>
+                            </div>
+                          ) : (
+                            <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400">
+                              <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                              <span className="text-xs text-grey-40">Upload image</span>
+                              <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                const formData = new FormData()
+                                formData.append('file', file)
+                                const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
+                                if (res.ok) {
+                                  const { url } = await res.json()
+                                  updateStep(popupStep.id, { formConfig: { imageUrl: url } } as any)
+                                }
+                              }} />
+                            </label>
+                          )}
                         </div>
                         {renderButtonConfig(popupStep)}
                       </div>
