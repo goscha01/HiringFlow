@@ -869,20 +869,51 @@ export default function FlowBuilderPage() {
                     )}
 
                     {/* === FORM STEP === */}
-                    {popupStep.stepType === 'form' && (
-                      <StepEditorPanel
-                        step={popupStep}
-                        allSteps={flow.steps}
-                        videos={videos}
-                        onUpdateStep={updateStep}
-                        onDeleteStep={(id) => { deleteStep(id); setPopupStepId(null) }}
-                        onAddOption={addOption}
-                        onUpdateOption={updateOption}
-                        onDeleteOption={deleteOption}
-                        onVideoUploaded={(video) => { setVideos(prev => [video, ...prev]); fetchFlow() }}
-                        onClose={() => setPopupStepId(null)}
-                      />
-                    )}
+                    {popupStep.stepType === 'form' && (() => {
+                      const formConfig = (popupStep.formConfig as { fields: Array<{ id: string; label: string; type: string; required: boolean; enabled: boolean; isBuiltIn?: boolean }> }) || { fields: [
+                        { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
+                        { id: 'email', label: 'Email', type: 'email', required: true, enabled: true, isBuiltIn: true },
+                        { id: 'phone', label: 'Phone', type: 'phone', required: false, enabled: true, isBuiltIn: true },
+                      ] }
+                      const updateFormFields = (fields: typeof formConfig.fields) => {
+                        updateStep(popupStep.id, { formConfig: { fields } } as any)
+                      }
+                      return (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-grey-20 mb-2">Fields</label>
+                            <div className="space-y-2">
+                              {formConfig.fields.map((field, i) => (
+                                <div key={field.id} className="flex items-center gap-3 p-3 rounded-[8px] border border-surface-border">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], enabled: !n[i].enabled }; updateFormFields(n) }} className="rounded accent-[#FF9500]" />
+                                  </label>
+                                  {field.isBuiltIn ? (
+                                    <span className="text-sm text-grey-15 flex-1">{field.label}</span>
+                                  ) : (
+                                    <input
+                                      key={`field-${field.id}`}
+                                      type="text"
+                                      defaultValue={field.label}
+                                      onBlur={(e) => { const n = [...formConfig.fields]; n[i] = { ...n[i], label: e.target.value }; updateFormFields(n) }}
+                                      className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                    />
+                                  )}
+                                  <label className="flex items-center gap-1.5 text-xs text-grey-40">
+                                    <input type="checkbox" checked={field.required} onChange={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], required: !n[i].required }; updateFormFields(n) }} className="rounded accent-[#FF9500]" />
+                                    Required
+                                  </label>
+                                  {!field.isBuiltIn && (
+                                    <button onClick={() => updateFormFields(formConfig.fields.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-lg">&times;</button>
+                                  )}
+                                </div>
+                              ))}
+                              <button onClick={() => updateFormFields([...formConfig.fields, { id: `custom_${Date.now()}`, label: 'Custom Field', type: 'text', required: false, enabled: true, isBuiltIn: false }])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add custom field</button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     {/* === INFO/SCREEN STEP === */}
                     {popupStep.stepType === 'info' && (
