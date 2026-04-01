@@ -569,51 +569,71 @@ export default function FlowBuilderPage() {
     )
   }
 
-  const renderStartEditor = () => (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-grey-20 mb-1.5">Welcome Message</label>
-        <textarea
-          value={flow.startMessage}
-          onChange={(e) => updateFlow({ startMessage: e.target.value })}
-          rows={4}
-          placeholder="Welcome! Please complete the following steps."
-          className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
-        <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400">
-          <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          <span className="text-xs text-grey-40">Upload image</span>
-          <input type="file" accept="image/*" className="hidden" />
-        </label>
-      </div>
-    </div>
-  )
+  const renderScreenEditor = (type: 'start' | 'end') => {
+    const message = type === 'start' ? flow.startMessage : flow.endMessage
+    const setMessage = (val: string) => updateFlow(type === 'start' ? { startMessage: val } : { endMessage: val })
+    const branding = (flow.branding as Record<string, unknown>) || {}
+    const screenKey = type === 'start' ? 'startScreenImage' : 'endScreenImage'
+    const imageUrl = (branding as Record<string, string>)[screenKey] || null
 
-  const renderEndEditor = () => (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-grey-20 mb-1.5">Completion Message</label>
-        <textarea
-          value={flow.endMessage}
-          onChange={(e) => updateFlow({ endMessage: e.target.value })}
-          rows={4}
-          placeholder="Thank you for your participation!"
-          className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
+    const uploadImage = async (file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
+      if (res.ok) {
+        const { url } = await res.json()
+        updateFlow({ branding: { ...branding, [screenKey]: url } } as any)
+      }
+    }
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-grey-20 mb-1.5">
+            {type === 'start' ? 'Welcome Message' : 'Completion Message'}
+          </label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={4}
+            placeholder={type === 'start' ? 'Welcome! Please complete the following steps.' : 'Thank you for your participation!'}
+            className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
+          {imageUrl ? (
+            <div className="relative rounded-[8px] overflow-hidden">
+              <img src={imageUrl} alt="" className="w-full h-32 object-cover rounded-[8px]" />
+              <button
+                onClick={() => updateFlow({ branding: { ...branding, [screenKey]: null } } as any)}
+                className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full text-xs flex items-center justify-center hover:bg-black/70"
+              >&times;</button>
+            </div>
+          ) : (
+            <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400">
+              <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <span className="text-xs text-grey-40">Upload image</span>
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+            </label>
+          )}
+        </div>
+        {/* Action button */}
+        <div className="border-t border-surface-border pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-grey-20">Action Button</label>
+            <span className="text-[11px] text-grey-40">
+              {type === 'start' ? 'Default: "Start"' : 'Optional redirect'}
+            </span>
+          </div>
+        </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
-        <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400">
-          <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          <span className="text-xs text-grey-40">Upload image</span>
-          <input type="file" accept="image/*" className="hidden" />
-        </label>
-      </div>
-    </div>
-  )
+    )
+  }
+
+  const renderStartEditor = () => renderScreenEditor('start')
+
+  const renderEndEditor = () => renderScreenEditor('end')
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">

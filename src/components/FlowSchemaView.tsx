@@ -493,7 +493,7 @@ export default function FlowSchemaView({
         const fromY = startPos.y + SPECIAL_H / 2
         const toX = firstPos.x
         const toY = firstPos.y + NODE_H / 2
-        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isStartArrowSelected ? '#FF9500' : '#10b981')
+        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isStartArrowSelected ? '#FF9500' : '#FF9500')
 
         if (isStartArrowSelected) {
           // Drag handle at the card end
@@ -555,7 +555,7 @@ export default function FlowSchemaView({
         const toX = endPos.x
         const toY = endPos.y + SPECIAL_H / 2
         const isEndArrowSelected = selectedArrow?.kind === 'end'
-        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isEndArrowSelected ? '#FF9500' : '#ef4444')
+        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isEndArrowSelected ? '#FF9500' : '#FF9500')
 
         if (isEndArrowSelected) {
           // Drag handle at the card end
@@ -586,12 +586,12 @@ export default function FlowSchemaView({
 
     // --- Draw Start node ---
     if (startPos) {
-      drawSpecialNode(ctx, startPos, 'Start', startMessage || 'Welcome', selectedStepId === START_ID, '#10b981', '#ecfdf5')
+      drawSpecialNode(ctx, startPos, 'Start', startMessage || 'Welcome', selectedStepId === START_ID, '#FF9500', '#FFEDD5')
     }
 
     // --- Draw End node ---
     if (endPos) {
-      drawSpecialNode(ctx, endPos, 'End', endMessage || 'Thank you', selectedStepId === END_ID, '#ef4444', '#fef2f2')
+      drawSpecialNode(ctx, endPos, 'End', endMessage || 'Thank you', selectedStepId === END_ID, '#FF9500', '#FFEDD5')
     }
 
     // --- Draw step nodes ---
@@ -1626,9 +1626,9 @@ function drawNode(
       ctx.fillStyle = '#ffffff'
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
       ctx.fillText(btnCfg.text || 'Continue', pos.x + 8 + tW / 2, barY + barH / 2)
-    } else {
-      // Type label
-      const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form', info: 'Screen' }
+    } else if (step.stepType !== 'info') {
+      // Type label (skip for screen steps — they show everything in thumbnail)
+      const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form' }
       ctx.font = '10px "Be Vietnam Pro", system-ui'
       ctx.fillStyle = '#59595A'
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
@@ -1657,7 +1657,7 @@ function drawNode(
     const dr = 12
     ctx.beginPath()
     ctx.arc(dx, dy, dr, 0, Math.PI * 2)
-    ctx.fillStyle = '#ef4444'
+    ctx.fillStyle = '#FF9500'
     ctx.fill()
     ctx.strokeStyle = '#ffffff'
     ctx.lineWidth = 2
@@ -1708,9 +1708,9 @@ function drawPortCircle(
 ) {
   ctx.beginPath()
   ctx.arc(x, y, PORT_R, 0, Math.PI * 2)
-  ctx.fillStyle = isHovered ? '#FF9500' : isConnected ? '#10b981' : '#e2e8f0'
+  ctx.fillStyle = isHovered ? '#FF9500' : isConnected ? '#FF9500' : '#FFEDD5'
   ctx.fill()
-  ctx.strokeStyle = isHovered ? '#EA8500' : isConnected ? '#059669' : '#94a3b8'
+  ctx.strokeStyle = isHovered ? '#EA8500' : isConnected ? '#EA8500' : '#FFD9A0'
   ctx.lineWidth = 2
   ctx.stroke()
 }
@@ -1733,7 +1733,7 @@ function drawDragHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
 function drawDeleteButton(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.beginPath()
   ctx.arc(x, y, 12, 0, Math.PI * 2)
-  ctx.fillStyle = '#ef4444'
+  ctx.fillStyle = '#FF9500'
   ctx.fill()
   ctx.strokeStyle = '#ffffff'
   ctx.lineWidth = 2
