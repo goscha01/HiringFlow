@@ -138,6 +138,8 @@ export default function FlowBuilderPage() {
     { id: 'phone', label: 'Phone', type: 'phone', required: false, enabled: true, isBuiltIn: true },
   ])
   const [addStepInfoText, setAddStepInfoText] = useState('')
+  const [addStepImageUrl, setAddStepImageUrl] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
   const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
   const [titleWarning, setTitleWarning] = useState(false)
@@ -180,6 +182,8 @@ export default function FlowBuilderPage() {
     setAddStepOptions(['', ''])
     setAddStepQuestionType('single')
     setAddStepInfoText('')
+    setAddStepImageUrl(null)
+    setUploadingImage(false)
     setAddStepFormFields([
       { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
       { id: 'email', label: 'Email', type: 'email', required: true, enabled: true, isBuiltIn: true },
@@ -266,6 +270,7 @@ export default function FlowBuilderPage() {
     } else if (addStepType === 'info') {
       config.title = addStepTitle.trim() || 'Welcome'
       config.infoContent = addStepInfoText
+      if (addStepImageUrl) config.formConfig = { imageUrl: addStepImageUrl }
     }
     createStep(addStepType, config)
   }
@@ -1345,11 +1350,42 @@ export default function FlowBuilderPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-grey-20 mb-1.5">Background Image (optional)</label>
-                    <label className="block w-full p-4 border-2 border-dashed border-surface-divider rounded-[8px] text-center cursor-pointer hover:border-brand-400 transition-colors">
-                      <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                      <span className="text-xs text-grey-40">Upload image</span>
-                      <input type="file" accept="image/*" className="hidden" />
-                    </label>
+                    {addStepImageUrl ? (
+                      <div className="relative rounded-[8px] overflow-hidden">
+                        <img src={addStepImageUrl} alt="" className="w-full h-32 object-cover rounded-[8px]" />
+                        <button onClick={() => setAddStepImageUrl(null)} className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full text-xs flex items-center justify-center hover:bg-black/70">&times;</button>
+                      </div>
+                    ) : (
+                      <label className={`block w-full p-4 border-2 border-dashed rounded-[8px] text-center cursor-pointer transition-colors ${uploadingImage ? 'border-brand-300 bg-brand-50' : 'border-surface-divider hover:border-brand-400'}`}>
+                        <svg className="w-8 h-8 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        <span className="text-xs text-grey-40">{uploadingImage ? 'Uploading...' : 'Upload image'}</span>
+                        <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          console.log('[Screen image] uploading', file.name, file.size)
+                          setUploadingImage(true)
+                          try {
+                            const formData = new FormData()
+                            formData.append('file', file)
+                            const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
+                            console.log('[Screen image] response status:', res.status)
+                            if (res.ok) {
+                              const data = await res.json()
+                              console.log('[Screen image] uploaded:', data.url)
+                              setAddStepImageUrl(data.url)
+                            } else {
+                              const err = await res.json()
+                              console.error('[Screen image] error:', err)
+                              alert(`Upload failed: ${err.error}`)
+                            }
+                          } catch (err) {
+                            console.error('[Screen image] exception:', err)
+                            alert('Upload failed — check console')
+                          }
+                          setUploadingImage(false)
+                        }} />
+                      </label>
+                    )}
                   </div>
                   <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Screen Step</button>
                 </div>
