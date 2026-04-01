@@ -113,6 +113,7 @@ export default function FlowSchemaView({
   const containerRef = useRef<HTMLDivElement>(null)
   const [positions, setPositions] = useState<Record<string, NodePos>>({})
   const [thumbnails, setThumbnails] = useState<Record<string, HTMLImageElement>>({})
+  const [screenImages, setScreenImages] = useState<Record<string, HTMLImageElement>>({}) // stepId -> loaded image for screen steps
   const [videoAspects, setVideoAspects] = useState<Record<string, number>>({}) // stepId -> width/height ratio
   const [pan, setPan] = useState({ x: 40, y: 40 })
   const [scale, setScale] = useState(1)
@@ -322,6 +323,19 @@ export default function FlowSchemaView({
     })
 
     return () => { mounted = false }
+  }, [steps])
+
+  // Load screen step images
+  useEffect(() => {
+    steps.forEach((step) => {
+      const imgUrl = (step as any).formConfig?.imageUrl
+      if (imgUrl && step.stepType === 'info' && !screenImages[step.id]) {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.onload = () => setScreenImages(prev => ({ ...prev, [step.id]: img }))
+        img.src = imgUrl
+      }
+    })
   }, [steps])
 
   // Convert screen coords to canvas coords
@@ -585,7 +599,7 @@ export default function FlowSchemaView({
       const step = steps[si]
       const pos = positions[step.id]
       if (!pos) continue
-      drawNode(ctx, step, pos, step.id === selectedStepId, thumbnails[step.id], sorted.indexOf(step), videoAspects[step.id])
+      drawNode(ctx, step, pos, step.id === selectedStepId, thumbnails[step.id], sorted.indexOf(step), videoAspects[step.id], screenImages[step.id])
 
       // Draw single OUTPUT port (right side)
       const out = getOutputPort(pos)
@@ -610,7 +624,7 @@ export default function FlowSchemaView({
     }
 
     ctx.restore()
-  }, [positions, thumbnails, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, mode, startMessage, endMessage, getEndStepId, selectedArrow])
+  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, mode, startMessage, endMessage, getEndStepId, selectedArrow])
 
   // Animation frame for smooth rendering
   useEffect(() => {
@@ -1369,7 +1383,8 @@ function drawNode(
   isSelected: boolean,
   thumb?: HTMLImageElement,
   stepIndex?: number,
-  aspect?: number // video width/height ratio
+  aspect?: number,
+  screenImg?: HTMLImageElement
 ) {
   const typeColors: Record<string, { accent: string; light: string }> = {
     submission: { accent: '#FF9500', light: '#FFF7ED' },
@@ -1522,16 +1537,23 @@ function drawNode(
       // Screen frame
       ctx.beginPath(); ctx.roundRect(tX + pad, tY + pad, innerW, innerH, 4)
       ctx.fillStyle = '#ffffff'; ctx.fill()
-      ctx.strokeStyle = '#E4E4E7'; ctx.lineWidth = 1; ctx.stroke()
+      ctx.strokeStyle = tc.accent + '30'; ctx.lineWidth = 1; ctx.stroke()
 
-      // Image placeholder at top (if has image)
+      // Image at top (if has image)
       const imgUrl = (step as any).formConfig?.imageUrl
-      if (imgUrl) {
+      const loadedImg = screenImg
+      if (imgUrl && loadedImg) {
+        const imgH = 45
+        ctx.save()
+        ctx.beginPath(); ctx.roundRect(tX + pad + 4, tY + pad + 4, innerW - 8, imgH, 3); ctx.clip()
+        ctx.drawImage(loadedImg, tX + pad + 4, tY + pad + 4, innerW - 8, imgH)
+        ctx.restore()
+      } else if (imgUrl) {
         ctx.fillStyle = tc.accent + '15'
-        ctx.beginPath(); ctx.roundRect(tX + pad + 4, tY + pad + 4, innerW - 8, 35, 3); ctx.fill()
+        ctx.beginPath(); ctx.roundRect(tX + pad + 4, tY + pad + 4, innerW - 8, 45, 3); ctx.fill()
         ctx.fillStyle = tc.accent + '40'
         ctx.font = '8px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.fillText('IMAGE', tX + pad + innerW / 2, tY + pad + 21)
+        ctx.fillText('IMAGE', tX + pad + innerW / 2, tY + pad + 26)
       }
 
       // Text lines
