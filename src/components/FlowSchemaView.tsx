@@ -601,6 +601,14 @@ export default function FlowSchemaView({
       drawPortCircle(ctx, inp.x, inp.y, isInpHovered, hasIncoming)
     }
 
+    // Draw draft connection line while dragging
+    if (mode.type === 'connecting') {
+      drawConnection(ctx, mode.fromX, mode.fromY, (mode as any).mouseX, (mode as any).mouseY, '', true)
+    }
+    if ((mode as any).type === 'connecting_reverse') {
+      drawConnection(ctx, (mode as any).mouseX, (mode as any).mouseY, (mode as any).fromX, (mode as any).fromY, '', true)
+    }
+
     ctx.restore()
   }, [positions, thumbnails, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, mode, startMessage, endMessage, getEndStepId, selectedArrow])
 
@@ -783,7 +791,7 @@ export default function FlowSchemaView({
       }
     }
 
-    // Check input ports (left side — also start a connection from here)
+    // Check input ports (left side — reverse connection: drag to find source)
     const inpPortStepId = hitTestInputPort(cx, cy)
     if (inpPortStepId) {
       const pos = positions[inpPortStepId]
@@ -791,13 +799,13 @@ export default function FlowSchemaView({
         const inp = getInputPort(pos)
         setSelectedArrow(null)
         setMode({
-          type: 'connecting',
-          fromStepId: inpPortStepId,
+          type: 'connecting_reverse',
+          targetStepId: inpPortStepId,
           fromX: inp.x,
           fromY: inp.y,
           mouseX: cx,
           mouseY: cy,
-        })
+        } as any)
         return
       }
     }
@@ -893,10 +901,20 @@ export default function FlowSchemaView({
 
     if (mode.type === 'connecting') {
       setMode({ ...mode, mouseX: cx, mouseY: cy })
-
       const targetStep = hitTestInputPort(cx, cy)
       if (targetStep && targetStep !== mode.fromStepId) {
         setHoveredPort(`inp_${targetStep}`)
+      } else {
+        setHoveredPort(null)
+      }
+      return
+    }
+
+    if ((mode as any).type === 'connecting_reverse') {
+      setMode({ ...mode, mouseX: cx, mouseY: cy } as any)
+      const sourceStep = hitTestOutputPort(cx, cy)
+      if (sourceStep && sourceStep !== (mode as any).targetStepId) {
+        setHoveredPort(`out_${sourceStep}`)
       } else {
         setHoveredPort(null)
       }
@@ -1040,6 +1058,22 @@ export default function FlowSchemaView({
       setHoveredPort(null)
     }
 
+    // Reverse connecting: drop on output port to create connection FROM that step TO the starting step
+    if ((mode as any).type === 'connecting_reverse') {
+      const { x: cx, y: cy } = toCanvas(e.clientX, e.clientY)
+      let sourceStep = hitTestOutputPort(cx, cy)
+      if (!sourceStep) {
+        const nodeId = hitTestNode(cx, cy)
+        if (nodeId && nodeId !== START_ID && nodeId !== END_ID) sourceStep = nodeId
+      }
+
+      if (sourceStep && sourceStep !== (mode as any).targetStepId) {
+        onConnectSteps?.(sourceStep, (mode as any).targetStepId)
+      }
+
+      setHoveredPort(null)
+    }
+
     if (mode.type === 'dragging') {
       // Check if it was a click (minimal movement) using screen coords
       const dx = Math.abs(e.clientX - mode.startScreenX)
@@ -1124,7 +1158,7 @@ export default function FlowSchemaView({
   const getCursor = () => {
     if (mode.type === 'panning') return 'grabbing'
     if (mode.type === 'dragging') return 'move'
-    if (mode.type === 'connecting' || mode.type === 'reconnecting' || mode.type === 'reconnecting_source' || mode.type === 'reconnecting_start' || mode.type === 'reconnecting_end') return 'crosshair'
+    if (mode.type === 'connecting' || (mode as any).type === 'connecting_reverse' || mode.type === 'reconnecting' || mode.type === 'reconnecting_source' || mode.type === 'reconnecting_start' || mode.type === 'reconnecting_end') return 'crosshair'
     if (hoveredPort === '__delete__' || hoveredPort === '__arrow_delete__') return 'pointer'
     if (hoveredPort === '__arrow__') return 'pointer'
     if (hoveredPort) return 'pointer'
@@ -1461,7 +1495,7 @@ function drawNode(
       step.options.slice(0, 3).forEach((opt, i) => {
         ctx.beginPath()
         ctx.roundRect(tX + 8, optY + i * 18, tW - 16, 14, 3)
-        ctx.fillStyle = '#F1F1F3'
+        ctx.fillStyle = '#FF9500'
         ctx.fill()
         ctx.font = '9px "Be Vietnam Pro", system-ui'
         ctx.fillStyle = '#59595A'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
