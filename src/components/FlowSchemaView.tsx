@@ -288,7 +288,7 @@ export default function FlowSchemaView({
             const thumbRatio = THUMB_W / THUMB_H_CAP
 
             // Fill background
-            ctx.fillStyle = '#1a1a1a'
+            ctx.fillStyle = '#FFF7ED'
             ctx.fillRect(0, 0, THUMB_W, THUMB_H_CAP)
 
             let dw, dh, dx, dy
@@ -1373,7 +1373,7 @@ function drawNode(
 ) {
   const typeColors: Record<string, { accent: string; light: string }> = {
     submission: { accent: '#FF9500', light: '#FFF7ED' },
-    question: { accent: '#3B82F6', light: '#EFF6FF' },
+    question: { accent: '#FF9500', light: '#FFF7ED' },
     form: { accent: '#FF9500', light: '#FFF7ED' },
     info: { accent: '#A855F7', light: '#FAF5FF' },
   }
