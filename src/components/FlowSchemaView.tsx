@@ -1413,13 +1413,53 @@ function drawNode(
       ctx.beginPath()
       ctx.moveTo(cx + 10, cy - 8); ctx.lineTo(cx + 22, cy - 12); ctx.lineTo(cx + 22, cy + 12); ctx.lineTo(cx + 10, cy + 8); ctx.fill()
     } else if (step.stepType === 'question') {
-      ctx.font = 'bold 28px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      ctx.fillText('?', cx, cy)
-    } else if (step.stepType === 'form') {
-      for (let i = 0; i < 3; i++) {
-        ctx.fillStyle = tc.accent + (i === 0 ? '40' : '20')
-        ctx.beginPath(); ctx.roundRect(cx - 35, cy - 25 + i * 20, 70, 14, 4); ctx.fill()
+      // Show question text on card
+      if (step.questionText) {
+        ctx.font = '11px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#262626'
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+        // Word wrap the question
+        const words = step.questionText.split(' ')
+        let line = ''
+        let lineY = tY + 12
+        const maxW = tW - 20
+        for (const word of words) {
+          const test = line + (line ? ' ' : '') + word
+          if (ctx.measureText(test).width > maxW && line) {
+            ctx.fillText(line, tX + 10, lineY)
+            line = word; lineY += 16
+            if (lineY > tY + tH - 30) break
+          } else { line = test }
+        }
+        if (line && lineY <= tY + tH - 30) ctx.fillText(line, tX + 10, lineY)
+      } else {
+        ctx.font = 'bold 28px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillStyle = tc.accent
+        ctx.fillText('?', cx, cy - 15)
       }
+      // Show option previews
+      const optY = tY + tH - 8 - Math.min(step.options.length, 3) * 18
+      step.options.slice(0, 3).forEach((opt, i) => {
+        ctx.beginPath()
+        ctx.roundRect(tX + 8, optY + i * 18, tW - 16, 14, 3)
+        ctx.fillStyle = i === 0 ? tc.accent + '20' : '#F1F1F3'
+        ctx.fill()
+        ctx.font = '9px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#59595A'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+        const optText = opt.optionText.length > 28 ? opt.optionText.slice(0, 26) + '...' : opt.optionText
+        ctx.fillText(optText, tX + 14, optY + i * 18 + 7)
+      })
+    } else if (step.stepType === 'form') {
+      const fields = ['Full Name', 'Email', 'Phone']
+      fields.forEach((f, i) => {
+        const fy = tY + 12 + i * 28
+        ctx.font = '9px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#59595A'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+        ctx.fillText(f, tX + 10, fy)
+        ctx.beginPath(); ctx.roundRect(tX + 10, fy + 13, tW - 20, 12, 3)
+        ctx.fillStyle = '#ffffff'; ctx.fill()
+        ctx.strokeStyle = '#E4E4E7'; ctx.lineWidth = 1; ctx.stroke()
+      })
     } else {
       ctx.fillStyle = tc.accent + '30'
       ctx.beginPath(); ctx.roundRect(cx - 35, cy - 20, 70, 10, 3); ctx.fill()
