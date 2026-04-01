@@ -493,13 +493,13 @@ export default function FlowSchemaView({
         const fromY = startPos.y + SPECIAL_H / 2
         const toX = firstPos.x
         const toY = firstPos.y + NODE_H / 2
-        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isStartArrowSelected ? '#3b82f6' : '#10b981')
+        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isStartArrowSelected ? '#FF9500' : '#10b981')
 
         if (isStartArrowSelected) {
           // Drag handle at the card end
           ctx.beginPath()
           ctx.arc(toX, toY, 13, 0, Math.PI * 2)
-          ctx.fillStyle = '#3b82f6'
+          ctx.fillStyle = '#FF9500'
           ctx.fill()
           ctx.strokeStyle = '#ffffff'
           ctx.lineWidth = 2.5
@@ -527,7 +527,7 @@ export default function FlowSchemaView({
 
         const inp = getInputPort(targetPos)
         const isArrowSelected = selectedArrow?.optionId === option.id
-        drawConnection(ctx, out.x, out.y, inp.x, inp.y, option.optionText, false, isArrowSelected ? '#3b82f6' : undefined)
+        drawConnection(ctx, out.x, out.y, inp.x, inp.y, option.optionText, false, isArrowSelected ? '#FF9500' : undefined)
 
         // Draw drag handles + delete when selected
         if (isArrowSelected) {
@@ -555,13 +555,13 @@ export default function FlowSchemaView({
         const toX = endPos.x
         const toY = endPos.y + SPECIAL_H / 2
         const isEndArrowSelected = selectedArrow?.kind === 'end'
-        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isEndArrowSelected ? '#3b82f6' : '#ef4444')
+        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isEndArrowSelected ? '#FF9500' : '#ef4444')
 
         if (isEndArrowSelected) {
           // Drag handle at the card end
           ctx.beginPath()
           ctx.arc(fromX, fromY, 13, 0, Math.PI * 2)
-          ctx.fillStyle = '#3b82f6'
+          ctx.fillStyle = '#FF9500'
           ctx.fill()
           ctx.strokeStyle = '#ffffff'
           ctx.lineWidth = 2.5
@@ -1529,7 +1529,10 @@ function drawNode(
         ctx.strokeStyle = '#E4E4E7'; ctx.lineWidth = 1; ctx.stroke()
       })
     } else {
-      // Screen step — mini screen mockup
+      // Screen step — fill thumbnail with orange tint first
+      ctx.beginPath(); ctx.roundRect(tX, tY, tW, tH, 8)
+      ctx.fillStyle = tc.light; ctx.fill()
+
       const imgUrl = (step as any).formConfig?.imageUrl
       const loadedImg = screenImg
       const infoText = (step as any).infoContent || ''
@@ -1613,8 +1616,8 @@ function drawNode(
     ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 16, barY + barH / 2)
   } else {
     const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
-    if (btnCfg?.enabled) {
-      // Orange action button
+    if (btnCfg?.enabled && step.stepType !== 'info') {
+      // Orange action button (skip for screen steps — they show it in thumbnail)
       ctx.beginPath()
       ctx.roundRect(pos.x + 8, barY, tW, barH, 6)
       ctx.fillStyle = '#FF9500'
@@ -1636,13 +1639,13 @@ function drawNode(
   // Order badge
   ctx.beginPath()
   ctx.arc(pos.x + NODE_W - 16, pos.y + 16, 11, 0, Math.PI * 2)
-  ctx.fillStyle = isSelected ? '#3b82f6' : '#f1f5f9'
+  ctx.fillStyle = isSelected ? '#FF9500' : '#FFF7ED'
   ctx.fill()
-  ctx.strokeStyle = isSelected ? '#2563eb' : '#e2e8f0'
+  ctx.strokeStyle = isSelected ? '#EA8500' : '#FFEDD5'
   ctx.lineWidth = 1
   ctx.stroke()
   ctx.font = 'bold 10px system-ui'
-  ctx.fillStyle = isSelected ? '#fff' : '#64748b'
+  ctx.fillStyle = isSelected ? '#fff' : '#FF9500'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(String(step.stepOrder + 1), pos.x + NODE_W - 16, pos.y + 16)
@@ -1705,9 +1708,9 @@ function drawPortCircle(
 ) {
   ctx.beginPath()
   ctx.arc(x, y, PORT_R, 0, Math.PI * 2)
-  ctx.fillStyle = isHovered ? '#3b82f6' : isConnected ? '#10b981' : '#e2e8f0'
+  ctx.fillStyle = isHovered ? '#FF9500' : isConnected ? '#10b981' : '#e2e8f0'
   ctx.fill()
-  ctx.strokeStyle = isHovered ? '#2563eb' : isConnected ? '#059669' : '#94a3b8'
+  ctx.strokeStyle = isHovered ? '#EA8500' : isConnected ? '#059669' : '#94a3b8'
   ctx.lineWidth = 2
   ctx.stroke()
 }
@@ -1715,7 +1718,7 @@ function drawPortCircle(
 function drawDragHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.beginPath()
   ctx.arc(x, y, 13, 0, Math.PI * 2)
-  ctx.fillStyle = '#3b82f6'
+  ctx.fillStyle = '#FF9500'
   ctx.fill()
   ctx.strokeStyle = '#ffffff'
   ctx.lineWidth = 2.5
