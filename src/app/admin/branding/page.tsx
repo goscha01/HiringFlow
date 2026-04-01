@@ -68,7 +68,7 @@ export default function BrandingPage() {
             <button
               onClick={() => { setTab('flows'); if (flows.length > 0) setSelectedId(flows[0].id) }}
               className={`px-4 py-1.5 text-sm font-medium ${
-                tab === 'flows' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                tab === 'flows' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
               Flows ({flows.length})
@@ -76,7 +76,7 @@ export default function BrandingPage() {
             <button
               onClick={() => { setTab('trainings'); if (trainings.length > 0) setSelectedId(trainings[0].id) }}
               className={`px-4 py-1.5 text-sm font-medium ${
-                tab === 'trainings' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                tab === 'trainings' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
               Trainings ({trainings.length})

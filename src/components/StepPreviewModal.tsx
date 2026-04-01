@@ -68,8 +68,8 @@ export default function StepPreviewModal({
 
           <div className="bg-gradient-to-br from-blue-600 to-purple-700 rounded-2xl p-1">
             <div className="bg-white rounded-xl p-8 text-center">
-              <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-5">
-                <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-14 h-14 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg className="w-7 h-7 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
               </div>
@@ -82,7 +82,7 @@ export default function StepPreviewModal({
                 value={candidateName}
                 onChange={(e) => setCandidateName(e.target.value)}
                 placeholder="Your name"
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl mb-4 text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl mb-4 text-center focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
 
               <button
@@ -93,7 +93,7 @@ export default function StepPreviewModal({
                   }
                 }}
                 disabled={!firstStepId}
-                className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="w-full bg-brand-500 text-white py-3.5 rounded-xl font-semibold text-lg hover:bg-brand-600 disabled:opacity-50 transition-colors"
               >
                 Start
               </button>
@@ -167,7 +167,7 @@ export default function StepPreviewModal({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-700">
           <div className="flex items-center gap-3">
-            <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">
+            <span className="bg-brand-500 text-white text-xs font-bold px-2 py-0.5 rounded">
               PREVIEW
             </span>
             <span className="text-white font-medium text-sm truncate">{step.title}</span>
@@ -218,7 +218,7 @@ export default function StepPreviewModal({
               <p className="mb-3">Candidate would record a video or type a response here.</p>
               <button
                 onClick={() => onNavigate('__end__')}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                className="px-6 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 text-sm font-medium"
               >
                 Simulate Submit &rarr; End
               </button>
@@ -234,10 +234,10 @@ export default function StepPreviewModal({
                     key={option.id}
                     onClick={() => handleOptionClick(option)}
                     disabled={!showOptions}
-                    className="w-full text-left px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl hover:border-blue-500 hover:bg-gray-750 transition-all group"
+                    className="w-full text-left px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl hover:border-brand-500 hover:bg-gray-750 transition-all group"
                   >
                     <span className="text-white font-medium text-sm">{option.optionText}</span>
-                    <span className="block text-xs text-gray-500 mt-0.5 group-hover:text-blue-400">
+                    <span className="block text-xs text-gray-500 mt-0.5 group-hover:text-brand-400">
                       {targetStep ? `\u2192 ${targetStep.title}` : '\u2192 End'}
                     </span>
                   </button>

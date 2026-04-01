@@ -118,7 +118,7 @@ export default function VideosPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Videos</h1>
-        <label className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 cursor-pointer transition-colors">
+        <label className="bg-brand-500 text-white px-4 py-2 rounded-md hover:bg-brand-600 cursor-pointer transition-colors">
           {uploading ? 'Uploading...' : 'Upload Videos'}
           <input
             type="file"
@@ -152,7 +152,7 @@ export default function VideosPage() {
                       ? 'bg-red-500'
                       : upload.status === 'success'
                       ? 'bg-green-500'
-                      : 'bg-blue-600'
+                      : 'bg-brand-500'
                   }`}
                   style={{ width: `${upload.progress}%` }}
                 />

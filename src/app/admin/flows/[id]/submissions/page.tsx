@@ -127,7 +127,7 @@ export default function SubmissionsPage() {
                   key={session.id}
                   onClick={() => setSelectedSession(session)}
                   className={`w-full text-left p-4 hover:bg-gray-50 transition-colors ${
-                    selectedSession?.id === session.id ? 'bg-blue-50' : ''
+                    selectedSession?.id === session.id ? 'bg-brand-50' : ''
                   }`}
                 >
                   <div className="font-medium text-gray-900">
@@ -146,7 +146,7 @@ export default function SubmissionsPage() {
                       className={`px-2 py-0.5 text-xs rounded-full ${
                         session.outcome === 'passed' ? 'bg-green-100 text-green-700' :
                         session.outcome === 'failed' ? 'bg-red-100 text-red-700' :
-                        session.finishedAt ? 'bg-blue-100 text-blue-700' :
+                        session.finishedAt ? 'bg-brand-100 text-brand-700' :
                         'bg-yellow-100 text-yellow-700'
                       }`}
                     >
@@ -198,7 +198,7 @@ export default function SubmissionsPage() {
                   {selectedSession.answers.map((answer, index) => (
                     <div
                       key={answer.id}
-                      className="border-l-4 border-blue-500 pl-4 py-2"
+                      className="border-l-4 border-brand-500 pl-4 py-2"
                     >
                       <div className="text-sm text-gray-500 mb-1">
                         Step {index + 1}: {answer.step.title}
@@ -209,7 +209,7 @@ export default function SubmissionsPage() {
                         </div>
                       )}
                       {answer.option && (
-                        <div className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                        <div className="inline-block bg-brand-100 text-brand-800 px-3 py-1 rounded-full text-sm">
                           {answer.option.optionText}
                         </div>
                       )}

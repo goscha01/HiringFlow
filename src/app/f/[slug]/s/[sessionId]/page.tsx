@@ -219,7 +219,7 @@ export default function SessionPlayerPage() {
                     value={formValues[field.id] || ''}
                     onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })}
                     rows={3}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
                     placeholder={field.label}
                   />
                 ) : (
@@ -227,7 +227,7 @@ export default function SessionPlayerPage() {
                     type={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : 'text'}
                     value={formValues[field.id] || ''}
                     onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
                     placeholder={field.label}
                   />
                 )}
@@ -237,7 +237,7 @@ export default function SessionPlayerPage() {
 
           <button
             onClick={handleFormSubmit}
-            className="w-full mt-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+            className="w-full mt-6 py-3 bg-brand-500 text-white rounded-xl font-medium hover:bg-brand-600 transition-colors"
           >
             Continue
           </button>
@@ -256,10 +256,10 @@ export default function SessionPlayerPage() {
     const textColorClass = overlay ? 'text-white' : 'text-gray-900'
     const optionBorderClass = overlay
       ? 'border-white/30 hover:border-white/60 hover:bg-white/10 text-white'
-      : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50 text-gray-900'
+      : 'border-gray-200 hover:border-brand-500 hover:bg-brand-50 text-gray-900'
     const optionSelectedClass = overlay
-      ? 'border-blue-400 bg-blue-500/30 text-white'
-      : 'border-blue-500 bg-blue-50 text-gray-900'
+      ? 'border-brand-400 bg-brand-500/30 text-white'
+      : 'border-brand-500 bg-brand-50 text-gray-900'
     const disabledClass = overlay
       ? 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
       : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
@@ -312,7 +312,7 @@ export default function SessionPlayerPage() {
                         checked={selectedOptions.includes(option.optionId)}
                         onChange={() => toggleOption(option.optionId)}
                         disabled={!showOptions && !!step.videoUrl}
-                        className="mr-3 h-4 w-4 text-blue-600 rounded"
+                        className="mr-3 h-4 w-4 text-brand-500 rounded"
                       />
                       <span className="font-medium text-sm">{option.text}</span>
                     </label>
@@ -321,7 +321,7 @@ export default function SessionPlayerPage() {
                 <button
                   onClick={submitMultiselect}
                   disabled={selectedOptions.length === 0 || submitting || (!showOptions && !!step.videoUrl)}
-                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                  className="w-full py-3 bg-brand-500 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-600 transition-colors"
                 >
                   {submitting ? 'Submitting...' : `Continue (${selectedOptions.length} selected)`}
                 </button>
@@ -348,13 +348,13 @@ export default function SessionPlayerPage() {
                 onChange={(e) => setTextMessage(e.target.value)}
                 rows={3}
                 placeholder="Type your response here..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
             <button
               onClick={submitSubmission}
               disabled={(!textMessage && !recordedVideo) || submitting}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+              className="w-full py-3 bg-brand-500 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-600 transition-colors"
             >
               {submitting ? 'Submitting...' : 'Submit Response'}
             </button>
@@ -383,7 +383,7 @@ export default function SessionPlayerPage() {
                 setSubmitting(false)
               }}
               disabled={submitting}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors"
+              className="w-full py-3 bg-brand-500 text-white rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-brand-600 transition-colors"
             >
               {submitting ? 'Loading...' : 'Continue'}
             </button>
@@ -398,7 +398,7 @@ export default function SessionPlayerPage() {
               onChange={(e) => setTextAnswer(e.target.value)}
               rows={4}
               placeholder="Type your answer..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 mb-3"
             />
             <button
               onClick={async () => {
@@ -417,7 +417,7 @@ export default function SessionPlayerPage() {
                 setSubmitting(false)
               }}
               disabled={!textAnswer.trim() || submitting}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-blue-700 transition-colors"
+              className="w-full py-3 bg-brand-500 text-white rounded-xl font-medium text-sm disabled:opacity-50 hover:bg-brand-600 transition-colors"
             >
               {submitting ? 'Submitting...' : 'Submit Answer'}
             </button>
@@ -435,7 +435,7 @@ export default function SessionPlayerPage() {
           <div className="mt-4">
             <div className="flex gap-1">
               {Array.from({ length: step.progress.total }).map((_, i) => (
-                <div key={i} className={`flex-1 h-1 rounded-full ${i < step.progress!.current ? 'bg-blue-500' : 'bg-gray-200'}`} />
+                <div key={i} className={`flex-1 h-1 rounded-full ${i < step.progress!.current ? 'bg-brand-500' : 'bg-gray-200'}`} />
               ))}
             </div>
             <p className={`text-center text-xs mt-1 ${overlay ? 'text-white/40' : 'text-gray-400'}`}>

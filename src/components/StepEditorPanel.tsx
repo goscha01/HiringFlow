@@ -383,7 +383,7 @@ export default function StepEditorPanel({
               </button>
               <button
                 onClick={onClose}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                className="px-3 py-1.5 text-sm bg-brand-500 text-white rounded-md hover:bg-brand-600 transition-colors"
               >
                 Done
               </button>
@@ -410,7 +410,7 @@ export default function StepEditorPanel({
                 }
                 onUpdateStep(step.id, updates)
               }}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">No video selected</option>
               {videos.map((video) => (
@@ -422,7 +422,7 @@ export default function StepEditorPanel({
             <label className={`px-3 py-2 rounded-md text-sm font-medium cursor-pointer transition-colors whitespace-nowrap ${
               uploading
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
+                : 'bg-brand-50 text-brand-500 hover:bg-brand-100 border border-brand-200'
             }`}>
               {uploading ? `${uploadProgress}%` : 'Upload'}
               <input
@@ -440,7 +440,7 @@ export default function StepEditorPanel({
             <div className="mt-2">
               <div className="w-full bg-gray-200 rounded-full h-1.5">
                 <div
-                  className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                  className="bg-brand-500 h-1.5 rounded-full transition-all duration-300"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
@@ -483,7 +483,7 @@ export default function StepEditorPanel({
               type="text"
               value={step.title}
               onChange={(val) => onUpdateStep(step.id, { title: val })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
 
@@ -508,14 +508,14 @@ export default function StepEditorPanel({
 
           {/* Video analysis info */}
           {step.video?.displayName && (
-            <div className="bg-blue-50 rounded-md p-3 border border-blue-200">
-              <p className="text-sm font-medium text-blue-900">{step.video.displayName}</p>
-              {step.video.summary && <p className="text-xs text-blue-700 mt-1">{step.video.summary}</p>}
+            <div className="bg-brand-50 rounded-md p-3 border border-brand-200">
+              <p className="text-sm font-medium text-brand-800">{step.video.displayName}</p>
+              {step.video.summary && <p className="text-xs text-brand-700 mt-1">{step.video.summary}</p>}
               {step.video.bulletPoints && step.video.bulletPoints.length > 0 && (
                 <ul className="mt-2 space-y-0.5">
                   {step.video.bulletPoints.map((bp, i) => (
-                    <li key={i} className="text-xs text-blue-600 flex items-start gap-1.5">
-                      <span className="mt-1 w-1 h-1 bg-blue-400 rounded-full flex-shrink-0" />
+                    <li key={i} className="text-xs text-brand-500 flex items-start gap-1.5">
+                      <span className="mt-1 w-1 h-1 bg-brand-400 rounded-full flex-shrink-0" />
                       {bp}
                     </li>
                   ))}
@@ -557,7 +557,7 @@ export default function StepEditorPanel({
                         (error) => { setAnalyzing(false); setAnalysisError(error) }
                       )
                     }}
-                    className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                    className="px-3 py-1.5 text-xs bg-brand-50 text-brand-700 border border-brand-200 rounded-md hover:bg-brand-100 transition-colors"
                   >
                     Analyze Video
                   </button>
@@ -569,7 +569,7 @@ export default function StepEditorPanel({
                     <button
                       onClick={() => setCaptionsEnabled(!captionsEnabled)}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
-                        captionsEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                        captionsEnabled ? 'bg-brand-500' : 'bg-gray-300'
                       }`}
                     >
                       <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
@@ -681,7 +681,7 @@ export default function StepEditorPanel({
                     <button
                       onClick={() => setColorTarget(colorTarget === 'text' ? null : 'text')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${
-                        colorTarget === 'text' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                        colorTarget === 'text' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                       }`}
                     >
                       <span className="w-4 h-4 rounded border border-gray-400" style={{ backgroundColor: captionStyle.color }} />
@@ -690,7 +690,7 @@ export default function StepEditorPanel({
                     <button
                       onClick={() => setColorTarget(colorTarget === 'bg' ? null : 'bg')}
                       className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${
-                        colorTarget === 'bg' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                        colorTarget === 'bg' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                       }`}
                     >
                       <span className="w-4 h-4 rounded border border-gray-400" style={{
@@ -713,7 +713,7 @@ export default function StepEditorPanel({
                             onClick={() => applyPaletteColor(color, colorTarget)}
                             className={`w-6 h-6 rounded border-2 transition-all ${
                               getActiveHex(colorTarget) === color
-                                ? 'border-blue-500 scale-110 ring-1 ring-blue-300'
+                                ? 'border-brand-500 scale-110 ring-1 ring-brand-300'
                                 : 'border-gray-300 hover:border-gray-400'
                             }`}
                             style={{
@@ -734,7 +734,7 @@ export default function StepEditorPanel({
                               onClick={() => applyOpacity(value)}
                               className={`text-[10px] px-1.5 py-0.5 rounded ${
                                 Math.abs(curOpacity() - value) < 0.05
-                                  ? 'bg-blue-600 text-white'
+                                  ? 'bg-brand-500 text-white'
                                   : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                               }`}
                             >{label}</button>
@@ -819,7 +819,7 @@ export default function StepEditorPanel({
               onClick={() => setActiveTab('quiz')}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'quiz'
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-brand-500 text-brand-500'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -829,7 +829,7 @@ export default function StepEditorPanel({
               onClick={() => setActiveTab('form')}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'form'
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-brand-500 text-brand-500'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -861,7 +861,7 @@ export default function StepEditorPanel({
                   onChange={(val) => onUpdateStep(step.id, { questionText: val })}
                   rows={2}
                   placeholder="What question should candidates answer?"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
 
@@ -871,7 +871,7 @@ export default function StepEditorPanel({
                 <select
                   value={step.stepType || 'question'}
                   onChange={(e) => onUpdateStep(step.id, { stepType: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="question">Question Step</option>
                   <option value="form">Form Step (Collect Information)</option>
@@ -887,7 +887,7 @@ export default function StepEditorPanel({
                   <select
                     value={step.questionType || 'single'}
                     onChange={(e) => onUpdateStep(step.id, { questionType: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="single">Single Choice</option>
                     <option value="multiselect">Multiple Choice</option>
@@ -900,12 +900,12 @@ export default function StepEditorPanel({
 
               {/* Form Step */}
               {step.stepType === 'form' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                  <h4 className="font-medium text-blue-800 mb-2">Form Step</h4>
-                  <p className="text-sm text-blue-700 mb-3">
+                <div className="bg-brand-50 border border-brand-200 rounded-md p-4">
+                  <h4 className="font-medium text-brand-800 mb-2">Form Step</h4>
+                  <p className="text-sm text-brand-700 mb-3">
                     Collect candidate information. Toggle fields below in the Form tab.
                   </p>
-                  <button onClick={() => setActiveTab('form')} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                  <button onClick={() => setActiveTab('form')} className="text-sm text-brand-500 hover:text-brand-800 font-medium">
                     Configure Form Fields →
                   </button>
                 </div>
@@ -920,16 +920,16 @@ export default function StepEditorPanel({
                     onChange={(val) => onUpdateStep(step.id, { infoContent: val })}
                     rows={5}
                     placeholder="Instructions, welcome text, or transition notice..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-brand-500"
                   />
                 </div>
               )}
 
               {/* Submission Info */}
               {step.stepType === 'submission' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                  <h4 className="font-medium text-blue-800 mb-2">Submission Step</h4>
-                  <p className="text-sm text-blue-700">
+                <div className="bg-brand-50 border border-brand-200 rounded-md p-4">
+                  <h4 className="font-medium text-brand-800 mb-2">Submission Step</h4>
+                  <p className="text-sm text-brand-700">
                     Candidates will be able to record a video and/or submit a text message.
                   </p>
                 </div>
@@ -940,7 +940,7 @@ export default function StepEditorPanel({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-medium text-gray-700">Answer Options</label>
-                    <button onClick={() => onAddOption(step.id)} className="text-blue-600 hover:text-blue-800 text-sm">
+                    <button onClick={() => onAddOption(step.id)} className="text-brand-500 hover:text-brand-800 text-sm">
                       + Add Option
                     </button>
                   </div>
@@ -953,12 +953,12 @@ export default function StepEditorPanel({
                             value={option.optionText}
                             onChange={(val) => onUpdateOption(option.id, { optionText: val })}
                             placeholder="Option text"
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
                           />
                           <select
                             value={option.nextStepId || ''}
                             onChange={(e) => onUpdateOption(option.id, { nextStepId: e.target.value || null })}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
                           >
                             <option value="">End Flow</option>
                             {allSteps.filter((s) => s.id !== step.id).map((s) => (
@@ -994,7 +994,7 @@ export default function StepEditorPanel({
                 <button
                   onClick={toggleFormEnabled}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    step.formEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                    step.formEnabled ? 'bg-brand-500' : 'bg-gray-300'
                   }`}
                 >
                   <span
@@ -1017,7 +1017,7 @@ export default function StepEditorPanel({
                           <button
                             onClick={() => updateFormField(field.id, { enabled: !field.enabled })}
                             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
-                              field.enabled ? 'bg-blue-600' : 'bg-gray-300'
+                              field.enabled ? 'bg-brand-500' : 'bg-gray-300'
                             }`}
                           >
                             <span
@@ -1038,7 +1038,7 @@ export default function StepEditorPanel({
                               type="text"
                               value={field.label}
                               onChange={(val) => updateFormField(field.id, { label: val })}
-                              className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
                             />
                           )}
 
@@ -1087,7 +1087,7 @@ export default function StepEditorPanel({
                   {/* Add Custom Field */}
                   <button
                     onClick={addCustomField}
-                    className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                    className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-500 hover:border-brand-400 hover:text-brand-500 transition-colors"
                   >
                     + Add Custom Field
                   </button>

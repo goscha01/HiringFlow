@@ -347,7 +347,7 @@ export default function CaptionedVideo({
                   onClick={() => setActiveColorTarget(activeColorTarget === 'text' ? null : 'text')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${
                     activeColorTarget === 'text'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      ? 'border-brand-500 bg-brand-50 text-brand-700'
                       : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -361,7 +361,7 @@ export default function CaptionedVideo({
                   onClick={() => setActiveColorTarget(activeColorTarget === 'bg' ? null : 'bg')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${
                     activeColorTarget === 'bg'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      ? 'border-brand-500 bg-brand-50 text-brand-700'
                       : 'border-gray-300 text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -388,7 +388,7 @@ export default function CaptionedVideo({
                         onClick={() => applyColor(color, activeColorTarget)}
                         className={`w-6 h-6 rounded border-2 transition-all ${
                           getActiveHex(activeColorTarget) === color
-                            ? 'border-blue-500 scale-110 ring-1 ring-blue-300'
+                            ? 'border-brand-500 scale-110 ring-1 ring-brand-300'
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                         style={{
@@ -410,7 +410,7 @@ export default function CaptionedVideo({
                           onClick={() => applyOpacity(value)}
                           className={`text-[10px] px-1.5 py-0.5 rounded ${
                             Math.abs(getCurrentOpacity() - value) < 0.05
-                              ? 'bg-blue-600 text-white'
+                              ? 'bg-brand-500 text-white'
                               : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                           }`}
                         >
@@ -454,7 +454,7 @@ export default function CaptionedVideo({
                       key={pos}
                       onClick={() => onStyleChange({ ...captionStyle, position: pos })}
                       className={`text-xs px-2.5 py-1 rounded capitalize ${
-                        captionStyle.position === pos ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        captionStyle.position === pos ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                       }`}
                     >
                       {pos === 'custom' ? 'Free' : pos}

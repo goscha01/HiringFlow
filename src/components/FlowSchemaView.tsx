@@ -1191,7 +1191,7 @@ export default function FlowSchemaView({
       {onAddStep && (
         <button
           onClick={onAddStep}
-          className="absolute top-3 right-3 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-2 z-10"
+          className="absolute top-3 right-3 bg-brand-500 text-white px-4 py-2 rounded-lg shadow-md hover:bg-brand-600 transition-colors text-sm font-medium flex items-center gap-2 z-10"
         >
           <span className="text-lg leading-none">+</span> Add Step
         </button>

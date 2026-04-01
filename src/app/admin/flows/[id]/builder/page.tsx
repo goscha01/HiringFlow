@@ -626,7 +626,7 @@ export default function FlowBuilderPage() {
               onClick={() => setViewMode('editor')}
               className={`px-3 py-1.5 text-sm ${
                 viewMode === 'editor'
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-brand-500 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -636,7 +636,7 @@ export default function FlowBuilderPage() {
               onClick={() => setViewMode('schema')}
               className={`px-3 py-1.5 text-sm ${
                 viewMode === 'schema'
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-brand-500 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -646,7 +646,7 @@ export default function FlowBuilderPage() {
               onClick={() => setViewMode('branding')}
               className={`px-3 py-1.5 text-sm ${
                 viewMode === 'branding'
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-brand-500 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -696,7 +696,7 @@ export default function FlowBuilderPage() {
               </button>
               <button
                 onClick={handlePublish}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                className="px-3 py-1.5 text-sm bg-brand-500 text-white rounded-md hover:bg-brand-600"
               >
                 Publish
               </button>
@@ -711,7 +711,7 @@ export default function FlowBuilderPage() {
           ) : (
             <button
               onClick={handlePublish}
-              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              className="px-3 py-1.5 text-sm bg-brand-500 text-white rounded-md hover:bg-brand-600"
             >
               Publish
             </button>
@@ -793,7 +793,7 @@ export default function FlowBuilderPage() {
                       popupStepId === '__start__' ? 'bg-green-100 text-green-700' :
                       popupStepId === '__end__' ? 'bg-red-100 text-red-700' :
                       popupStep?.stepType === 'submission' ? 'bg-brand-50 text-brand-600' :
-                      popupStep?.stepType === 'question' ? 'bg-blue-50 text-blue-600' :
+                      popupStep?.stepType === 'question' ? 'bg-brand-50 text-brand-500' :
                       popupStep?.stepType === 'form' ? 'bg-green-50 text-green-600' :
                       popupStep?.stepType === 'info' ? 'bg-purple-50 text-purple-600' :
                       'bg-surface text-grey-40'
@@ -1047,7 +1047,7 @@ export default function FlowBuilderPage() {
           <div className="w-64 bg-white rounded-lg shadow p-4 flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-gray-900">Steps</h2>
-              <button onClick={addStep} className="text-blue-600 hover:text-blue-800 text-sm">
+              <button onClick={addStep} className="text-brand-500 hover:text-brand-800 text-sm">
                 + Add
               </button>
             </div>
@@ -1073,7 +1073,7 @@ export default function FlowBuilderPage() {
                   onClick={() => setSelectedStepId(step.id)}
                   className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                     selectedStepId === step.id
-                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                      ? 'bg-brand-50 text-brand-700 border border-brand-200'
                       : 'hover:bg-gray-50 border border-transparent'
                   }`}
                 >
