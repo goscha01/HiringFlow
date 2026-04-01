@@ -1374,7 +1374,7 @@ function drawNode(
   const typeColors: Record<string, { accent: string; light: string }> = {
     submission: { accent: '#FF9500', light: '#FFF7ED' },
     question: { accent: '#3B82F6', light: '#EFF6FF' },
-    form: { accent: '#22C55E', light: '#F0FDF4' },
+    form: { accent: '#FF9500', light: '#FFF7ED' },
     info: { accent: '#A855F7', light: '#FAF5FF' },
   }
   const tc = typeColors[step.stepType] || typeColors.question
