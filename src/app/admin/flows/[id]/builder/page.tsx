@@ -519,28 +519,41 @@ export default function FlowBuilderPage() {
 
   // --- Shared editor content for Start/End screens ---
   const renderButtonConfig = (step: Step) => {
-    const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
+    const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string; nextStepId?: string | null } | null
     const isEnabled = btnCfg?.enabled ?? false
+    const updateBtnConfig = (updates: Record<string, unknown>) => {
+      updateStep(step.id, { buttonConfig: { ...btnCfg, enabled: true, text: btnCfg?.text || 'Continue', ...updates } } as any)
+    }
     return (
       <div className="border-t border-surface-border pt-4 mt-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-grey-20">Action Button</label>
           <button
-            onClick={() => updateStep(step.id, { buttonConfig: { enabled: !isEnabled, text: btnCfg?.text || 'Continue' } } as any)}
+            onClick={() => updateStep(step.id, { buttonConfig: { ...btnCfg, enabled: !isEnabled, text: btnCfg?.text || 'Continue' } } as any)}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
           >
             <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </button>
         </div>
         {isEnabled && (
-          <input
-            key={`btn-${step.id}`}
-            type="text"
-            defaultValue={btnCfg?.text || 'Continue'}
-            onBlur={(e) => updateStep(step.id, { buttonConfig: { enabled: true, text: e.target.value } } as any)}
-            placeholder="Button text"
-            className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
+          <div className="space-y-2">
+            <input
+              key={`btn-${step.id}`}
+              type="text"
+              defaultValue={btnCfg?.text || 'Continue'}
+              onBlur={(e) => updateBtnConfig({ text: e.target.value })}
+              placeholder="Button text"
+              className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <select
+              value={btnCfg?.nextStepId || ''}
+              onChange={(e) => updateBtnConfig({ nextStepId: e.target.value || null })}
+              className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            >
+              <option value="">→ Next step (auto)</option>
+              {flow?.steps.filter(s => s.id !== step.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+            </select>
+          </div>
         )}
       </div>
     )
@@ -879,16 +892,26 @@ export default function FlowBuilderPage() {
                             </div>
                             <div className="space-y-2">
                               {popupStep.options.map((opt) => (
-                                <div key={opt.id} className="flex items-center gap-2">
-                                  <input
-                                    key={`opt-${opt.id}`}
-                                    type="text"
-                                    defaultValue={opt.optionText}
-                                    onBlur={(e) => updateOption(opt.id, { optionText: e.target.value })}
-                                    placeholder="Option text"
-                                    className="flex-1 px-3 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
-                                  />
-                                  <button onClick={() => deleteOption(popupStep.id, opt.id)} className="text-brand-400 hover:text-brand-600 text-lg">&times;</button>
+                                <div key={opt.id} className="space-y-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      key={`opt-${opt.id}`}
+                                      type="text"
+                                      defaultValue={opt.optionText}
+                                      onBlur={(e) => updateOption(opt.id, { optionText: e.target.value })}
+                                      placeholder="Option text"
+                                      className="flex-1 px-3 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                                    />
+                                    <button onClick={() => deleteOption(popupStep.id, opt.id)} className="text-brand-400 hover:text-brand-600 text-lg">&times;</button>
+                                  </div>
+                                  <select
+                                    value={opt.nextStepId || ''}
+                                    onChange={(e) => updateOption(opt.id, { nextStepId: e.target.value || null })}
+                                    className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                  >
+                                    <option value="">→ End flow</option>
+                                    {flow.steps.filter(s => s.id !== popupStep.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                                  </select>
                                 </div>
                               ))}
                             </div>
