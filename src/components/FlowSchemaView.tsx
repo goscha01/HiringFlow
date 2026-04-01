@@ -289,7 +289,7 @@ export default function FlowSchemaView({
             const thumbRatio = THUMB_W / THUMB_H_CAP
 
             // Fill background
-            ctx.fillStyle = '#FFF7ED'
+            ctx.fillStyle = '#FFEDD5'
             ctx.fillRect(0, 0, THUMB_W, THUMB_H_CAP)
 
             let dw, dh, dx, dy
@@ -1387,10 +1387,10 @@ function drawNode(
   screenImg?: HTMLImageElement
 ) {
   const typeColors: Record<string, { accent: string; light: string }> = {
-    submission: { accent: '#FF9500', light: '#FFF7ED' },
-    question: { accent: '#FF9500', light: '#FFF7ED' },
-    form: { accent: '#FF9500', light: '#FFF7ED' },
-    info: { accent: '#A855F7', light: '#FAF5FF' },
+    submission: { accent: '#FF9500', light: '#FFEDD5' },
+    question: { accent: '#FF9500', light: '#FFEDD5' },
+    form: { accent: '#FF9500', light: '#FFEDD5' },
+    info: { accent: '#FF9500', light: '#FFEDD5' },
   }
   const tc = typeColors[step.stepType] || typeColors.question
 
@@ -1409,11 +1409,11 @@ function drawNode(
   ctx.fill()
   ctx.restore()
 
-  // Border — accent color when selected
+  // Border — always orange, thicker when selected
   ctx.beginPath()
   ctx.roundRect(pos.x, pos.y, nodeW, nodeH, 12)
-  ctx.strokeStyle = isSelected ? tc.accent : '#E4E4E7'
-  ctx.lineWidth = isSelected ? 2.5 : 1
+  ctx.strokeStyle = isSelected ? '#FF9500' : '#FFEDD5'
+  ctx.lineWidth = isSelected ? 2.5 : 1.5
   ctx.stroke()
 
   // === Title bar (top 30px) ===
@@ -1529,9 +1529,9 @@ function drawNode(
         ctx.strokeStyle = '#E4E4E7'; ctx.lineWidth = 1; ctx.stroke()
       })
     } else {
-      // Screen step — fill thumbnail with orange tint first
+      // Screen step — fill thumbnail with visible orange tint
       ctx.beginPath(); ctx.roundRect(tX, tY, tW, tH, 8)
-      ctx.fillStyle = tc.light; ctx.fill()
+      ctx.fillStyle = '#FFEDD5'; ctx.fill()
 
       const imgUrl = (step as any).formConfig?.imageUrl
       const loadedImg = screenImg
@@ -1557,7 +1557,7 @@ function drawNode(
         ctx.drawImage(loadedImg, sx, sy, sw, sh, tX + 4, tY + 4, tW - 8, imgH)
         ctx.restore()
       } else if (imgUrl) {
-        ctx.fillStyle = '#FFF7ED'
+        ctx.fillStyle = '#FFEDD5'
         ctx.beginPath(); ctx.roundRect(tX + 4, tY + 4, tW - 8, 50, 4); ctx.fill()
         ctx.fillStyle = '#FF950060'
         ctx.font = '9px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
@@ -1639,7 +1639,7 @@ function drawNode(
   // Order badge
   ctx.beginPath()
   ctx.arc(pos.x + NODE_W - 16, pos.y + 16, 11, 0, Math.PI * 2)
-  ctx.fillStyle = isSelected ? '#FF9500' : '#FFF7ED'
+  ctx.fillStyle = isSelected ? '#FF9500' : '#FFEDD5'
   ctx.fill()
   ctx.strokeStyle = isSelected ? '#EA8500' : '#FFEDD5'
   ctx.lineWidth = 1
