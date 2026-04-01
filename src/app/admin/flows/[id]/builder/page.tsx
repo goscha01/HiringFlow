@@ -816,19 +816,6 @@ export default function FlowBuilderPage() {
                     {/* === QUESTION STEP === */}
                     {popupStep.stepType === 'question' && (
                       <div className="space-y-4">
-                        {/* Video (optional) */}
-                        {popupStep.video?.url && (
-                          <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[40vh] object-contain" />
-                        )}
-                        <div>
-                          <label className="block text-sm font-medium text-grey-20 mb-1.5">Video (optional)</label>
-                          <div className="flex gap-2">
-                            <select value={popupStep.videoId || ''} onChange={(e) => updateStep(popupStep.id, { videoId: e.target.value || null })} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px]">
-                              <option value="">No video</option>
-                              {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
-                            </select>
-                          </div>
-                        </div>
                         <div>
                           <label className="block text-sm font-medium text-grey-20 mb-1.5">Question</label>
                           <textarea
@@ -836,45 +823,37 @@ export default function FlowBuilderPage() {
                             defaultValue={popupStep.questionText || ''}
                             onBlur={(e) => updateStep(popupStep.id, { questionText: e.target.value })}
                             rows={2}
-                            placeholder="What question should candidates answer?"
+                            placeholder="e.g. What experience do you have?"
                             className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
                           />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-grey-20 mb-1.5">Question Type</label>
-                          <div className="flex gap-2">
-                            {[{ v: 'single', l: 'Single' }, { v: 'multiselect', l: 'Multi' }, { v: 'yesno', l: 'Yes/No' }, { v: 'button', l: 'Buttons' }, { v: 'text', l: 'Text' }].map(({ v, l }) => (
-                              <button key={v} onClick={() => updateStep(popupStep.id, { questionType: v })} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${popupStep.questionType === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[{ v: 'single', l: 'Single Choice' }, { v: 'multiselect', l: 'Multi Choice' }, { v: 'yesno', l: 'Yes / No' }].map(({ v, l }) => (
+                              <button key={v} onClick={() => updateStep(popupStep.id, { questionType: v })} className={`py-2 text-xs rounded-[8px] border font-medium ${popupStep.questionType === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
                             ))}
                           </div>
                         </div>
                         {/* Options */}
-                        {popupStep.questionType !== 'text' && (
+                        {popupStep.questionType !== 'yesno' && (
                           <div>
                             <div className="flex items-center justify-between mb-2">
                               <label className="text-sm font-medium text-grey-20">Answer Options</label>
-                              <button onClick={() => addOption(popupStep.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add</button>
+                              <button onClick={() => addOption(popupStep.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add option</button>
                             </div>
                             <div className="space-y-2">
                               {popupStep.options.map((opt) => (
-                                <div key={opt.id} className="flex items-center gap-2 p-3 bg-surface rounded-[8px]">
+                                <div key={opt.id} className="flex items-center gap-2">
                                   <input
                                     key={`opt-${opt.id}`}
                                     type="text"
                                     defaultValue={opt.optionText}
                                     onBlur={(e) => updateOption(opt.id, { optionText: e.target.value })}
                                     placeholder="Option text"
-                                    className="flex-1 px-3 py-1.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                    className="flex-1 px-3 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
                                   />
-                                  <select
-                                    value={opt.nextStepId || ''}
-                                    onChange={(e) => updateOption(opt.id, { nextStepId: e.target.value || null })}
-                                    className="px-2 py-1.5 text-xs border border-surface-border rounded-[8px]"
-                                  >
-                                    <option value="">End Flow</option>
-                                    {flow.steps.filter(s => s.id !== popupStep.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
-                                  </select>
-                                  <button onClick={() => deleteOption(popupStep.id, opt.id)} className="text-brand-400 hover:text-brand-600">&times;</button>
+                                  <button onClick={() => deleteOption(popupStep.id, opt.id)} className="text-brand-400 hover:text-brand-600 text-lg">&times;</button>
                                 </div>
                               ))}
                             </div>
