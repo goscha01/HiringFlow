@@ -697,10 +697,15 @@ export default function FlowBuilderPage() {
             endMessage={flow.endMessage}
             selectedStepId={popupStepId || selectedStepId}
             onStepClick={(stepId) => {
-              // All nodes open editor on single click
-              setPopupStepId(stepId)
-              setSelectedStepId(stepId)
-              setModalPos({ x: 0, y: 0 })
+              if (selectedStepId === stepId && !popupStepId) {
+                // Second click — open editor
+                setPopupStepId(stepId)
+                setModalPos({ x: 0, y: 0 })
+              } else {
+                // First click — highlight and select (draggable)
+                setSelectedStepId(stepId)
+                setPopupStepId(null)
+              }
             }}
             onStepPreview={(stepId) => {
               setPreviewStepId(stepId)
