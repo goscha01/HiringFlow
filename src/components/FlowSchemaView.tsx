@@ -1509,11 +1509,11 @@ function drawNode(
       const optY = tY + tH - 8 - Math.min(step.options.length, 3) * 18
       step.options.slice(0, 3).forEach((opt, i) => {
         ctx.beginPath()
-        ctx.roundRect(tX + 8, optY + i * 18, tW - 16, 14, 3)
+        ctx.roundRect(tX + 8, optY + i * 18, tW - 16, 14, 4)
         ctx.fillStyle = '#FF9500'
         ctx.fill()
-        ctx.font = '9px "Be Vietnam Pro", system-ui'
-        ctx.fillStyle = '#59595A'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+        ctx.font = 'bold 8px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
         const optText = opt.optionText.length > 28 ? opt.optionText.slice(0, 26) + '...' : opt.optionText
         ctx.fillText(optText, tX + 14, optY + i * 18 + 7)
       })
@@ -1605,15 +1605,11 @@ function drawNode(
   const barH = 28
 
   if (step.stepType === 'question' && step.options.length > 0) {
-    // Show answer count as subtle badge
-    ctx.beginPath()
-    ctx.roundRect(pos.x + 8, barY, tW, barH, 6)
-    ctx.fillStyle = '#F7F7F8'
-    ctx.fill()
+    // Show answer count in orange
     ctx.font = '10px "Be Vietnam Pro", system-ui'
-    ctx.fillStyle = '#59595A'
+    ctx.fillStyle = '#FF9500'
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
-    ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 16, barY + barH / 2)
+    ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 12, barY + barH / 2)
   } else {
     const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
     if (btnCfg?.enabled && step.stepType !== 'info') {
