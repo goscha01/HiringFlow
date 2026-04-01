@@ -1514,10 +1514,61 @@ function drawNode(
         ctx.strokeStyle = '#E4E4E7'; ctx.lineWidth = 1; ctx.stroke()
       })
     } else {
-      ctx.fillStyle = tc.accent + '30'
-      ctx.beginPath(); ctx.roundRect(cx - 35, cy - 20, 70, 10, 3); ctx.fill()
-      ctx.beginPath(); ctx.roundRect(cx - 35, cy - 4, 50, 10, 3); ctx.fill()
-      ctx.beginPath(); ctx.roundRect(cx - 35, cy + 12, 60, 10, 3); ctx.fill()
+      // Screen step — mini screen mockup
+      const pad = 10
+      const innerW = tW - pad * 2
+      const innerH = tH - pad * 2
+
+      // Screen frame
+      ctx.beginPath(); ctx.roundRect(tX + pad, tY + pad, innerW, innerH, 4)
+      ctx.fillStyle = '#ffffff'; ctx.fill()
+      ctx.strokeStyle = '#E4E4E7'; ctx.lineWidth = 1; ctx.stroke()
+
+      // Image placeholder at top (if has image)
+      const imgUrl = (step as any).formConfig?.imageUrl
+      if (imgUrl) {
+        ctx.fillStyle = tc.accent + '15'
+        ctx.beginPath(); ctx.roundRect(tX + pad + 4, tY + pad + 4, innerW - 8, 35, 3); ctx.fill()
+        ctx.fillStyle = tc.accent + '40'
+        ctx.font = '8px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText('IMAGE', tX + pad + innerW / 2, tY + pad + 21)
+      }
+
+      // Text lines
+      const textStartY = imgUrl ? tY + pad + 45 : tY + pad + 10
+      const infoText = (step as any).infoContent || ''
+      if (infoText) {
+        ctx.font = '8px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#262626'
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top'
+        const words = infoText.split(' ')
+        let line = ''; let ly = textStartY
+        for (const word of words) {
+          const test = line + (line ? ' ' : '') + word
+          if (ctx.measureText(test).width > innerW - 12 && line) {
+            ctx.fillText(line, tX + pad + 6, ly); line = word; ly += 11
+            if (ly > tY + tH - pad - 20) break
+          } else { line = test }
+        }
+        if (line && ly <= tY + tH - pad - 20) ctx.fillText(line, tX + pad + 6, ly)
+      } else {
+        // Placeholder lines
+        ctx.fillStyle = tc.accent + '20'
+        ctx.beginPath(); ctx.roundRect(tX + pad + 6, textStartY, innerW - 12, 7, 2); ctx.fill()
+        ctx.beginPath(); ctx.roundRect(tX + pad + 6, textStartY + 12, innerW * 0.6, 7, 2); ctx.fill()
+        ctx.beginPath(); ctx.roundRect(tX + pad + 6, textStartY + 24, innerW * 0.8, 7, 2); ctx.fill()
+      }
+
+      // Mini button at bottom of screen
+      const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
+      if (btnCfg?.enabled) {
+        const btnY = tY + tH - pad - 14
+        ctx.beginPath(); ctx.roundRect(tX + pad + 6, btnY, innerW - 12, 12, 3)
+        ctx.fillStyle = '#FF9500'; ctx.fill()
+        ctx.font = 'bold 7px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText(btnCfg.text || 'Continue', tX + pad + innerW / 2, btnY + 6)
+      }
     }
   }
 
