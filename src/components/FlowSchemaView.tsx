@@ -1530,66 +1530,69 @@ function drawNode(
       })
     } else {
       // Screen step — mini screen mockup
-      const pad = 10
-      const innerW = tW - pad * 2
-      const innerH = tH - pad * 2
-
-      // Screen frame
-      ctx.beginPath(); ctx.roundRect(tX + pad, tY + pad, innerW, innerH, 4)
-      ctx.fillStyle = '#ffffff'; ctx.fill()
-      ctx.strokeStyle = tc.accent + '30'; ctx.lineWidth = 1; ctx.stroke()
-
-      // Image at top (if has image)
       const imgUrl = (step as any).formConfig?.imageUrl
       const loadedImg = screenImg
-      if (imgUrl && loadedImg) {
-        const imgH = 45
+      const infoText = (step as any).infoContent || ''
+      const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
+      const hasImage = imgUrl && loadedImg
+      const imgH = hasImage ? 65 : 0
+      const btnH = btnCfg?.enabled ? 16 : 0
+      const textAreaTop = tY + 6 + imgH + (hasImage ? 6 : 0)
+      const textAreaBottom = tY + tH - 6 - btnH - (btnH ? 6 : 0)
+
+      // Image at top — cover crop
+      if (hasImage) {
         ctx.save()
-        ctx.beginPath(); ctx.roundRect(tX + pad + 4, tY + pad + 4, innerW - 8, imgH, 3); ctx.clip()
-        ctx.drawImage(loadedImg, tX + pad + 4, tY + pad + 4, innerW - 8, imgH)
+        ctx.beginPath(); ctx.roundRect(tX + 4, tY + 4, tW - 8, imgH, 4); ctx.clip()
+        // Cover crop
+        const iw = loadedImg.width, ih = loadedImg.height
+        const ratio = (tW - 8) / imgH
+        const imgRatio = iw / ih
+        let sx = 0, sy = 0, sw = iw, sh = ih
+        if (imgRatio > ratio) { sw = ih * ratio; sx = (iw - sw) / 2 }
+        else { sh = iw / ratio; sy = (ih - sh) / 2 }
+        ctx.drawImage(loadedImg, sx, sy, sw, sh, tX + 4, tY + 4, tW - 8, imgH)
         ctx.restore()
       } else if (imgUrl) {
-        ctx.fillStyle = tc.accent + '15'
-        ctx.beginPath(); ctx.roundRect(tX + pad + 4, tY + pad + 4, innerW - 8, 45, 3); ctx.fill()
-        ctx.fillStyle = tc.accent + '40'
-        ctx.font = '8px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.fillText('IMAGE', tX + pad + innerW / 2, tY + pad + 26)
+        ctx.fillStyle = '#FFF7ED'
+        ctx.beginPath(); ctx.roundRect(tX + 4, tY + 4, tW - 8, 50, 4); ctx.fill()
+        ctx.fillStyle = '#FF950060'
+        ctx.font = '9px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillText('Loading image...', tX + tW / 2, tY + 29)
       }
 
-      // Text lines
-      const textStartY = imgUrl ? tY + pad + 45 : tY + pad + 10
-      const infoText = (step as any).infoContent || ''
+      // Text content
       if (infoText) {
-        ctx.font = '8px "Be Vietnam Pro", system-ui'
+        ctx.font = '9px "Be Vietnam Pro", system-ui'
         ctx.fillStyle = '#262626'
         ctx.textAlign = 'left'; ctx.textBaseline = 'top'
         const words = infoText.split(' ')
-        let line = ''; let ly = textStartY
+        let line = ''; let ly = textAreaTop + 4
         for (const word of words) {
           const test = line + (line ? ' ' : '') + word
-          if (ctx.measureText(test).width > innerW - 12 && line) {
-            ctx.fillText(line, tX + pad + 6, ly); line = word; ly += 11
-            if (ly > tY + tH - pad - 20) break
+          if (ctx.measureText(test).width > tW - 20 && line) {
+            ctx.fillText(line, tX + 8, ly); line = word; ly += 13
+            if (ly > textAreaBottom - 4) break
           } else { line = test }
         }
-        if (line && ly <= tY + tH - pad - 20) ctx.fillText(line, tX + pad + 6, ly)
-      } else {
-        // Placeholder lines
-        ctx.fillStyle = tc.accent + '20'
-        ctx.beginPath(); ctx.roundRect(tX + pad + 6, textStartY, innerW - 12, 7, 2); ctx.fill()
-        ctx.beginPath(); ctx.roundRect(tX + pad + 6, textStartY + 12, innerW * 0.6, 7, 2); ctx.fill()
-        ctx.beginPath(); ctx.roundRect(tX + pad + 6, textStartY + 24, innerW * 0.8, 7, 2); ctx.fill()
+        if (line && ly <= textAreaBottom - 4) ctx.fillText(line, tX + 8, ly)
+      } else if (!hasImage) {
+        // Placeholder lines only if no image
+        ctx.fillStyle = '#FF950020'
+        const startY = tY + 15
+        ctx.beginPath(); ctx.roundRect(tX + 8, startY, tW - 16, 8, 2); ctx.fill()
+        ctx.beginPath(); ctx.roundRect(tX + 8, startY + 14, (tW - 16) * 0.65, 8, 2); ctx.fill()
+        ctx.beginPath(); ctx.roundRect(tX + 8, startY + 28, (tW - 16) * 0.8, 8, 2); ctx.fill()
       }
 
-      // Mini button at bottom of screen
-      const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
+      // Orange button at bottom
       if (btnCfg?.enabled) {
-        const btnY = tY + tH - pad - 14
-        ctx.beginPath(); ctx.roundRect(tX + pad + 6, btnY, innerW - 12, 12, 3)
+        const btnY = tY + tH - 4 - 14
+        ctx.beginPath(); ctx.roundRect(tX + 8, btnY, tW - 16, 14, 4)
         ctx.fillStyle = '#FF9500'; ctx.fill()
-        ctx.font = 'bold 7px "Be Vietnam Pro", system-ui'
+        ctx.font = 'bold 8px "Be Vietnam Pro", system-ui'
         ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        ctx.fillText(btnCfg.text || 'Continue', tX + pad + innerW / 2, btnY + 6)
+        ctx.fillText(btnCfg.text || 'Continue', tX + tW / 2, btnY + 7)
       }
     }
   }
