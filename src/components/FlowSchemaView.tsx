@@ -764,7 +764,7 @@ export default function FlowSchemaView({
       }
     }
 
-    // Check output ports (for starting a new connection)
+    // Check output ports (right side — for starting a new connection)
     const outPortStepId = hitTestOutputPort(cx, cy)
     if (outPortStepId) {
       const pos = positions[outPortStepId]
@@ -776,6 +776,25 @@ export default function FlowSchemaView({
           fromStepId: outPortStepId,
           fromX: out.x,
           fromY: out.y,
+          mouseX: cx,
+          mouseY: cy,
+        })
+        return
+      }
+    }
+
+    // Check input ports (left side — also start a connection from here)
+    const inpPortStepId = hitTestInputPort(cx, cy)
+    if (inpPortStepId) {
+      const pos = positions[inpPortStepId]
+      if (pos) {
+        const inp = getInputPort(pos)
+        setSelectedArrow(null)
+        setMode({
+          type: 'connecting',
+          fromStepId: inpPortStepId,
+          fromX: inp.x,
+          fromY: inp.y,
           mouseX: cx,
           mouseY: cy,
         })
@@ -1442,7 +1461,7 @@ function drawNode(
       step.options.slice(0, 3).forEach((opt, i) => {
         ctx.beginPath()
         ctx.roundRect(tX + 8, optY + i * 18, tW - 16, 14, 3)
-        ctx.fillStyle = i === 0 ? tc.accent + '20' : '#F1F1F3'
+        ctx.fillStyle = '#F1F1F3'
         ctx.fill()
         ctx.font = '9px "Be Vietnam Pro", system-ui'
         ctx.fillStyle = '#59595A'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
@@ -1473,16 +1492,15 @@ function drawNode(
   const barH = 28
 
   if (step.stepType === 'question' && step.options.length > 0) {
-    // Show answer option count as colored bar
-    const barW = Math.min(step.options.length * 40, tW)
+    // Show answer count as subtle badge
     ctx.beginPath()
-    ctx.roundRect(pos.x + 8, barY, barW, barH, 6)
-    ctx.fillStyle = tc.accent
+    ctx.roundRect(pos.x + 8, barY, tW, barH, 6)
+    ctx.fillStyle = '#F7F7F8'
     ctx.fill()
-    ctx.font = 'bold 10px "Be Vietnam Pro", system-ui'
-    ctx.fillStyle = '#ffffff'
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 8 + barW / 2, barY + barH / 2)
+    ctx.font = '10px "Be Vietnam Pro", system-ui'
+    ctx.fillStyle = '#59595A'
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+    ctx.fillText(`${step.options.length} answer${step.options.length !== 1 ? 's' : ''}`, pos.x + 16, barY + barH / 2)
   } else {
     // Type label
     const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form', info: 'Screen' }
