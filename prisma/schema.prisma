@@ -72,6 +72,7 @@ model FlowStep {
   formEnabled     Boolean               @default(false) @map("form_enabled")
   formConfig      Json?                 @map("form_config")
   infoContent     String?               @map("info_content") // Rich text for info steps
+  buttonConfig    Json?                 @map("button_config") // { enabled: boolean, text: string, style: string }
   captionsEnabled Boolean               @default(false) @map("captions_enabled")
   captionStyle    Json?                 @map("caption_style")
   createdAt       DateTime              @default(now()) @map("created_at")

@@ -518,6 +518,34 @@ export default function FlowBuilderPage() {
   }
 
   // --- Shared editor content for Start/End screens ---
+  const renderButtonConfig = (step: Step) => {
+    const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string } | null
+    const isEnabled = btnCfg?.enabled ?? false
+    return (
+      <div className="border-t border-surface-border pt-4 mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-grey-20">Action Button</label>
+          <button
+            onClick={() => updateStep(step.id, { buttonConfig: { enabled: !isEnabled, text: btnCfg?.text || 'Continue' } } as any)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+        {isEnabled && (
+          <input
+            key={`btn-${step.id}`}
+            type="text"
+            defaultValue={btnCfg?.text || 'Continue'}
+            onBlur={(e) => updateStep(step.id, { buttonConfig: { enabled: true, text: e.target.value } } as any)}
+            placeholder="Button text"
+            className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        )}
+      </div>
+    )
+  }
+
   const renderStartEditor = () => (
     <div className="space-y-4">
       <div>
@@ -816,6 +844,7 @@ export default function FlowBuilderPage() {
                         {popupStep.video?.url && (
                           <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[50vh] object-contain" />
                         )}
+                        {renderButtonConfig(popupStep)}
                       </div>
                     )}
 
@@ -911,6 +940,7 @@ export default function FlowBuilderPage() {
                               <button onClick={() => updateFormFields([...formConfig.fields, { id: `custom_${Date.now()}`, label: 'Custom Field', type: 'text', required: false, enabled: true, isBuiltIn: false }])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add custom field</button>
                             </div>
                           </div>
+                          {renderButtonConfig(popupStep)}
                         </div>
                       )
                     })()}
@@ -937,6 +967,7 @@ export default function FlowBuilderPage() {
                             <input type="file" accept="image/*" className="hidden" />
                           </label>
                         </div>
+                        {renderButtonConfig(popupStep)}
                       </div>
                     )}
                   </div>
