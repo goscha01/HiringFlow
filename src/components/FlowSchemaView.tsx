@@ -483,10 +483,10 @@ export default function FlowSchemaView({
 
     // --- Draw connections ---
 
-    // Start -> first step
+    // Start -> first step (skip if start screen removed)
     const startPos = positions[START_ID]
     const isStartArrowSelected = selectedArrow?.kind === 'start'
-    if (startPos && sorted.length > 0) {
+    if (startPos && sorted.length > 0 && startMessage !== '') {
       const firstPos = positions[sorted[0].id]
       if (firstPos) {
         const fromX = startPos.x + SPECIAL_W
@@ -547,7 +547,7 @@ export default function FlowSchemaView({
 
     // Single End connection — last step by order
     const endPos = positions[END_ID]
-    if (endPos && endStepId) {
+    if (endPos && endStepId && endMessage !== '') {
       const eStepPos = positions[endStepId]
       if (eStepPos) {
         const fromX = eStepPos.x + NODE_W
@@ -584,13 +584,15 @@ export default function FlowSchemaView({
       drawConnection(ctx, m.mouseX, m.mouseY, m.toX, m.toY, '', true)
     }
 
-    // --- Draw Start node ---
-    if (startPos) {
+    // --- Draw Start node (hidden if message is empty/removed) ---
+    const showStart = startMessage !== ''
+    if (startPos && showStart) {
       drawSpecialNode(ctx, startPos, 'Start', startMessage || 'Welcome', selectedStepId === START_ID, '#FF9500', '#FFEDD5')
     }
 
-    // --- Draw End node ---
-    if (endPos) {
+    // --- Draw End node (hidden if message is empty/removed) ---
+    const showEnd = endMessage !== ''
+    if (endPos && showEnd) {
       drawSpecialNode(ctx, endPos, 'End', endMessage || 'Thank you', selectedStepId === END_ID, '#FF9500', '#FFEDD5')
     }
 
@@ -848,7 +850,7 @@ export default function FlowSchemaView({
     }
 
     // Check End arrow click (single connection)
-    if (endPos && endStepId) {
+    if (endPos && endStepId && endMessage !== '') {
       const ePos = positions[endStepId]
       if (ePos) {
         const fromX = ePos.x + NODE_W

@@ -768,12 +768,14 @@ export default function FlowBuilderPage() {
             endMessage={flow.endMessage}
             selectedStepId={popupStepId || selectedStepId}
             onStepClick={(stepId) => {
+              // Don't open removed screens
+              if (stepId === '__start__' && flow.startMessage === '') return
+              if (stepId === '__end__' && flow.endMessage === '') return
+
               if (selectedStepId === stepId && !popupStepId) {
-                // Second click — open editor
                 setPopupStepId(stepId)
                 setModalPos({ x: 0, y: 0 })
               } else {
-                // First click — highlight and select (draggable)
                 setSelectedStepId(stepId)
                 setPopupStepId(null)
               }
@@ -814,22 +816,20 @@ export default function FlowBuilderPage() {
                   }}
                 >
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      popupStepId === '__start__' ? 'bg-green-100 text-green-700' :
-                      popupStepId === '__end__' ? 'bg-red-100 text-red-700' :
-                      popupStep?.stepType === 'submission' ? 'bg-brand-50 text-brand-600' :
-                      popupStep?.stepType === 'question' ? 'bg-brand-50 text-brand-500' :
-                      popupStep?.stepType === 'form' ? 'bg-green-50 text-green-600' :
-                      popupStep?.stepType === 'info' ? 'bg-purple-50 text-purple-600' :
-                      'bg-surface text-grey-40'
-                    }`}>
-                      {popupStepId === '__start__' ? 'Start Screen' :
-                       popupStepId === '__end__' ? 'End Screen' :
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand-50 text-brand-500">
+                      {popupStepId === '__start__' ? 'Start' :
+                       popupStepId === '__end__' ? 'End' :
                        popupStep?.stepType === 'submission' ? 'Video' :
                        popupStep?.stepType === 'question' ? 'Question' :
                        popupStep?.stepType === 'form' ? 'Form' :
                        popupStep?.stepType === 'info' ? 'Screen' : 'Step'}
                     </span>
+                    {popupStepId === '__start__' && (
+                      <span className="text-lg font-semibold text-grey-15">Start Screen</span>
+                    )}
+                    {popupStepId === '__end__' && (
+                      <span className="text-lg font-semibold text-grey-15">End Screen</span>
+                    )}
                     {popupStep && (
                       <input
                         key={`popup-title-${popupStep.id}`}
@@ -841,6 +841,12 @@ export default function FlowBuilderPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-3">
+                    {popupStepId === '__start__' && (
+                      <button onClick={() => { updateFlow({ startMessage: '' }); setPopupStepId(null) }} className="text-xs text-brand-500 hover:text-brand-600">Remove</button>
+                    )}
+                    {popupStepId === '__end__' && (
+                      <button onClick={() => { updateFlow({ endMessage: '' }); setPopupStepId(null) }} className="text-xs text-brand-500 hover:text-brand-600">Remove</button>
+                    )}
                     {popupStep && (
                       <button onClick={() => { deleteStep(popupStep.id); setPopupStepId(null) }} className="text-xs text-brand-500 hover:text-brand-600">Delete</button>
                     )}
@@ -1192,6 +1198,17 @@ export default function FlowBuilderPage() {
               {!addStepType && (
                 <>
                   <p className="text-sm text-grey-35 mb-5">Choose what type of step to add.</p>
+                  {/* Re-add removed screens */}
+                  {(flow.startMessage === '' || flow.endMessage === '') && (
+                    <div className="flex gap-2 mb-4">
+                      {flow.startMessage === '' && (
+                        <button onClick={() => { updateFlow({ startMessage: 'Welcome! Please complete the following steps.' }); setShowAddStepModal(false) }} className="flex-1 py-2 text-xs border border-brand-200 rounded-[8px] text-brand-500 hover:bg-brand-50">+ Add Start Screen</button>
+                      )}
+                      {flow.endMessage === '' && (
+                        <button onClick={() => { updateFlow({ endMessage: 'Thank you for your participation!' }); setShowAddStepModal(false) }} className="flex-1 py-2 text-xs border border-brand-200 rounded-[8px] text-brand-500 hover:bg-brand-50">+ Add End Screen</button>
+                      )}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     {[
                       { type: 'submission', label: 'Video', desc: 'Upload video + title', color: 'brand', icon: 'M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z' },
