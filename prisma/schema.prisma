@@ -15,6 +15,7 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   videos       Video[]
   flows        Flow[]
+  ads          Ad[]
   trainings    Training[]
 
   @@map("users")
@@ -54,8 +55,27 @@ model Flow {
   createdAt    DateTime   @default(now()) @map("created_at")
   steps        FlowStep[]
   sessions     Session[]
+  ads          Ad[]
 
   @@map("flows")
+}
+
+model Ad {
+  id          String    @id @default(uuid())
+  ownerUserId String    @map("owner_user_id")
+  owner       User      @relation(fields: [ownerUserId], references: [id])
+  name        String
+  source      String    // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other'
+  campaign    String?
+  flowId      String    @map("flow_id")
+  flow        Flow      @relation(fields: [flowId], references: [id])
+  slug        String    @unique
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  sessions    Session[]
+
+  @@map("ads")
 }
 
 model FlowStep {
@@ -112,9 +132,10 @@ model Session {
   outcome        String?               // 'completed' | 'passed' | 'failed' | 'abandoned'
   lastStepId     String?               @map("last_step_id")
   lastStep       FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
-  // Source attribution (for future ad/campaign tracking)
+  // Source attribution
   adId           String?               @map("ad_id")
-  campaignId     String?               @map("campaign_id")
+  ad             Ad?                   @relation(fields: [adId], references: [id])
+  campaign       String?
   source         String?
   answers        SessionAnswer[]
   submissions    CandidateSubmission[]

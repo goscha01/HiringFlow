@@ -10,6 +10,8 @@ export default withAuth(
       authorized: ({ token, req }) => {
         // Allow public routes
         if (req.nextUrl.pathname.startsWith('/f/')) return true
+        if (req.nextUrl.pathname.startsWith('/a/')) return true
+        if (req.nextUrl.pathname.startsWith('/t/')) return true
         if (req.nextUrl.pathname.startsWith('/api/public/')) return true
         if (req.nextUrl.pathname === '/login') return true
         if (req.nextUrl.pathname.startsWith('/uploads/')) return true
@@ -33,5 +35,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/:path*', '/f/:path*'],
+  matcher: ['/admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*'],
 }

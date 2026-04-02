@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { flowSlug, candidateName, candidateEmail, preview } = body
+    const { flowSlug, candidateName, candidateEmail, candidatePhone, preview, adId, source, campaign } = body
 
     if (!flowSlug) {
       return NextResponse.json({ error: 'Flow slug is required' }, { status: 400 })
@@ -60,7 +60,12 @@ export async function POST(request: NextRequest) {
         flowId: flow.id,
         candidateName: candidateName || null,
         candidateEmail: candidateEmail || null,
+        candidatePhone: candidatePhone || null,
         lastStepId: startStepId,
+        // Source attribution (from Ad link)
+        adId: adId || null,
+        source: source || null,
+        campaign: campaign || null,
       },
     })
 
