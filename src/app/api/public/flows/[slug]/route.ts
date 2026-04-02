@@ -55,6 +55,7 @@ export async function GET(
     slug: flow.slug,
     startMessage: flow.startMessage,
     endMessage: flow.endMessage,
+    branding: flow.branding,
     startStepId: flow.steps[0]?.id || null,
   })
 }

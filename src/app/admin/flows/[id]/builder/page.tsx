@@ -618,15 +618,73 @@ export default function FlowBuilderPage() {
             </label>
           )}
         </div>
-        {/* Action button */}
-        <div className="border-t border-surface-border pt-4">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-grey-20">Action Button</label>
-            <span className="text-[11px] text-grey-40">
-              {type === 'start' ? 'Default: "Start"' : 'Optional redirect'}
-            </span>
+        {/* Start screen fields config */}
+        {type === 'start' && (() => {
+          const startConfig = (branding as Record<string, unknown>).startScreenConfig as {
+            showNameField?: boolean
+            showEmailField?: boolean
+            showPhoneField?: boolean
+            buttonText?: string
+            nameRequired?: boolean
+            emailRequired?: boolean
+          } | null || {}
+          const updateStartConfig = (updates: Record<string, unknown>) => {
+            updateFlow({ branding: { ...branding, startScreenConfig: { ...startConfig, ...updates } } } as any)
+          }
+          return (
+            <div className="border-t border-surface-border pt-4 space-y-3">
+              <label className="text-sm font-medium text-grey-20 block">Fields on Start Screen</label>
+              {[
+                { key: 'showNameField', label: 'Name', reqKey: 'nameRequired', default: true },
+                { key: 'showEmailField', label: 'Email', reqKey: 'emailRequired', default: false },
+                { key: 'showPhoneField', label: 'Phone', reqKey: null, default: false },
+              ].map(({ key, label, reqKey, default: def }) => {
+                const isOn = (startConfig as Record<string, unknown>)[key] ?? def
+                return (
+                  <div key={key} className="flex items-center gap-3 p-3 rounded-[8px] border border-surface-border">
+                    <button
+                      onClick={() => updateStartConfig({ [key]: !isOn })}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isOn ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </button>
+                    <span className="text-sm text-grey-15 flex-1">{label}</span>
+                    {reqKey && isOn && (
+                      <label className="flex items-center gap-1.5 text-xs text-grey-40">
+                        <input type="checkbox" checked={(startConfig as Record<string, unknown>)[reqKey] as boolean ?? false} onChange={() => updateStartConfig({ [reqKey]: !(startConfig as Record<string, unknown>)[reqKey] })} className="rounded accent-[#FF9500]" />
+                        Required
+                      </label>
+                    )}
+                  </div>
+                )
+              })}
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Button Text</label>
+                <input
+                  type="text"
+                  defaultValue={(startConfig as Record<string, unknown>).buttonText as string || 'Start'}
+                  onBlur={(e) => updateStartConfig({ buttonText: e.target.value })}
+                  placeholder="Start"
+                  className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* End screen button */}
+        {type === 'end' && (
+          <div className="border-t border-surface-border pt-4">
+            <label className="block text-sm font-medium text-grey-20 mb-1.5">Button Text (optional)</label>
+            <input
+              type="text"
+              defaultValue={((branding as Record<string, unknown>).endButtonText as string) || ''}
+              onBlur={(e) => updateFlow({ branding: { ...branding, endButtonText: e.target.value } } as any)}
+              placeholder="e.g. Visit our website"
+              className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
           </div>
-        </div>
+        )}
       </div>
     )
   }
