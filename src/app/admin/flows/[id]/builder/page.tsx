@@ -570,10 +570,12 @@ export default function FlowBuilderPage() {
     )
   }
 
+  const [combineEnabled, setCombineEnabled] = useState(false)
+
   const renderCombineConfig = (step: Step) => {
-    const combinedId = (step as any).combinedWithId as string | null
+    const combinedId = step.combinedWithId
     const isCombined = !!combinedId
-    const otherSteps = flow?.steps.filter(s => s.id !== step.id && !(s as any).combinedWithId) || []
+    const otherSteps = flow?.steps.filter(s => s.id !== step.id && !s.combinedWithId) || []
 
     return (
       <div className="border-t border-surface-border pt-4 mt-4">
@@ -581,20 +583,25 @@ export default function FlowBuilderPage() {
           <label className="text-sm font-medium text-grey-20">Combine with</label>
           <button
             onClick={() => {
-              if (isCombined) {
-                updateStep(step.id, { combinedWithId: null } as any)
+              if (isCombined || combineEnabled) {
+                // Turn off — separate
+                setCombineEnabled(false)
+                if (isCombined) updateStep(step.id, { combinedWithId: null } as any)
+              } else {
+                // Turn on — show dropdown
+                setCombineEnabled(true)
               }
             }}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isCombined ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${(isCombined || combineEnabled) ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
           >
-            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isCombined ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${(isCombined || combineEnabled) ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </button>
         </div>
-        {!isCombined && otherSteps.length > 0 && (
+        {(combineEnabled && !isCombined) && otherSteps.length > 0 && (
           <select
             value=""
-            onChange={(e) => { if (e.target.value) updateStep(step.id, { combinedWithId: e.target.value } as any) }}
-            className="w-full px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            onChange={(e) => { if (e.target.value) { updateStep(step.id, { combinedWithId: e.target.value } as any); setCombineEnabled(false) } }}
+            className="w-full px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500"
           >
             <option value="">Select step to combine with...</option>
             {otherSteps.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
@@ -603,12 +610,11 @@ export default function FlowBuilderPage() {
         {isCombined && (() => {
           const partner = flow?.steps.find(s => s.id === combinedId)
           return partner ? (
-            <div className="flex items-center gap-2 p-2 bg-brand-50 rounded-[8px] border border-brand-200">
+            <div className="flex items-center gap-2 p-2.5 bg-brand-50 rounded-[8px] border border-brand-200">
               <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand-100 text-brand-600">
                 {partner.stepType === 'submission' ? 'Video' : partner.stepType === 'question' ? 'Question' : partner.stepType === 'form' ? 'Form' : 'Screen'}
               </span>
               <span className="text-sm text-grey-15 flex-1 truncate">{partner.title}</span>
-              <button onClick={() => updateStep(step.id, { combinedWithId: null } as any)} className="text-brand-400 hover:text-brand-600 text-xs">Separate</button>
             </div>
           ) : null
         })()}
@@ -880,6 +886,7 @@ export default function FlowBuilderPage() {
               if (selectedStepId === stepId && !popupStepId) {
                 setPopupStepId(stepId)
                 setModalPos({ x: 0, y: 0 })
+                setCombineEnabled(false)
               } else {
                 setSelectedStepId(stepId)
                 setPopupStepId(null)
@@ -1160,6 +1167,22 @@ export default function FlowBuilderPage() {
                     )}
                   </div>
                 ) : null}
+
+                {/* Save / Cancel bar */}
+                <div className="flex gap-3 mt-6 pt-4 border-t border-surface-border">
+                  <button
+                    onClick={() => setPopupStepId(null)}
+                    className="flex-1 py-2.5 text-sm border border-surface-border rounded-[8px] text-grey-35 hover:bg-surface font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { fetchFlow(); setPopupStepId(null) }}
+                    className="flex-1 py-2.5 text-sm bg-brand-500 text-white rounded-[8px] hover:bg-brand-600 font-medium"
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
             </div>
           )}
