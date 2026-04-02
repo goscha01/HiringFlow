@@ -3,8 +3,8 @@ import './globals.css'
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
-  title: 'HiringFlow',
-  description: 'Video-based candidate screening with conditional routing',
+  title: 'HireFunnel',
+  description: 'Turn your hiring into a system. Screen, qualify, and hire automatically.',
 }
 
 export default function RootLayout({

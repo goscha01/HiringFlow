@@ -23,7 +23,7 @@ export default function AdminLayout({
     <div className="min-h-screen bg-surface">
       {/* Top banner */}
       <div className="bg-brand-500 text-white text-center py-3 text-sm font-normal">
-        HiringFlow — Application Flows & Training Platform
+        HireFunnel — Application Flows & Training Platform
       </div>
 
       {/* Navbar */}

@@ -124,7 +124,7 @@ export default function TrainingPage() {
         </div>
       </div>
       <div className="border-t border-[#F1F1F3] py-6 text-center text-sm text-[#656567]">
-        © {new Date().getFullYear()} HiringFlow. All rights reserved.
+        © {new Date().getFullYear()} HireFunnel. All rights reserved.
       </div>
     </footer>
   )

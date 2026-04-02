@@ -11,7 +11,7 @@ export default function LandingPage() {
               <div className="w-[40px] h-[40px] bg-[#FF9500] rounded-[8px] flex items-center justify-center">
                 <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
               </div>
-              <span className="text-xl font-semibold text-[#262626]">HiringFlow</span>
+              <span className="text-xl font-semibold text-[#262626]">HireFunnel</span>
             </Link>
             <div className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm text-[#59595A] hover:text-[#262626]">Features</a>
@@ -257,7 +257,7 @@ export default function LandingPage() {
                 <div className="w-[36px] h-[36px] bg-[#FF9500] rounded-[6px] flex items-center justify-center">
                   <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
                 </div>
-                <span className="text-white font-semibold">HiringFlow</span>
+                <span className="text-white font-semibold">HireFunnel</span>
               </div>
               <p className="text-[#9CA3AF] text-sm max-w-[280px]">Turn your hiring into a system. Screen, qualify, and hire — automatically.</p>
             </div>
@@ -281,7 +281,7 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="border-t border-[#333] pt-6 text-center text-sm text-[#656567]">
-            &copy; {new Date().getFullYear()} HiringFlow. All rights reserved.
+            &copy; {new Date().getFullYear()} HireFunnel. All rights reserved.
           </div>
         </div>
       </footer>

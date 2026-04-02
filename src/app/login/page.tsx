@@ -25,7 +25,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-surface flex flex-col">
       {/* Top banner */}
       <div className="bg-brand-500 text-white text-center py-3 text-sm">
-        HiringFlow — Application Flows & Training Platform
+        HireFunnel — Application Flows & Training Platform
       </div>
 
       <div className="flex-1 flex items-center justify-center px-4">
@@ -41,7 +41,7 @@ export default function LoginPage() {
 
           <div className="bg-white rounded-lg border border-surface-border p-10">
             <h1 className="text-2xl font-semibold text-grey-15 text-center mb-2">Welcome Back</h1>
-            <p className="text-grey-35 text-center mb-8">Sign in to your HiringFlow account</p>
+            <p className="text-grey-35 text-center mb-8">Sign in to your HireFunnel account</p>
 
             <form onSubmit={handleSubmit} className="space-y-5">
               {error && (
@@ -87,7 +87,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-grey-40 text-sm mt-6">
-            &copy; {new Date().getFullYear()} HiringFlow. All rights reserved.
+            &copy; {new Date().getFullYear()} HireFunnel. All rights reserved.
           </p>
         </div>
       </div>
