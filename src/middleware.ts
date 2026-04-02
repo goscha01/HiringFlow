@@ -13,6 +13,7 @@ export default withAuth(
         if (req.nextUrl.pathname.startsWith('/a/')) return true
         if (req.nextUrl.pathname.startsWith('/t/')) return true
         if (req.nextUrl.pathname.startsWith('/api/public/')) return true
+        if (req.nextUrl.pathname === '/') return true
         if (req.nextUrl.pathname === '/login') return true
         if (req.nextUrl.pathname.startsWith('/uploads/')) return true
 
@@ -35,5 +36,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*'],
+  matcher: ['/', '/admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*'],
 }
