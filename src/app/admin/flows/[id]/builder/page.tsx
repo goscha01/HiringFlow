@@ -34,6 +34,7 @@ interface Step {
   infoContent?: string | null
   formEnabled?: boolean
   formConfig?: any
+  combinedWithId?: string | null
   captionsEnabled?: boolean
   captionStyle?: any
   options: Option[]
@@ -569,6 +570,52 @@ export default function FlowBuilderPage() {
     )
   }
 
+  const renderCombineConfig = (step: Step) => {
+    const combinedId = (step as any).combinedWithId as string | null
+    const isCombined = !!combinedId
+    const otherSteps = flow?.steps.filter(s => s.id !== step.id && !(s as any).combinedWithId) || []
+
+    return (
+      <div className="border-t border-surface-border pt-4 mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-grey-20">Combine with</label>
+          <button
+            onClick={() => {
+              if (isCombined) {
+                updateStep(step.id, { combinedWithId: null } as any)
+              }
+            }}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isCombined ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isCombined ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </button>
+        </div>
+        {!isCombined && otherSteps.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) updateStep(step.id, { combinedWithId: e.target.value } as any) }}
+            className="w-full px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
+            <option value="">Select step to combine with...</option>
+            {otherSteps.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
+        )}
+        {isCombined && (() => {
+          const partner = flow?.steps.find(s => s.id === combinedId)
+          return partner ? (
+            <div className="flex items-center gap-2 p-2 bg-brand-50 rounded-[8px] border border-brand-200">
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand-100 text-brand-600">
+                {partner.stepType === 'submission' ? 'Video' : partner.stepType === 'question' ? 'Question' : partner.stepType === 'form' ? 'Form' : 'Screen'}
+              </span>
+              <span className="text-sm text-grey-15 flex-1 truncate">{partner.title}</span>
+              <button onClick={() => updateStep(step.id, { combinedWithId: null } as any)} className="text-brand-400 hover:text-brand-600 text-xs">Separate</button>
+            </div>
+          ) : null
+        })()}
+      </div>
+    )
+  }
+
   const renderScreenEditor = (type: 'start' | 'end') => {
     const message = type === 'start' ? flow.startMessage : flow.endMessage
     const setMessage = (val: string) => updateFlow(type === 'start' ? { startMessage: val } : { endMessage: val })
@@ -952,6 +999,7 @@ export default function FlowBuilderPage() {
                           <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[50vh] object-contain" />
                         )}
                         {renderButtonConfig(popupStep)}
+                        {renderCombineConfig(popupStep)}
                       </div>
                     )}
 
@@ -1011,6 +1059,7 @@ export default function FlowBuilderPage() {
                             </div>
                           </div>
                         )}
+                        {renderCombineConfig(popupStep)}
                       </div>
                     )}
 
@@ -1058,6 +1107,7 @@ export default function FlowBuilderPage() {
                             </div>
                           </div>
                           {renderButtonConfig(popupStep)}
+                        {renderCombineConfig(popupStep)}
                         </div>
                       )
                     })()}
@@ -1105,6 +1155,7 @@ export default function FlowBuilderPage() {
                           )}
                         </div>
                         {renderButtonConfig(popupStep)}
+                        {renderCombineConfig(popupStep)}
                       </div>
                     )}
                   </div>

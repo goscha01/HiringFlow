@@ -23,6 +23,7 @@ interface Step {
   stepOrder: number
   stepType: string
   questionType: string
+  combinedWithId?: string | null
   options: Option[]
 }
 
@@ -594,6 +595,31 @@ export default function FlowSchemaView({
     const showEnd = endMessage !== ''
     if (endPos && showEnd) {
       drawSpecialNode(ctx, endPos, 'End', endMessage || 'Thank you', selectedStepId === END_ID, '#FF9500', '#FFEDD5')
+    }
+
+    // --- Draw combined step brackets (before nodes so they're behind) ---
+    for (const step of steps) {
+      if (!step.combinedWithId) continue
+      const pos1 = positions[step.id]
+      const pos2 = positions[step.combinedWithId]
+      if (!pos1 || !pos2) continue
+      // Draw bracket connecting the two cards
+      const minX = Math.min(pos1.x, pos2.x) - 6
+      const minY = Math.min(pos1.y, pos2.y) - 6
+      const maxX = Math.max(pos1.x + NODE_W, pos2.x + NODE_W) + 6
+      const maxY = Math.max(pos1.y + NODE_H, pos2.y + NODE_H) + 6
+      ctx.beginPath()
+      ctx.roundRect(minX, minY, maxX - minX, maxY - minY, 16)
+      ctx.strokeStyle = '#FF9500'
+      ctx.lineWidth = 2
+      ctx.setLineDash([6, 4])
+      ctx.stroke()
+      ctx.setLineDash([])
+      // "Combined" label
+      ctx.font = 'bold 9px "Be Vietnam Pro", system-ui'
+      ctx.fillStyle = '#FF9500'
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+      ctx.fillText('Combined', (minX + maxX) / 2, minY - 2)
     }
 
     // --- Draw step nodes ---

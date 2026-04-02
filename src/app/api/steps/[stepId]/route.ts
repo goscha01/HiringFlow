@@ -27,7 +27,7 @@ export async function PATCH(
 
   try {
     const body = await request.json()
-    const { title, videoId, questionText, stepOrder, stepType, questionType, formEnabled, formConfig, infoContent, buttonConfig, captionsEnabled, captionStyle } = body
+    const { title, videoId, questionText, stepOrder, stepType, questionType, formEnabled, formConfig, infoContent, buttonConfig, combinedWithId, captionsEnabled, captionStyle } = body
 
     const updated = await prisma.flowStep.update({
       where: { id: params.stepId },
@@ -42,6 +42,7 @@ export async function PATCH(
         ...(formConfig !== undefined && { formConfig }),
         ...(infoContent !== undefined && { infoContent }),
         ...(buttonConfig !== undefined && { buttonConfig }),
+        ...(combinedWithId !== undefined && { combinedWithId: combinedWithId || null }),
         ...(captionsEnabled !== undefined && { captionsEnabled }),
         ...(captionStyle !== undefined && { captionStyle }),
       },
