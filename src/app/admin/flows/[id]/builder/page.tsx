@@ -65,6 +65,7 @@ export default function FlowBuilderPage() {
     searchParams.get('view') === 'schema' ? 'schema' : 'editor'
   )
   const [popupStepId, setPopupStepId] = useState<string | null>(null)
+  const [combineEnabled, setCombineEnabled] = useState(false)
   const [previewStepId, setPreviewStepId] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
 
@@ -569,8 +570,6 @@ export default function FlowBuilderPage() {
       </div>
     )
   }
-
-  const [combineEnabled, setCombineEnabled] = useState(false)
 
   const renderCombineConfig = (step: Step) => {
     const combinedId = step.combinedWithId
