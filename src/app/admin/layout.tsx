@@ -15,6 +15,7 @@ export default function AdminLayout({
     { href: '/admin/flows', label: 'Flows' },
     { href: '/admin/videos', label: 'Videos' },
     { href: '/admin/ads', label: 'Ads' },
+    { href: '/admin/automations', label: 'Automations' },
     { href: '/admin/branding', label: 'Branding' },
     { href: '/admin/trainings', label: 'Trainings' },
   ]

@@ -18,6 +18,7 @@
     "@deepgram/sdk": "^5.0.0",
     "@geos/loghub-client": "github:goscha01/geos-loghub-client",
     "@prisma/client": "^5.10.0",
+    "@sendgrid/mail": "^8.1.6",
     "@vercel/blob": "^0.27.1",
     "bcryptjs": "^2.4.3",
     "nanoid": "^5.0.0",

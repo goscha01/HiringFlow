@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { fireAutomations } from '@/lib/automation'
 
 export async function POST(
   request: NextRequest,
@@ -61,6 +62,7 @@ export async function POST(
         return NextResponse.json({ nextStepId: nextStep.id })
       } else {
         await prisma.session.update({ where: { id: params.sessionId }, data: { finishedAt: new Date(), outcome: 'completed' } })
+        fireAutomations(params.sessionId, 'completed').catch(() => {}) // fire-and-forget
         return NextResponse.json({ finished: true })
       }
     }
@@ -123,6 +125,7 @@ export async function POST(
       where: { id: params.sessionId },
       data: { finishedAt: new Date(), outcome: 'completed' },
     })
+    fireAutomations(params.sessionId, 'completed').catch(() => {})
     return NextResponse.json({ finished: true })
   } catch (error) {
     console.error('Submit answer error:', error)

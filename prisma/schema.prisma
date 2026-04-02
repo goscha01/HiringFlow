@@ -15,8 +15,10 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   videos       Video[]
   flows        Flow[]
-  ads          Ad[]
-  trainings    Training[]
+  ads              Ad[]
+  trainings        Training[]
+  emailTemplates   EmailTemplate[]
+  automationRules  AutomationRule[]
 
   @@map("users")
 }
@@ -53,9 +55,10 @@ model Flow {
   endMessage   String     @default("Thank you for your participation!") @map("end_message")
   branding     Json?
   createdAt    DateTime   @default(now()) @map("created_at")
-  steps        FlowStep[]
-  sessions     Session[]
-  ads          Ad[]
+  steps           FlowStep[]
+  sessions        Session[]
+  ads             Ad[]
+  automationRules AutomationRule[]
 
   @@map("flows")
 }
@@ -265,4 +268,59 @@ model TrainingEnrollment {
   completedAt DateTime? @map("completed_at")
 
   @@map("training_enrollments")
+}
+
+// ============ EMAIL & AUTOMATIONS ============
+
+model EmailTemplate {
+  id          String              @id @default(uuid())
+  ownerUserId String              @map("owner_user_id")
+  owner       User                @relation(fields: [ownerUserId], references: [id])
+  name        String
+  subject     String
+  bodyHtml    String              @map("body_html")
+  bodyText    String?             @map("body_text")
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  automations AutomationRule[]
+
+  @@map("email_templates")
+}
+
+model AutomationRule {
+  id              String              @id @default(uuid())
+  ownerUserId     String              @map("owner_user_id")
+  owner           User                @relation(fields: [ownerUserId], references: [id])
+  name            String
+  triggerType     String              @map("trigger_type") // 'flow_completed' | 'flow_passed'
+  flowId          String?             @map("flow_id")
+  flow            Flow?               @relation(fields: [flowId], references: [id])
+  actionType      String              @default("send_email") @map("action_type")
+  emailTemplateId String              @map("email_template_id")
+  emailTemplate   EmailTemplate       @relation(fields: [emailTemplateId], references: [id])
+  nextStepType    String?             @map("next_step_type") // 'training' | 'scheduling' | null
+  nextStepUrl     String?             @map("next_step_url")
+  isActive        Boolean             @default(true) @map("is_active")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  executions      AutomationExecution[]
+
+  @@map("automation_rules")
+}
+
+model AutomationExecution {
+  id                String          @id @default(uuid())
+  automationRuleId  String          @map("automation_rule_id")
+  automationRule    AutomationRule  @relation(fields: [automationRuleId], references: [id], onDelete: Cascade)
+  sessionId         String?         @map("session_id")
+  status            String          @default("pending") // 'pending' | 'sent' | 'failed' | 'skipped'
+  errorMessage      String?         @map("error_message")
+  provider          String          @default("sendgrid")
+  providerMessageId String?         @map("provider_message_id")
+  sentAt            DateTime?       @map("sent_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@unique([automationRuleId, sessionId])
+  @@map("automation_executions")
 }
