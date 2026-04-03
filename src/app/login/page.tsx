@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { signIn } from 'next-auth/react'
+import { signIn, getSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -18,8 +18,12 @@ export default function LoginPage() {
     setLoading(true)
     const result = await signIn('credentials', { email, password, redirect: false })
     setLoading(false)
-    if (result?.error) setError('Invalid email or password')
-    else { router.push('/admin/flows'); router.refresh() }
+    if (result?.error) { setError('Invalid email or password'); return }
+    // Check session to route super admins to platform admin
+    const session = await getSession()
+    const isSuperAdmin = (session?.user as any)?.isSuperAdmin
+    router.push(isSuperAdmin ? '/platform-admin' : '/admin/flows')
+    router.refresh()
   }
 
   return (
