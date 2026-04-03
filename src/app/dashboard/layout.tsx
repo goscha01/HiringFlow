@@ -17,7 +17,7 @@ export default function AdminLayout({
   const navItems = [
     { href: '/dashboard/candidates', label: 'Candidates' },
     { href: '/dashboard/flows', label: 'Flows' },
-    { href: '/dashboard/ads', label: 'Ads' },
+    { href: '/dashboard/campaigns', label: 'Campaigns' },
     { href: '/dashboard/automations', label: 'Automations' },
     { href: '/dashboard/trainings', label: 'Trainings' },
     { href: '/dashboard/scheduling', label: 'Scheduling' },
