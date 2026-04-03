@@ -15,11 +15,10 @@ export default function AdminLayout({
   const isSuperAdmin = (session?.user as any)?.isSuperAdmin || false
 
   const navItems = [
+    { href: '/dashboard/candidates', label: 'Candidates' },
     { href: '/dashboard/flows', label: 'Flows' },
-    { href: '/dashboard/videos', label: 'Videos' },
     { href: '/dashboard/ads', label: 'Ads' },
     { href: '/dashboard/automations', label: 'Automations' },
-    { href: '/dashboard/branding', label: 'Branding' },
     { href: '/dashboard/trainings', label: 'Trainings' },
     { href: '/dashboard/scheduling', label: 'Scheduling' },
     { href: '/dashboard/analytics', label: 'Analytics' },
