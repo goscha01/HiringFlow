@@ -36,7 +36,7 @@ export default function RegisterPage() {
     const result = await signIn('credentials', { email, password, redirect: false })
     setLoading(false)
     if (result?.error) setError('Account created but login failed. Please sign in.')
-    else { router.push('/admin/flows'); router.refresh() }
+    else { router.push('/dashboard/flows'); router.refresh() }
   }
 
   return (

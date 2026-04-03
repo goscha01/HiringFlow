@@ -43,7 +43,7 @@ export default function FlowsPage() {
       const flow = await res.json()
       setNewFlowName('')
       setShowModal(false)
-      router.push(`/admin/flows/${flow.id}/builder?view=schema`)
+      router.push(`/dashboard/flows/${flow.id}/builder?view=schema`)
       return
     }
     setCreating(false)
@@ -100,7 +100,7 @@ export default function FlowsPage() {
             <div
               key={flow.id}
               className="bg-white rounded-lg border border-surface-border overflow-hidden hover:shadow-md transition-shadow cursor-pointer group"
-              onClick={() => router.push(`/admin/flows/${flow.id}/builder?view=schema`)}
+              onClick={() => router.push(`/dashboard/flows/${flow.id}/builder?view=schema`)}
             >
               {/* Card header accent */}
               <div className="h-1.5 bg-brand-500" />
@@ -134,10 +134,10 @@ export default function FlowsPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-3 pt-4 border-t border-surface-border" onClick={(e) => e.stopPropagation()}>
-                  <Link href={`/admin/flows/${flow.id}/builder?view=schema`} className="text-sm text-brand-500 hover:text-brand-600 font-medium">
+                  <Link href={`/dashboard/flows/${flow.id}/builder?view=schema`} className="text-sm text-brand-500 hover:text-brand-600 font-medium">
                     Edit
                   </Link>
-                  <Link href={`/admin/flows/${flow.id}/submissions`} className="text-sm text-grey-35 hover:text-grey-15">
+                  <Link href={`/dashboard/flows/${flow.id}/submissions`} className="text-sm text-grey-35 hover:text-grey-15">
                     Submissions
                   </Link>
                   <button onClick={() => copyShareUrl(flow.slug)} className="text-sm text-grey-35 hover:text-grey-15">

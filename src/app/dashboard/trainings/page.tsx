@@ -235,11 +235,11 @@ export default function TrainingsPage() {
           {trainings.map((t) => (
             <div key={t.id} className="bg-white rounded-lg border border-surface-border overflow-hidden hover:shadow-md transition-shadow">
               {t.coverImage && (
-                <Link href={`/admin/trainings/${t.id}`}>
+                <Link href={`/dashboard/trainings/${t.id}`}>
                   <img src={t.coverImage} alt={t.title} className="w-full h-36 object-cover" />
                 </Link>
               )}
-              <Link href={`/admin/trainings/${t.id}`} className="block p-5">
+              <Link href={`/dashboard/trainings/${t.id}`} className="block p-5">
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="font-semibold text-gray-900 text-sm">{t.title}</h3>
                   <div className="flex gap-1">

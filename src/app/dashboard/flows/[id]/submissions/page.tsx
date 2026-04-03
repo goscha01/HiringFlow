@@ -99,7 +99,7 @@ export default function SubmissionsPage() {
     <div>
       <div className="flex items-center space-x-4 mb-6">
         <Link
-          href="/admin/flows"
+          href="/dashboard/flows"
           className="text-gray-500 hover:text-gray-700"
         >
           &larr; Back

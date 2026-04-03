@@ -97,7 +97,7 @@ export default function TrainingEditorPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <Link href="/admin/trainings" className="w-10 h-10 flex items-center justify-center rounded-[8px] border border-surface-border hover:bg-surface transition-colors">
+          <Link href="/dashboard/trainings" className="w-10 h-10 flex items-center justify-center rounded-[8px] border border-surface-border hover:bg-surface transition-colors">
             <svg className="w-5 h-5 text-grey-35" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </Link>
           <div>

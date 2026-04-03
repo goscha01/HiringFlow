@@ -15,7 +15,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
 
   useEffect(() => {
     if (status === 'authenticated' && !isSuperAdmin) {
-      router.push('/admin/flows')
+      router.push('/dashboard/flows')
     }
   }, [status, isSuperAdmin, router])
 
@@ -63,7 +63,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <Link href="/admin/flows" className="text-xs text-[#94a3b8] hover:text-white">
+              <Link href="/dashboard/flows" className="text-xs text-[#94a3b8] hover:text-white">
                 Business View →
               </Link>
               <button onClick={() => signOut({ callbackUrl: '/login' })} className="text-sm text-[#94a3b8] hover:text-white">

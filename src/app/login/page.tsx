@@ -22,7 +22,7 @@ export default function LoginPage() {
     // Check session to route super admins to platform admin
     const session = await getSession()
     const isSuperAdmin = (session?.user as any)?.isSuperAdmin
-    router.push(isSuperAdmin ? '/platform-admin' : '/admin/flows')
+    router.push(isSuperAdmin ? '/platform-admin' : '/dashboard/flows')
     router.refresh()
   }
 

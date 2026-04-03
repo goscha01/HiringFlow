@@ -750,7 +750,7 @@ export default function FlowBuilderPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-4 border-b">
         <div className="flex items-center space-x-4">
-          <Link href="/admin/flows" className="text-gray-500 hover:text-gray-700">
+          <Link href="/dashboard/flows" className="text-gray-500 hover:text-gray-700">
             &larr; Back
           </Link>
           <h1 className="text-xl font-bold text-gray-900">{flow.name}</h1>

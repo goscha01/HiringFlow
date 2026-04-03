@@ -112,7 +112,7 @@ export default function AutomationsPage() {
           <p className="text-grey-35 mt-1">Trigger emails when candidates complete flows or training</p>
         </div>
         <div className="flex gap-3">
-          <Link href="/admin/automations/templates" className="btn-secondary text-sm">Email Templates</Link>
+          <Link href="/dashboard/automations/templates" className="btn-secondary text-sm">Email Templates</Link>
           <button onClick={openCreate} className="btn-primary">+ Create Automation</button>
         </div>
       </div>
@@ -125,7 +125,7 @@ export default function AutomationsPage() {
           <h2 className="text-xl font-semibold text-grey-15 mb-2">No automations yet</h2>
           <p className="text-grey-35 mb-4">Create email templates first, then set up automations</p>
           <div className="flex gap-3 justify-center">
-            <Link href="/admin/automations/templates" className="btn-secondary">Create Template</Link>
+            <Link href="/dashboard/automations/templates" className="btn-secondary">Create Template</Link>
             <button onClick={openCreate} className="btn-primary">+ Create Automation</button>
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function AutomationsPage() {
                   <option value="">Select template...</option>
                   {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-                {templates.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/admin/automations/templates">Create a template first →</Link></p>}
+                {templates.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/dashboard/automations/templates">Create a template first →</Link></p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Next Step Type</label>
@@ -225,7 +225,7 @@ export default function AutomationsPage() {
                     <option value="">Select training...</option>
                     {trainings.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                   </select>
-                  {trainings.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/admin/trainings">Create a training first →</Link></p>}
+                  {trainings.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/dashboard/trainings">Create a training first →</Link></p>}
                   <p className="text-xs text-grey-40 mt-1">A unique access token will be generated for each candidate automatically.</p>
                 </div>
               )}
@@ -236,7 +236,7 @@ export default function AutomationsPage() {
                     <option value="">Use default link</option>
                     {schedulingConfigs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  {schedulingConfigs.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/admin/scheduling">Add a Calendly link first →</Link></p>}
+                  {schedulingConfigs.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/dashboard/scheduling">Add a Calendly link first →</Link></p>}
                   <p className="text-xs text-grey-40 mt-1">Link clicks are tracked. Candidate status updates to &quot;invited to schedule&quot;.</p>
                 </div>
               )}

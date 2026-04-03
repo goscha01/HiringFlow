@@ -15,14 +15,14 @@ export default function AdminLayout({
   const isSuperAdmin = (session?.user as any)?.isSuperAdmin || false
 
   const navItems = [
-    { href: '/admin/flows', label: 'Flows' },
-    { href: '/admin/videos', label: 'Videos' },
-    { href: '/admin/ads', label: 'Ads' },
-    { href: '/admin/automations', label: 'Automations' },
-    { href: '/admin/branding', label: 'Branding' },
-    { href: '/admin/trainings', label: 'Trainings' },
-    { href: '/admin/scheduling', label: 'Scheduling' },
-    { href: '/admin/analytics', label: 'Analytics' },
+    { href: '/dashboard/flows', label: 'Flows' },
+    { href: '/dashboard/videos', label: 'Videos' },
+    { href: '/dashboard/ads', label: 'Ads' },
+    { href: '/dashboard/automations', label: 'Automations' },
+    { href: '/dashboard/branding', label: 'Branding' },
+    { href: '/dashboard/trainings', label: 'Trainings' },
+    { href: '/dashboard/scheduling', label: 'Scheduling' },
+    { href: '/dashboard/analytics', label: 'Analytics' },
   ]
 
   return (
@@ -39,7 +39,7 @@ export default function AdminLayout({
             {/* Left: Logo + Nav */}
             <div className="flex items-center gap-[50px]">
               {/* Logo */}
-              <Link href="/admin/flows" className="flex-shrink-0">
+              <Link href="/dashboard/flows" className="flex-shrink-0">
                 <div className="w-[44px] h-[44px] bg-brand-500 rounded-[8px] flex items-center justify-center">
                   <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/>

@@ -52,7 +52,7 @@ export default function EmailTemplatesPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <Link href="/admin/automations" className="text-grey-40 hover:text-grey-15">&larr; Automations</Link>
+            <Link href="/dashboard/automations" className="text-grey-40 hover:text-grey-15">&larr; Automations</Link>
           </div>
           <h1 className="text-[36px] font-semibold text-grey-15">Email Templates</h1>
           <p className="text-grey-35 mt-1">Create reusable email templates for automations</p>

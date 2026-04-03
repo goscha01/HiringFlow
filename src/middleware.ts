@@ -7,7 +7,7 @@ export default withAuth(
     if (req.nextUrl.pathname.startsWith('/platform-admin')) {
       const token = req.nextauth?.token
       if (!token?.isSuperAdmin) {
-        return NextResponse.redirect(new URL('/admin/flows', req.url))
+        return NextResponse.redirect(new URL('/dashboard/flows', req.url))
       }
     }
     return NextResponse.next()
@@ -33,8 +33,8 @@ export default withAuth(
           return !!token
         }
 
-        // Require auth for admin routes
-        if (path.startsWith('/admin')) {
+        // Require auth for dashboard routes
+        if (path.startsWith('/dashboard')) {
           return !!token
         }
 
@@ -52,5 +52,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/', '/admin/:path*', '/platform-admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/register'],
+  matcher: ['/', '/dashboard/:path*', '/platform-admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/register'],
 }
