@@ -23,6 +23,7 @@ export default function AdminLayout({
     { href: '/dashboard/branding', label: 'Branding' },
     { href: '/dashboard/trainings', label: 'Trainings' },
     { href: '/dashboard/scheduling', label: 'Scheduling' },
+    { href: '/dashboard/content', label: 'Content' },
     { href: '/dashboard/analytics', label: 'Analytics' },
   ]
 
