@@ -267,6 +267,7 @@ export default function FlowSchemaView({
   // Generate video thumbnails with cover-crop
   useEffect(() => {
     const thumbs: Record<string, HTMLImageElement> = {}
+    const videoEls: HTMLVideoElement[] = []
     let mounted = true
 
     steps.forEach((step) => {
@@ -274,7 +275,10 @@ export default function FlowSchemaView({
         const video = document.createElement('video')
         video.crossOrigin = 'anonymous'
         video.preload = 'metadata'
+        video.muted = true
+        video.playsInline = true
         video.src = step.video.url
+        videoEls.push(video)
         video.onloadeddata = () => { video.currentTime = 1 }
         video.onseeked = () => {
           const vw = video.videoWidth
@@ -323,7 +327,10 @@ export default function FlowSchemaView({
       }
     })
 
-    return () => { mounted = false }
+    return () => {
+      mounted = false
+      videoEls.forEach(v => { v.pause(); v.removeAttribute('src'); v.load() })
+    }
   }, [steps])
 
   // Load screen step images
