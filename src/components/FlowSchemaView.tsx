@@ -341,7 +341,7 @@ export default function FlowSchemaView({
 
   // Convert screen coords to canvas coords
   const toCanvas = useCallback((clientX: number, clientY: number) => {
-    const rect = canvasRef.current?.getBoundingClientRect()
+    const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return { x: 0, y: 0 }
     return {
       x: (clientX - rect.left - pan.x) / scale,
@@ -1235,28 +1235,24 @@ export default function FlowSchemaView({
   return (
     <div
       ref={containerRef}
-      onClick={(e) => {
-        // Fallback: if canvas is not receiving events, log from container
-        console.log('[Schema] container click', { clientX: e.clientX, clientY: e.clientY, target: (e.target as HTMLElement).tagName })
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={() => { setMode({ type: 'idle' }); setHoveredPort(null) }}
+      onContextMenu={handleContextMenu}
+      onDoubleClick={(e) => {
+        const { x: cx, y: cy } = toCanvas(e.clientX, e.clientY)
+        const nodeId = hitTestNode(cx, cy)
+        if (nodeId) {
+          onStepPreview?.(nodeId)
+        }
       }}
       className="relative overflow-hidden bg-gray-50 rounded-lg border border-gray-200"
       style={{ cursor: getCursor(), width: '100%', height: '100%', minHeight: '500px' }}
     >
       <canvas
         ref={canvasRef}
-        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={() => { setMode({ type: 'idle' }); setHoveredPort(null) }}
-        onContextMenu={handleContextMenu}
-        onDoubleClick={(e) => {
-          const { x: cx, y: cy } = toCanvas(e.clientX, e.clientY)
-          const nodeId = hitTestNode(cx, cy)
-          if (nodeId) {
-            onStepPreview?.(nodeId)
-          }
-        }}
+        style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
       />
 
       {/* Add Step button */}
