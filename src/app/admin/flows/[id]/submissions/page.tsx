@@ -37,6 +37,7 @@ interface Session {
   candidateEmail: string | null
   candidatePhone: string | null
   outcome: string | null
+  pipelineStatus: string | null
   formData: Record<string, string> | null
   source: string | null
   startedAt: string
@@ -165,6 +166,19 @@ export default function SubmissionsPage() {
                       </span>
                     )}
                   </div>
+                  {session.pipelineStatus && (
+                    <div className="mt-1">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                        session.pipelineStatus === 'scheduled' ? 'bg-green-100 text-green-700' :
+                        session.pipelineStatus === 'invited_to_schedule' ? 'bg-purple-100 text-purple-700' :
+                        session.pipelineStatus === 'training_completed' ? 'bg-blue-100 text-blue-700' :
+                        session.pipelineStatus === 'training_in_progress' ? 'bg-cyan-100 text-cyan-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {session.pipelineStatus.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  )}
                 </button>
               ))
             )}
@@ -188,6 +202,38 @@ export default function SubmissionsPage() {
                     <> &middot; Finished: {formatDate(selectedSession.finishedAt)}</>
                   )}
                 </p>
+                {/* Pipeline Status */}
+                <div className="flex items-center gap-2 mt-3">
+                  {selectedSession.pipelineStatus && (
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                      selectedSession.pipelineStatus === 'scheduled' ? 'bg-green-100 text-green-700' :
+                      selectedSession.pipelineStatus === 'invited_to_schedule' ? 'bg-purple-100 text-purple-700' :
+                      selectedSession.pipelineStatus === 'training_completed' ? 'bg-blue-100 text-blue-700' :
+                      selectedSession.pipelineStatus === 'training_in_progress' ? 'bg-cyan-100 text-cyan-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      Pipeline: {selectedSession.pipelineStatus.replace(/_/g, ' ')}
+                    </span>
+                  )}
+                  {selectedSession.pipelineStatus && selectedSession.pipelineStatus !== 'scheduled' && (
+                    <button
+                      onClick={async () => {
+                        const res = await fetch(`/api/sessions/${selectedSession.id}/pipeline`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ pipelineStatus: 'scheduled' }),
+                        })
+                        if (res.ok) {
+                          setSelectedSession({ ...selectedSession, pipelineStatus: 'scheduled' })
+                          setSessions(sessions.map(s => s.id === selectedSession.id ? { ...s, pipelineStatus: 'scheduled' } : s))
+                        }
+                      }}
+                      className="text-xs px-2.5 py-1 rounded-full border border-green-300 text-green-700 hover:bg-green-50"
+                    >
+                      Mark as Scheduled
+                    </button>
+                  )}
+                </div>
               </div>
 
               <h3 className="font-semibold text-gray-900 mb-4">Answers</h3>

@@ -10,6 +10,7 @@ interface Training {
   description: string | null
   coverImage: string | null
   isPublished: boolean
+  accessMode: string
   timeLimit: { type: string; value?: number; date?: string } | null
   pricing: { type: string; price?: number; currency?: string } | null
   createdAt: string
@@ -241,11 +242,16 @@ export default function TrainingsPage() {
               <Link href={`/admin/trainings/${t.id}`} className="block p-5">
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="font-semibold text-gray-900 text-sm">{t.title}</h3>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                    t.isPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {t.isPublished ? 'Published' : 'Draft'}
-                  </span>
+                  <div className="flex gap-1">
+                    {t.accessMode === 'invitation_only' && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">Gated</span>
+                    )}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      t.isPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {t.isPublished ? 'Published' : 'Draft'}
+                    </span>
+                  </div>
                 </div>
                 {t.description && <p className="text-xs text-gray-500 mb-3 line-clamp-2">{t.description}</p>}
                 <div className="flex items-center gap-3 text-xs text-gray-400">

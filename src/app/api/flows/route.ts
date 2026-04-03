@@ -1,20 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { nanoid } from 'nanoid'
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  console.log('[GET /api/flows] session user id:', session?.user?.id)
-
-  if (!session?.user?.id) {
-    console.log('[GET /api/flows] NO SESSION - returning 401')
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const flows = await prisma.flow.findMany({
-    where: { ownerUserId: session.user.id },
+    where: { workspaceId: ws.workspaceId },
     orderBy: { createdAt: 'desc' },
     include: {
       _count: {
@@ -22,17 +16,13 @@ export async function GET() {
       },
     },
   })
-  console.log('[GET /api/flows] found', flows.length, 'flows for user', session.user.id)
 
   return NextResponse.json(flows)
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   try {
     const body = await request.json()
@@ -46,7 +36,8 @@ export async function POST(request: NextRequest) {
 
     const flow = await prisma.flow.create({
       data: {
-        ownerUserId: session.user.id,
+        workspaceId: ws.workspaceId,
+        createdById: ws.userId,
         name,
         slug,
       },

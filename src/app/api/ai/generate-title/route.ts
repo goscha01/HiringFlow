@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import OpenAI from 'openai'
 
 const openai = new OpenAI()
 
 export async function POST(request: NextRequest) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
   try {
     const { transcript, summary, bulletPoints } = await request.json()
 

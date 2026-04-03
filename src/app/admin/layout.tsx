@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { signOut } from 'next-auth/react'
+import { signOut, useSession } from 'next-auth/react'
 
 export default function AdminLayout({
   children,
@@ -10,6 +10,8 @@ export default function AdminLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const { data: session } = useSession()
+  const workspaceName = (session?.user as any)?.workspaceName || ''
 
   const navItems = [
     { href: '/admin/flows', label: 'Flows' },
@@ -18,6 +20,8 @@ export default function AdminLayout({
     { href: '/admin/automations', label: 'Automations' },
     { href: '/admin/branding', label: 'Branding' },
     { href: '/admin/trainings', label: 'Trainings' },
+    { href: '/admin/scheduling', label: 'Scheduling' },
+    { href: '/admin/analytics', label: 'Analytics' },
   ]
 
   return (
@@ -63,8 +67,11 @@ export default function AdminLayout({
               </div>
             </div>
 
-            {/* Right: Sign out */}
+            {/* Right: Workspace + Sign out */}
             <div className="flex items-center gap-6">
+              {workspaceName && (
+                <span className="text-[13px] text-grey-40 bg-surface px-3 py-1.5 rounded-[8px]">{workspaceName}</span>
+              )}
               <button
                 onClick={() => signOut({ callbackUrl: '/login' })}
                 className="text-[15px] text-grey-35 hover:text-grey-15 transition-colors"

@@ -5,22 +5,35 @@ import Link from 'next/link'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string }
+interface TrainingItem { id: string; title: string; slug: string }
+interface SchedulingItem { id: string; name: string; schedulingUrl: string }
 interface Rule {
   id: string; name: string; triggerType: string; flowId: string | null
   actionType: string; emailTemplateId: string; nextStepType: string | null
-  nextStepUrl: string | null; isActive: boolean; createdAt: string
-  flow: Flow | null; emailTemplate: Template; _count: { executions: number }
+  nextStepUrl: string | null; trainingId: string | null; schedulingConfigId: string | null
+  isActive: boolean; createdAt: string
+  flow: Flow | null; emailTemplate: Template; training: TrainingItem | null
+  schedulingConfig: SchedulingItem | null; _count: { executions: number }
 }
 
 const TRIGGERS = [
   { value: 'flow_completed', label: 'Flow Completed' },
   { value: 'flow_passed', label: 'Flow Passed' },
+  { value: 'training_completed', label: 'Training Done' },
 ]
+
+const TRIGGER_LABELS: Record<string, string> = {
+  flow_completed: 'Flow Completed',
+  flow_passed: 'Flow Passed',
+  training_completed: 'Training Done',
+}
 
 export default function AutomationsPage() {
   const [rules, setRules] = useState<Rule[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
+  const [trainings, setTrainings] = useState<TrainingItem[]>([])
+  const [schedulingConfigs, setSchedulingConfigs] = useState<SchedulingItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
@@ -30,6 +43,8 @@ export default function AutomationsPage() {
   const [templateId, setTemplateId] = useState('')
   const [nextStepType, setNextStepType] = useState('')
   const [nextStepUrl, setNextStepUrl] = useState('')
+  const [trainingId, setTrainingId] = useState('')
+  const [schedulingConfigId, setSchedulingConfigId] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -37,22 +52,38 @@ export default function AutomationsPage() {
       fetch('/api/automations').then(r => r.json()),
       fetch('/api/flows').then(r => r.json()),
       fetch('/api/email-templates').then(r => r.json()),
-    ]).then(([r, f, t]) => { setRules(r); setFlows(f); setTemplates(t); setLoading(false) })
+      fetch('/api/trainings').then(r => r.json()),
+      fetch('/api/scheduling').then(r => r.json()),
+    ]).then(([r, f, t, tr, sc]) => {
+      setRules(r); setFlows(f); setTemplates(t); setTrainings(tr); setSchedulingConfigs(sc); setLoading(false)
+    })
   }, [])
 
   const refresh = async () => { const r = await fetch('/api/automations'); if (r.ok) setRules(await r.json()) }
 
   const openCreate = () => {
-    setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId(''); setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl(''); setShowModal(true)
+    setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
+    setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
+    setTrainingId(''); setSchedulingConfigId(''); setShowModal(true)
   }
   const openEdit = (r: Rule) => {
-    setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || ''); setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || ''); setShowModal(true)
+    setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || '')
+    setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
+    setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || ''); setShowModal(true)
   }
 
   const save = async () => {
     if (!name.trim() || !templateId) return
     setSaving(true)
-    const body = { name, triggerType, flowId: flowId || null, emailTemplateId: templateId, nextStepType: nextStepType || null, nextStepUrl: nextStepUrl || null }
+    const body = {
+      name, triggerType,
+      flowId: triggerType !== 'training_completed' ? (flowId || null) : null,
+      emailTemplateId: templateId,
+      nextStepType: nextStepType || null,
+      nextStepUrl: null as string | null,
+      trainingId: nextStepType === 'training' ? (trainingId || null) : null,
+      schedulingConfigId: nextStepType === 'scheduling' ? (schedulingConfigId || null) : null,
+    }
     if (editing) {
       await fetch(`/api/automations/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     } else {
@@ -78,7 +109,7 @@ export default function AutomationsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-[36px] font-semibold text-grey-15">Automations</h1>
-          <p className="text-grey-35 mt-1">Trigger emails automatically when candidates complete flows</p>
+          <p className="text-grey-35 mt-1">Trigger emails when candidates complete flows or training</p>
         </div>
         <div className="flex gap-3">
           <Link href="/admin/automations/templates" className="btn-secondary text-sm">Email Templates</Link>
@@ -117,10 +148,16 @@ export default function AutomationsPage() {
               {rules.map((r) => (
                 <tr key={r.id} className="hover:bg-surface-light">
                   <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
-                  <td className="px-5 py-4"><span className="text-xs px-2.5 py-1 rounded-full bg-brand-50 text-brand-600 font-medium">{r.triggerType === 'flow_passed' ? 'Flow Passed' : 'Flow Completed'}</span></td>
+                  <td className="px-5 py-4"><span className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.triggerType === 'training_completed' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-600'}`}>{TRIGGER_LABELS[r.triggerType] || r.triggerType}</span></td>
                   <td className="px-5 py-4 text-sm text-grey-35">{r.flow?.name || 'Any flow'}</td>
                   <td className="px-5 py-4 text-sm text-grey-35">{r.emailTemplate.name}</td>
-                  <td className="px-5 py-4 text-sm text-grey-40">{r.nextStepType || '—'}</td>
+                  <td className="px-5 py-4 text-sm text-grey-40">
+                    {r.nextStepType === 'training' && r.training ? (
+                      <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 font-medium">{r.training.title}</span>
+                    ) : r.nextStepType === 'scheduling' && r.schedulingConfig ? (
+                      <span className="text-xs px-2 py-1 rounded bg-purple-50 text-purple-700 font-medium">{r.schedulingConfig.name}</span>
+                    ) : r.nextStepType || '—'}
+                  </td>
                   <td className="px-5 py-4 text-sm font-medium text-grey-15">{r._count.executions}</td>
                   <td className="px-5 py-4">
                     <button onClick={() => toggle(r)} className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-grey-40'}`}>
@@ -141,12 +178,12 @@ export default function AutomationsPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[520px]" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[520px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-semibold text-grey-15 mb-6">{editing ? 'Edit Automation' : 'Create Automation'}</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Send training after screening" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Send scheduling after training" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Trigger</label>
@@ -156,13 +193,15 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Flow (optional — leave empty for all flows)</label>
-                <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                  <option value="">Any flow</option>
-                  {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-              </div>
+              {triggerType !== 'training_completed' && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Flow (optional — leave empty for all flows)</label>
+                  <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Any flow</option>
+                    {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
                 <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
@@ -179,10 +218,26 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              {nextStepType && (
+              {nextStepType === 'training' && (
                 <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Next Step URL</label>
-                  <input type="url" value={nextStepUrl} onChange={(e) => setNextStepUrl(e.target.value)} placeholder="https://..." className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Training</label>
+                  <select value={trainingId} onChange={(e) => setTrainingId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select training...</option>
+                    {trainings.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                  </select>
+                  {trainings.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/admin/trainings">Create a training first →</Link></p>}
+                  <p className="text-xs text-grey-40 mt-1">A unique access token will be generated for each candidate automatically.</p>
+                </div>
+              )}
+              {nextStepType === 'scheduling' && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Scheduling Link</label>
+                  <select value={schedulingConfigId} onChange={(e) => setSchedulingConfigId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Use default link</option>
+                    {schedulingConfigs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  {schedulingConfigs.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/admin/scheduling">Add a Calendly link first →</Link></p>}
+                  <p className="text-xs text-grey-40 mt-1">Link clicks are tracked. Candidate status updates to &quot;invited to schedule&quot;.</p>
                 </div>
               )}
             </div>

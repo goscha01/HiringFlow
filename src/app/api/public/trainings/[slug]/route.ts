@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
+import { validateAccessToken, getOrCreateEnrollment } from '@/lib/training-access'
 
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
   const training = await prisma.training.findUnique({
@@ -20,6 +21,36 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     return NextResponse.json({ error: 'Training not found' }, { status: 404 })
   }
 
+  // Token-based access control for invitation_only trainings
+  const token = request.nextUrl.searchParams.get('token')
+  let enrollmentId: string | null = null
+  let enrollmentStatus: string | null = null
+  let enrollmentProgress: unknown = null
+
+  if (training.accessMode === 'invitation_only') {
+    if (!token) {
+      return NextResponse.json({ error: 'Access token required', code: 'TOKEN_REQUIRED' }, { status: 403 })
+    }
+
+    const accessToken = await validateAccessToken(token, training.id)
+    if (!accessToken) {
+      return NextResponse.json({ error: 'Access unavailable or expired', code: 'TOKEN_INVALID' }, { status: 403 })
+    }
+
+    // Get or create enrollment for this candidate
+    const enrollment = await getOrCreateEnrollment({
+      trainingId: training.id,
+      accessTokenId: accessToken.id,
+      sessionId: accessToken.candidateId,
+      userName: accessToken.candidate?.candidateName || null,
+      userEmail: accessToken.candidate?.candidateEmail || null,
+    })
+
+    enrollmentId = enrollment.id
+    enrollmentStatus = enrollment.status
+    enrollmentProgress = enrollment.progress
+  }
+
   return NextResponse.json({
     id: training.id,
     title: training.title,
@@ -27,6 +58,10 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     coverImage: training.coverImage,
     branding: training.branding,
     passingGrade: training.passingGrade,
+    accessMode: training.accessMode,
+    enrollmentId,
+    enrollmentStatus,
+    enrollmentProgress,
     sections: training.sections.map((s) => ({
       id: s.id,
       title: s.title,
@@ -76,7 +111,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     return NextResponse.json({ error: 'Training not found' }, { status: 404 })
   }
 
-  const { quizId, answers } = await request.json()
+  const { quizId, answers, enrollmentId } = await request.json()
   // answers: { questionId: number[] (selected option indices) }
 
   // Find the quiz
@@ -99,6 +134,37 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
 
   const score = Math.round((correct / quiz.questions.length) * 100)
   const passed = score >= quiz.passingGrade
+
+  // Update enrollment progress if enrollmentId provided
+  if (enrollmentId) {
+    try {
+      const enrollment = await prisma.trainingEnrollment.findUnique({ where: { id: enrollmentId } })
+      if (enrollment) {
+        const progress = (enrollment.progress as { completedSections: string[]; quizScores: { sectionId: string; score: number }[] }) || { completedSections: [], quizScores: [] }
+        // Find which section this quiz belongs to
+        const section = training.sections.find(s => s.quiz?.id === quizId)
+        if (section) {
+          // Update quiz score
+          const existingIdx = progress.quizScores.findIndex((qs: { sectionId: string }) => qs.sectionId === section.id)
+          if (existingIdx >= 0) {
+            progress.quizScores[existingIdx].score = score
+          } else {
+            progress.quizScores.push({ sectionId: section.id, score })
+          }
+          // Mark section as completed if passed
+          if (passed && !progress.completedSections.includes(section.id)) {
+            progress.completedSections.push(section.id)
+          }
+          await prisma.trainingEnrollment.update({
+            where: { id: enrollmentId },
+            data: { progress },
+          })
+        }
+      }
+    } catch (err) {
+      console.error('[Training] Failed to update enrollment progress:', err)
+    }
+  }
 
   return NextResponse.json({ score, correct, total: quiz.questions.length, passed, results })
 }

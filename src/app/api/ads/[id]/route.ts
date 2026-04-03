@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
-  const ad = await prisma.ad.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const ad = await prisma.ad.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!ad) return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
 
   const body = await request.json()
@@ -29,10 +28,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
-  const ad = await prisma.ad.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const ad = await prisma.ad.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!ad) return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
 
   await prisma.ad.delete({ where: { id: params.id } })

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const t = await prisma.emailTemplate.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+  const t = await prisma.emailTemplate.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!t) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = await request.json()
   const updated = await prisma.emailTemplate.update({
@@ -23,9 +22,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const t = await prisma.emailTemplate.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+  const t = await prisma.emailTemplate.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!t) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await prisma.emailTemplate.delete({ where: { id: params.id } })
   return NextResponse.json({ success: true })

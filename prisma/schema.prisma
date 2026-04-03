@@ -8,25 +8,59 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ============ IDENTITY & WORKSPACE ============
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String   @map("password_hash")
+  name         String?
   createdAt    DateTime @default(now()) @map("created_at")
-  videos       Video[]
-  flows        Flow[]
-  ads              Ad[]
-  trainings        Training[]
-  emailTemplates   EmailTemplate[]
-  automationRules  AutomationRule[]
+  memberships  WorkspaceMember[]
 
   @@map("users")
 }
 
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members           WorkspaceMember[]
+  videos            Video[]
+  flows             Flow[]
+  ads               Ad[]
+  sessions          Session[]
+  trainings         Training[]
+  emailTemplates    EmailTemplate[]
+  automationRules   AutomationRule[]
+  schedulingConfigs SchedulingConfig[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String   @map("workspace_id")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        String   @default("owner") // 'owner' | 'admin' | 'member'
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  @@unique([userId, workspaceId])
+  @@map("workspace_members")
+}
+
+// ============ VIDEOS ============
+
 model Video {
   id              String     @id @default(uuid())
-  ownerUserId     String     @map("owner_user_id")
-  owner           User       @relation(fields: [ownerUserId], references: [id])
+  workspaceId     String     @map("workspace_id")
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id])
+  createdById     String     @map("created_by_id")
   filename        String
   storageKey      String     @map("storage_key")
   mimeType        String     @map("mime_type")
@@ -37,17 +71,20 @@ model Video {
   summary         String?
   bulletPoints    String[]   @default([]) @map("bullet_points")
   displayName     String?    @map("display_name")
-  createdAt       DateTime          @default(now()) @map("created_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
   steps           FlowStep[]
   trainingContents TrainingContent[]
 
   @@map("videos")
 }
 
+// ============ FLOWS ============
+
 model Flow {
   id           String     @id @default(uuid())
-  ownerUserId  String     @map("owner_user_id")
-  owner        User       @relation(fields: [ownerUserId], references: [id])
+  workspaceId  String     @map("workspace_id")
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id])
+  createdById  String     @map("created_by_id")
   name         String
   slug         String     @unique
   isPublished  Boolean    @default(false) @map("is_published")
@@ -65,8 +102,9 @@ model Flow {
 
 model Ad {
   id          String    @id @default(uuid())
-  ownerUserId String    @map("owner_user_id")
-  owner       User      @relation(fields: [ownerUserId], references: [id])
+  workspaceId String    @map("workspace_id")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdById String    @map("created_by_id")
   name        String
   source      String    // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other'
   campaign    String?
@@ -90,12 +128,12 @@ model FlowStep {
   video           Video?                @relation(fields: [videoId], references: [id])
   questionText    String?               @map("question_text")
   stepOrder       Int                   @default(0) @map("step_order")
-  stepType        String                @default("question") @map("step_type") // 'question' | 'submission' | 'form' | 'info'
-  questionType    String                @default("single") @map("question_type") // 'single' | 'multiselect' | 'button' | 'yesno' | 'text'
+  stepType        String                @default("question") @map("step_type")
+  questionType    String                @default("single") @map("question_type")
   formEnabled     Boolean               @default(false) @map("form_enabled")
   formConfig      Json?                 @map("form_config")
-  infoContent     String?               @map("info_content") // Rich text for info steps
-  buttonConfig    Json?                 @map("button_config") // { enabled: boolean, text: string, style: string }
+  infoContent     String?               @map("info_content")
+  buttonConfig    Json?                 @map("button_config")
   combinedWithId  String?               @map("combined_with_id")
   captionsEnabled Boolean               @default(false) @map("captions_enabled")
   captionStyle    Json?                 @map("caption_style")
@@ -122,8 +160,12 @@ model StepOption {
   @@map("step_options")
 }
 
+// ============ SESSIONS / CANDIDATES ============
+
 model Session {
   id             String                @id @default(uuid())
+  workspaceId    String                @map("workspace_id")
+  workspace      Workspace             @relation(fields: [workspaceId], references: [id])
   flowId         String                @map("flow_id")
   flow           Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
   candidateName  String?               @map("candidate_name")
@@ -133,15 +175,18 @@ model Session {
   startedAt      DateTime              @default(now()) @map("started_at")
   finishedAt     DateTime?             @map("finished_at")
   outcome        String?               // 'completed' | 'passed' | 'failed' | 'abandoned'
+  pipelineStatus String?               @map("pipeline_status")
   lastStepId     String?               @map("last_step_id")
   lastStep       FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
-  // Source attribution
   adId           String?               @map("ad_id")
   ad             Ad?                   @relation(fields: [adId], references: [id])
   campaign       String?
   source         String?
   answers        SessionAnswer[]
   submissions    CandidateSubmission[]
+  trainingEnrollments TrainingEnrollment[]
+  trainingAccessTokens TrainingAccessToken[] @relation("AccessTokenSession")
+  schedulingEvents    SchedulingEvent[]
 
   @@map("sessions")
 }
@@ -181,21 +226,25 @@ model CandidateSubmission {
 
 model Training {
   id            String            @id @default(uuid())
-  ownerUserId   String            @map("owner_user_id")
-  owner         User              @relation(fields: [ownerUserId], references: [id])
+  workspaceId   String            @map("workspace_id")
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id])
+  createdById   String            @map("created_by_id")
   title         String
   slug          String            @unique
   description   String?
   coverImage    String?           @map("cover_image")
-  timeLimit     Json?             @map("time_limit") // { type: 'unlimited' | 'days' | 'calendar', value?: number, date?: string }
-  pricing       Json?             // { type: 'free' | 'paid', price?: number, currency?: string }
+  timeLimit     Json?             @map("time_limit")
+  pricing       Json?
   passingGrade  Int               @default(80) @map("passing_grade")
   isPublished   Boolean           @default(false) @map("is_published")
+  accessMode    String            @default("public") @map("access_mode")
   branding      Json?
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
   sections      TrainingSection[]
   enrollments   TrainingEnrollment[]
+  accessTokens  TrainingAccessToken[]
+  automationRules AutomationRule[]
 
   @@map("trainings")
 }
@@ -217,14 +266,12 @@ model TrainingContent {
   id          String          @id @default(uuid())
   sectionId   String          @map("section_id")
   section     TrainingSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  type        String          // 'video' | 'text'
+  type        String
   sortOrder   Int             @default(0) @map("sort_order")
-  // Video fields
   videoId     String?         @map("video_id")
   video       Video?          @relation(fields: [videoId], references: [id])
   requiredWatch Boolean       @default(true) @map("required_watch")
   autoplayNext  Boolean       @default(true) @map("autoplay_next")
-  // Text fields
   textContent String?         @map("text_content")
   createdAt   DateTime        @default(now()) @map("created_at")
 
@@ -249,33 +296,59 @@ model TrainingQuestion {
   quizId       String       @map("quiz_id")
   quiz         TrainingQuiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
   questionText String       @map("question_text")
-  questionType String       @default("single") @map("question_type") // 'single' | 'multiselect'
+  questionType String       @default("single") @map("question_type")
   sortOrder    Int          @default(0) @map("sort_order")
-  options      Json         // [{ text: string, isCorrect: boolean }]
+  options      Json
   createdAt    DateTime     @default(now()) @map("created_at")
 
   @@map("training_questions")
 }
 
 model TrainingEnrollment {
-  id          String    @id @default(uuid())
-  trainingId  String    @map("training_id")
-  training    Training  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  userName    String?   @map("user_name")
-  userEmail   String?   @map("user_email")
-  progress    Json?     // { completedSections: string[], quizScores: { sectionId: score }[] }
-  startedAt   DateTime  @default(now()) @map("started_at")
-  completedAt DateTime? @map("completed_at")
+  id            String    @id @default(uuid())
+  trainingId    String    @map("training_id")
+  training      Training  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  userName      String?   @map("user_name")
+  userEmail     String?   @map("user_email")
+  sessionId     String?   @map("session_id")
+  session       Session?  @relation(fields: [sessionId], references: [id])
+  accessTokenId String?   @map("access_token_id")
+  accessToken   TrainingAccessToken? @relation(fields: [accessTokenId], references: [id])
+  status        String    @default("not_started")
+  progress      Json?
+  startedAt     DateTime  @default(now()) @map("started_at")
+  completedAt   DateTime? @map("completed_at")
 
+  @@unique([trainingId, accessTokenId])
   @@map("training_enrollments")
+}
+
+model TrainingAccessToken {
+  id            String    @id @default(uuid())
+  token         String    @unique
+  candidateId   String?   @map("candidate_id")
+  candidate     Session?  @relation("AccessTokenSession", fields: [candidateId], references: [id])
+  trainingId    String    @map("training_id")
+  training      Training  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  sourceType    String    @default("automation") @map("source_type")
+  sourceRefId   String?   @map("source_ref_id")
+  status        String    @default("active")
+  expiresAt     DateTime? @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  enrollments   TrainingEnrollment[]
+
+  @@map("training_access_tokens")
 }
 
 // ============ EMAIL & AUTOMATIONS ============
 
 model EmailTemplate {
   id          String              @id @default(uuid())
-  ownerUserId String              @map("owner_user_id")
-  owner       User                @relation(fields: [ownerUserId], references: [id])
+  workspaceId String              @map("workspace_id")
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+  createdById String              @map("created_by_id")
   name        String
   subject     String
   bodyHtml    String              @map("body_html")
@@ -290,17 +363,22 @@ model EmailTemplate {
 
 model AutomationRule {
   id              String              @id @default(uuid())
-  ownerUserId     String              @map("owner_user_id")
-  owner           User                @relation(fields: [ownerUserId], references: [id])
+  workspaceId     String              @map("workspace_id")
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id])
+  createdById     String              @map("created_by_id")
   name            String
-  triggerType     String              @map("trigger_type") // 'flow_completed' | 'flow_passed'
+  triggerType     String              @map("trigger_type")
   flowId          String?             @map("flow_id")
   flow            Flow?               @relation(fields: [flowId], references: [id])
   actionType      String              @default("send_email") @map("action_type")
   emailTemplateId String              @map("email_template_id")
   emailTemplate   EmailTemplate       @relation(fields: [emailTemplateId], references: [id])
-  nextStepType    String?             @map("next_step_type") // 'training' | 'scheduling' | null
+  nextStepType    String?             @map("next_step_type")
   nextStepUrl     String?             @map("next_step_url")
+  trainingId      String?             @map("training_id")
+  training        Training?           @relation(fields: [trainingId], references: [id])
+  schedulingConfigId String?          @map("scheduling_config_id")
+  schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
   isActive        Boolean             @default(true) @map("is_active")
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")
@@ -314,7 +392,7 @@ model AutomationExecution {
   automationRuleId  String          @map("automation_rule_id")
   automationRule    AutomationRule  @relation(fields: [automationRuleId], references: [id], onDelete: Cascade)
   sessionId         String?         @map("session_id")
-  status            String          @default("pending") // 'pending' | 'sent' | 'failed' | 'skipped'
+  status            String          @default("pending")
   errorMessage      String?         @map("error_message")
   provider          String          @default("sendgrid")
   providerMessageId String?         @map("provider_message_id")
@@ -323,4 +401,38 @@ model AutomationExecution {
 
   @@unique([automationRuleId, sessionId])
   @@map("automation_executions")
+}
+
+// ============ SCHEDULING ============
+
+model SchedulingConfig {
+  id            String    @id @default(uuid())
+  workspaceId   String    @map("workspace_id")
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  createdById   String    @map("created_by_id")
+  name          String
+  provider      String    @default("calendly")
+  schedulingUrl String    @map("scheduling_url")
+  isDefault     Boolean   @default(false) @map("is_default")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  automationRules AutomationRule[]
+  events        SchedulingEvent[]
+
+  @@map("scheduling_configs")
+}
+
+model SchedulingEvent {
+  id                 String           @id @default(uuid())
+  sessionId          String           @map("session_id")
+  session            Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  schedulingConfigId String?          @map("scheduling_config_id")
+  schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
+  eventType          String           @map("event_type")
+  eventAt            DateTime         @default(now()) @map("event_at")
+  metadata           Json?
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@map("scheduling_events")
 }

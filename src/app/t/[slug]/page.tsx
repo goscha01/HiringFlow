@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import { type BrandingConfig, mergeBranding } from '@/lib/branding'
 
 interface ContentItem { id: string; type: string; videoUrl: string | null; videoName: string | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
@@ -9,15 +9,19 @@ interface QuizOption { index: number; text: string }
 interface QuizQuestion { id: string; questionText: string; questionType: string; options: QuizOption[] }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: QuizQuestion[] }
 interface Section { id: string; title: string; contents: ContentItem[]; quiz: Quiz | null }
-interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
+interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; sections: Section[] }
 interface QuizResult { questionId: string; isCorrect: boolean; correctIndices: number[]; hints: (string | null)[] }
 
 export default function TrainingPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
+  const token = searchParams.get('token')
 
   const [training, setTraining] = useState<TrainingData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [accessDenied, setAccessDenied] = useState(false)
+  const [accessError, setAccessError] = useState('')
   const [started, setStarted] = useState(false)
   const [sectionIdx, setSectionIdx] = useState(0)
   const [contentIdx, setContentIdx] = useState(0)
@@ -28,33 +32,121 @@ export default function TrainingPage() {
   const [submittingQuiz, setSubmittingQuiz] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [activeLesson, setActiveLesson] = useState<{ sectionIdx: number; contentIdx: number } | null>(null)
+  const [completedSections, setCompletedSections] = useState<string[]>([])
 
   useEffect(() => {
-    fetch(`/api/public/trainings/${slug}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { setTraining(d); setLoading(false) })
-  }, [slug])
+    const url = token
+      ? `/api/public/trainings/${slug}?token=${token}`
+      : `/api/public/trainings/${slug}`
+    fetch(url)
+      .then(async r => {
+        if (r.ok) return r.json()
+        const err = await r.json().catch(() => ({}))
+        if (r.status === 403) {
+          setAccessDenied(true)
+          setAccessError(err.code === 'TOKEN_REQUIRED' ? 'This training requires an invitation link.' : 'Access unavailable or expired.')
+        }
+        return null
+      })
+      .then(d => {
+        if (d) {
+          setTraining(d)
+          if (d.enrollmentProgress?.completedSections) {
+            setCompletedSections(d.enrollmentProgress.completedSections)
+          }
+          if (d.enrollmentStatus === 'completed') {
+            setCompleted(true)
+          }
+        }
+        setLoading(false)
+      })
+  }, [slug, token])
+
+  // Save progress to backend
+  const saveProgress = useCallback(async (sections: string[]) => {
+    if (!training?.enrollmentId) return
+    try {
+      await fetch(`/api/public/trainings/${slug}/progress`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enrollmentId: training.enrollmentId, completedSections: sections }),
+      })
+    } catch { /* silent */ }
+  }, [training?.enrollmentId, slug])
+
+  // Mark training completed on backend
+  const markCompleted = useCallback(async () => {
+    if (!training?.enrollmentId) return
+    try {
+      await fetch(`/api/public/trainings/${slug}/progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enrollmentId: training.enrollmentId }),
+      })
+    } catch { /* silent */ }
+  }, [training?.enrollmentId, slug])
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F8]"><div className="w-8 h-8 border-3 border-[#FF9500] border-t-transparent rounded-full animate-spin" /></div>
+
+  // Access denied screen
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen bg-[#F7F7F8] flex items-center justify-center" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
+        <div className="bg-white rounded-[12px] p-12 max-w-lg text-center border border-[#F1F1F3] shadow-sm">
+          <div className="w-20 h-20 mx-auto mb-6 bg-red-50 rounded-full flex items-center justify-center">
+            <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+          </div>
+          <h1 className="text-[28px] font-semibold text-[#262626] mb-3">Access Unavailable</h1>
+          <p className="text-lg text-[#59595A] mb-4">{accessError}</p>
+          <p className="text-sm text-[#8A8A8C]">If you believe this is an error, please contact the person who sent you the training invitation.</p>
+        </div>
+      </div>
+    )
+  }
+
   if (!training) return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F8]"><p className="text-[#59595A] text-lg">Training not found</p></div>
 
   const brand = mergeBranding(training.branding as Partial<BrandingConfig> | null)
   const section = training.sections[sectionIdx]
   const content = section?.contents[contentIdx]
 
+  const markSectionComplete = (sectionId: string) => {
+    if (!completedSections.includes(sectionId)) {
+      const updated = [...completedSections, sectionId]
+      setCompletedSections(updated)
+      saveProgress(updated)
+    }
+  }
+
   const goNext = () => {
     setVideoEnded(false)
     if (section && contentIdx < section.contents.length - 1) { setContentIdx(contentIdx + 1) }
     else if (section?.quiz && mode === 'content') { setMode('quiz'); setQuizAnswers({}); setQuizResults(null) }
-    else if (sectionIdx < training.sections.length - 1) { setSectionIdx(sectionIdx + 1); setContentIdx(0); setMode('content'); setQuizAnswers({}); setQuizResults(null) }
-    else { setCompleted(true) }
+    else if (sectionIdx < training.sections.length - 1) {
+      // Mark current section as completed if no quiz (sections with quiz get marked on quiz pass)
+      if (!section?.quiz) markSectionComplete(section.id)
+      setSectionIdx(sectionIdx + 1); setContentIdx(0); setMode('content'); setQuizAnswers({}); setQuizResults(null)
+    }
+    else {
+      if (!section?.quiz) markSectionComplete(section.id)
+      setCompleted(true)
+      markCompleted()
+    }
   }
 
   const submitQuiz = async () => {
     if (!section?.quiz) return
     setSubmittingQuiz(true)
-    const res = await fetch(`/api/public/trainings/${slug}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quizId: section.quiz.id, answers: quizAnswers }) })
-    if (res.ok) setQuizResults(await res.json())
+    const res = await fetch(`/api/public/trainings/${slug}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quizId: section.quiz.id, answers: quizAnswers, enrollmentId: training.enrollmentId }),
+    })
+    if (res.ok) {
+      const result = await res.json()
+      setQuizResults(result)
+      if (result.passed) markSectionComplete(section.id)
+    }
     setSubmittingQuiz(false)
   }
 
@@ -241,11 +333,16 @@ export default function TrainingPage() {
         {/* Sections — 2-column grid with big numbers */}
         <div className="max-w-[1596px] mx-auto w-full px-6 lg:px-[80px] pb-16">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-16 gap-y-12">
-            {training.sections.map((s, si) => (
+            {training.sections.map((s, si) => {
+              const isSectionCompleted = completedSections.includes(s.id)
+              return (
               <div key={s.id}>
                 {/* Big number */}
-                <div className="text-center mb-4">
+                <div className="text-center mb-4 relative">
                   <span className="text-[80px] lg:text-[100px] font-bold text-[#262626] leading-none">{String(si + 1).padStart(2, '0')}</span>
+                  {isSectionCompleted && (
+                    <span className="absolute top-2 right-2 text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">Completed</span>
+                  )}
                 </div>
                 {/* Section title */}
                 <h3 className="text-lg font-semibold text-[#262626] mb-4 border-b border-[#E4E4E7] pb-3">{s.title}</h3>
@@ -296,7 +393,8 @@ export default function TrainingPage() {
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
 
@@ -347,8 +445,8 @@ export default function TrainingPage() {
           </span>
         </div>
         <div className="flex gap-0.5 px-6 max-w-[1200px] mx-auto pb-2">
-          {training.sections.map((_, i) => (
-            <div key={i} className="flex-1 h-1 rounded-full" style={{ backgroundColor: i <= sectionIdx ? '#FF9500' : '#E4E4E7' }} />
+          {training.sections.map((s, i) => (
+            <div key={i} className="flex-1 h-1 rounded-full" style={{ backgroundColor: completedSections.includes(s.id) ? '#22c55e' : i <= sectionIdx ? '#FF9500' : '#E4E4E7' }} />
           ))}
         </div>
       </div>

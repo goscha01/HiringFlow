@@ -5,13 +5,13 @@ import { put } from '@vercel/blob'
 export const runtime = 'edge'
 
 export async function POST(request: NextRequest) {
-  // Check auth via cookie (edge runtime can't use getServerSession)
+  // Check auth via cookie (edge runtime can't use getWorkspaceSession)
   const sessionRes = await fetch(new URL('/api/auth/session', request.url), {
     headers: { cookie: request.headers.get('cookie') || '' },
   })
   const session = await sessionRes.json()
 
-  if (!session?.user?.id) {
+  if (!session?.user?.id || !session?.user?.workspaceId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -8,24 +8,28 @@ export default withAuth(
   {
     callbacks: {
       authorized: ({ token, req }) => {
+        const path = req.nextUrl.pathname
+
         // Allow public routes
-        if (req.nextUrl.pathname.startsWith('/f/')) return true
-        if (req.nextUrl.pathname.startsWith('/a/')) return true
-        if (req.nextUrl.pathname.startsWith('/t/')) return true
-        if (req.nextUrl.pathname.startsWith('/api/public/')) return true
-        if (req.nextUrl.pathname === '/') return true
-        if (req.nextUrl.pathname === '/login') return true
-        if (req.nextUrl.pathname.startsWith('/uploads/')) return true
+        if (path.startsWith('/f/')) return true
+        if (path.startsWith('/a/')) return true
+        if (path.startsWith('/t/')) return true
+        if (path.startsWith('/schedule/')) return true
+        if (path.startsWith('/api/public/')) return true
+        if (path === '/') return true
+        if (path === '/login') return true
+        if (path === '/register') return true
+        if (path.startsWith('/uploads/')) return true
 
         // Require auth for admin routes
-        if (req.nextUrl.pathname.startsWith('/admin')) {
+        if (path.startsWith('/admin')) {
           return !!token
         }
 
         // Require auth for protected API routes
-        if (req.nextUrl.pathname.startsWith('/api/')) {
-          if (req.nextUrl.pathname.startsWith('/api/auth/')) return true
-          if (req.nextUrl.pathname.startsWith('/api/uploads/')) return true
+        if (path.startsWith('/api/')) {
+          if (path.startsWith('/api/auth/')) return true
+          if (path.startsWith('/api/uploads/')) return true
           return !!token
         }
 
@@ -36,5 +40,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/', '/admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*'],
+  matcher: ['/', '/admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/register'],
 }

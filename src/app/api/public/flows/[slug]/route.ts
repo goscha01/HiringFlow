@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(
@@ -12,16 +11,16 @@ export async function GET(
   let flow
 
   if (isPreview) {
-    // Preview mode: owner can view unpublished flows
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    // Preview mode: workspace member can view unpublished flows
+    const ws = await getWorkspaceSession()
+    if (!ws) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     flow = await prisma.flow.findFirst({
       where: {
         slug: params.slug,
-        ownerUserId: session.user.id,
+        workspaceId: ws.workspaceId,
       },
       include: {
         steps: {

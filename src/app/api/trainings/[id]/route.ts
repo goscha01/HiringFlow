@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const training = await prisma.training.findFirst({
-    where: { id: params.id, ownerUserId: session.user.id },
+    where: { id: params.id, workspaceId: ws.workspaceId },
     include: {
       sections: {
         orderBy: { sortOrder: 'asc' },
@@ -39,14 +38,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
-  const training = await prisma.training.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const training = await prisma.training.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!training) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = await request.json()
-  const { title, description, coverImage, timeLimit, pricing, passingGrade, isPublished, branding } = body
+  const { title, description, coverImage, timeLimit, pricing, passingGrade, isPublished, branding, accessMode } = body
 
   const updated = await prisma.training.update({
     where: { id: params.id },
@@ -59,6 +58,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(passingGrade !== undefined && { passingGrade }),
       ...(isPublished !== undefined && { isPublished }),
       ...(branding !== undefined && { branding }),
+      ...(accessMode !== undefined && { accessMode }),
     },
   })
 
@@ -66,10 +66,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
-  const training = await prisma.training.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const training = await prisma.training.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!training) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   await prisma.training.delete({ where: { id: params.id } })

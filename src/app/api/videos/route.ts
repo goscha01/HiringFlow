@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { saveVideoFile, getVideoUrl } from '@/lib/storage'
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  console.log('[GET /api/videos] session user id:', session?.user?.id)
-
-  if (!session?.user?.id) {
-    console.log('[GET /api/videos] NO SESSION - returning 401')
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const videos = await prisma.video.findMany({
-    where: { ownerUserId: session.user.id },
+    where: { workspaceId: ws.workspaceId },
     orderBy: { createdAt: 'desc' },
   })
-  console.log('[GET /api/videos] found', videos.length, 'videos for user', session.user.id)
+  console.log('[GET /api/videos] found', videos.length, 'videos for workspace', ws.workspaceId)
 
   const videosWithUrls = videos.map((video) => ({
     ...video,
@@ -28,11 +22,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   try {
     const formData = await request.formData()
@@ -61,7 +52,8 @@ export async function POST(request: NextRequest) {
 
         const video = await prisma.video.create({
           data: {
-            ownerUserId: session.user.id,
+            workspaceId: ws.workspaceId,
+            createdById: ws.userId,
             filename,
             storageKey,
             mimeType,

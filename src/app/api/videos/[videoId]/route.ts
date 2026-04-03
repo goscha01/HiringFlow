@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { videoId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const video = await prisma.video.findFirst({
-    where: { id: params.videoId, ownerUserId: session.user.id },
+    where: { id: params.videoId, workspaceId: ws.workspaceId },
   })
 
   if (!video) {
@@ -27,13 +24,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { videoId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const video = await prisma.video.findFirst({
-    where: { id: params.videoId, ownerUserId: session.user.id },
+    where: { id: params.videoId, workspaceId: ws.workspaceId },
   })
 
   if (!video) {

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
 
@@ -8,11 +7,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { stepId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const step = await prisma.flowStep.findFirst({
     where: { id: params.stepId },
@@ -21,7 +17,7 @@ export async function PATCH(
     },
   })
 
-  if (!step || step.flow.ownerUserId !== session.user.id) {
+  if (!step || step.flow.workspaceId !== ws.workspaceId) {
     return NextResponse.json({ error: 'Step not found' }, { status: 404 })
   }
 
@@ -71,11 +67,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { stepId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const step = await prisma.flowStep.findFirst({
     where: { id: params.stepId },
@@ -84,7 +77,7 @@ export async function DELETE(
     },
   })
 
-  if (!step || step.flow.ownerUserId !== session.user.id) {
+  if (!step || step.flow.workspaceId !== ws.workspaceId) {
     return NextResponse.json({ error: 'Step not found' }, { status: 404 })
   }
 

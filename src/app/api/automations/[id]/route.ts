@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rule = await prisma.automationRule.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+  const rule = await prisma.automationRule.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!rule) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = await request.json()
+
+  // If training is being set, auto-switch it to invitation_only
+  if (body.nextStepType === 'training' && body.trainingId) {
+    await prisma.training.update({
+      where: { id: body.trainingId },
+      data: { accessMode: 'invitation_only' },
+    })
+  }
+
   const updated = await prisma.automationRule.update({
     where: { id: params.id },
     data: {
@@ -18,6 +26,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(body.emailTemplateId !== undefined && { emailTemplateId: body.emailTemplateId }),
       ...(body.nextStepType !== undefined && { nextStepType: body.nextStepType || null }),
       ...(body.nextStepUrl !== undefined && { nextStepUrl: body.nextStepUrl || null }),
+      ...(body.trainingId !== undefined && { trainingId: body.trainingId || null }),
+      ...(body.schedulingConfigId !== undefined && { schedulingConfigId: body.schedulingConfigId || null }),
       ...(body.isActive !== undefined && { isActive: body.isActive }),
     },
   })
@@ -25,9 +35,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const rule = await prisma.automationRule.findFirst({ where: { id: params.id, ownerUserId: session.user.id } })
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+  const rule = await prisma.automationRule.findFirst({ where: { id: params.id, workspaceId: ws.workspaceId } })
   if (!rule) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await prisma.automationRule.delete({ where: { id: params.id } })
   return NextResponse.json({ success: true })

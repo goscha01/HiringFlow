@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
 
@@ -8,18 +7,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions)
-  console.log('[GET /api/flows/:id] session:', session?.user?.id, 'flowId:', params.id)
-
-  if (!session?.user?.id) {
-    console.log('[GET /api/flows/:id] NO SESSION - returning 401')
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const flow = await prisma.flow.findFirst({
     where: {
       id: params.id,
-      ownerUserId: session.user.id,
+      workspaceId: ws.workspaceId,
     },
     include: {
       steps: {
@@ -34,7 +28,6 @@ export async function GET(
     },
   })
 
-  console.log('[GET /api/flows/:id] flow found:', !!flow, 'steps:', flow?.steps?.length)
   if (!flow) {
     return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
   }
@@ -60,16 +53,13 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const flow = await prisma.flow.findFirst({
     where: {
       id: params.id,
-      ownerUserId: session.user.id,
+      workspaceId: ws.workspaceId,
     },
   })
 
@@ -103,16 +93,13 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = await getServerSession(authOptions)
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
 
   const flow = await prisma.flow.findFirst({
     where: {
       id: params.id,
-      ownerUserId: session.user.id,
+      workspaceId: ws.workspaceId,
     },
   })
 

@@ -1,0 +1,69 @@
+import { Prisma } from '@prisma/client'
+import { prisma } from './prisma'
+
+/**
+ * Resolve the scheduling URL for a given automation rule.
+ * Priority: rule's schedulingConfigId > default active config > null
+ */
+export async function resolveSchedulingUrl(schedulingConfigId: string | null, workspaceId?: string): Promise<{ url: string; configId: string } | null> {
+  if (schedulingConfigId) {
+    const config = await prisma.schedulingConfig.findUnique({ where: { id: schedulingConfigId } })
+    if (config?.isActive) return { url: config.schedulingUrl, configId: config.id }
+  }
+
+  if (!workspaceId) return null
+
+  // Fall back to default active config for this workspace
+  const defaultConfig = await prisma.schedulingConfig.findFirst({
+    where: { isActive: true, isDefault: true, workspaceId },
+  })
+  if (defaultConfig) return { url: defaultConfig.schedulingUrl, configId: defaultConfig.id }
+
+  // Fall back to any active config in this workspace
+  const anyConfig = await prisma.schedulingConfig.findFirst({
+    where: { isActive: true, workspaceId },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (anyConfig) return { url: anyConfig.schedulingUrl, configId: anyConfig.id }
+
+  return null
+}
+
+/**
+ * Build a tracking redirect URL for click tracking.
+ */
+export function buildScheduleRedirectUrl(sessionId: string, configId: string): string {
+  const appUrl = process.env.NEXTAUTH_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+    || 'http://localhost:3000'
+  return `${appUrl}/schedule/redirect/${sessionId}/${configId}`
+}
+
+/**
+ * Log a scheduling event.
+ */
+export async function logSchedulingEvent(opts: {
+  sessionId: string
+  schedulingConfigId?: string | null
+  eventType: 'invite_sent' | 'link_clicked' | 'marked_scheduled'
+  metadata?: Record<string, unknown>
+}) {
+  return prisma.schedulingEvent.create({
+    data: {
+      sessionId: opts.sessionId,
+      schedulingConfigId: opts.schedulingConfigId || null,
+      eventType: opts.eventType,
+      metadata: opts.metadata ? (opts.metadata as Prisma.InputJsonValue) : Prisma.JsonNull,
+    },
+  })
+}
+
+/**
+ * Update candidate pipeline status.
+ */
+export async function updatePipelineStatus(sessionId: string, status: string) {
+  return prisma.session.update({
+    where: { id: sessionId },
+    data: { pipelineStatus: status },
+  })
+}
