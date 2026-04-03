@@ -26,6 +26,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
     { href: '/platform-admin', label: 'Dashboard' },
     { href: '/platform-admin/users', label: 'Users' },
     { href: '/platform-admin/workspaces', label: 'Workspaces' },
+    { href: '/platform-admin/settings', label: 'Settings' },
   ]
 
   return (
