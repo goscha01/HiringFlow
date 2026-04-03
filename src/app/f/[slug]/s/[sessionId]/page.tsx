@@ -462,7 +462,8 @@ export default function SessionPlayerPage() {
                 captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
                 autoPlay
                 onEnded={handleVideoEnd}
-                className="rounded-lg shadow-2xl max-h-[calc(100vh-2rem)] w-auto"
+                className="rounded-lg shadow-2xl"
+                videoClassName="max-h-[100vh] w-auto max-w-full"
               />
             </div>
           ) : (

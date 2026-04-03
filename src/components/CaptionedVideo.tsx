@@ -49,6 +49,7 @@ interface CaptionedVideoProps {
   autoPlay?: boolean
   onEnded?: () => void
   className?: string
+  videoClassName?: string
 }
 
 export default function CaptionedVideo({
@@ -61,6 +62,7 @@ export default function CaptionedVideo({
   autoPlay = false,
   onEnded,
   className,
+  videoClassName,
 }: CaptionedVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -177,10 +179,11 @@ export default function CaptionedVideo({
         <video
           ref={videoRef}
           src={src}
-          className="w-full"
+          className={videoClassName || "w-full"}
           controls
           preload="metadata"
           autoPlay={autoPlay}
+          playsInline
           onEnded={onEnded}
         />
 
