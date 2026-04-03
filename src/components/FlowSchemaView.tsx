@@ -1211,10 +1211,11 @@ export default function FlowSchemaView({
     <div
       ref={containerRef}
       className="w-full h-full relative overflow-hidden bg-gray-50 rounded-lg border border-gray-200"
-      style={{ cursor: getCursor() }}
+      style={{ cursor: getCursor(), minHeight: '400px' }}
     >
       <canvas
         ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

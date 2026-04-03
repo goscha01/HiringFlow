@@ -746,7 +746,7 @@ export default function FlowBuilderPage() {
   const renderEndEditor = () => renderScreenEditor('end')
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    <div className="flex flex-col h-[calc(100vh-12rem)]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-4 border-b">
         <div className="flex items-center space-x-4">
