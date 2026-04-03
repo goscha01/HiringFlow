@@ -3,6 +3,13 @@ import { NextResponse } from 'next/server'
 
 export default withAuth(
   function middleware(req) {
+    // Platform admin: require isSuperAdmin in token
+    if (req.nextUrl.pathname.startsWith('/platform-admin')) {
+      const token = req.nextauth?.token
+      if (!token?.isSuperAdmin) {
+        return NextResponse.redirect(new URL('/admin/flows', req.url))
+      }
+    }
     return NextResponse.next()
   },
   {
@@ -20,6 +27,11 @@ export default withAuth(
         if (path === '/login') return true
         if (path === '/register') return true
         if (path.startsWith('/uploads/')) return true
+
+        // Require auth for platform admin
+        if (path.startsWith('/platform-admin')) {
+          return !!token
+        }
 
         // Require auth for admin routes
         if (path.startsWith('/admin')) {
@@ -40,5 +52,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/', '/admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/register'],
+  matcher: ['/', '/admin/:path*', '/platform-admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/register'],
 }

@@ -12,6 +12,7 @@ export default function AdminLayout({
   const pathname = usePathname()
   const { data: session } = useSession()
   const workspaceName = (session?.user as any)?.workspaceName || ''
+  const isSuperAdmin = (session?.user as any)?.isSuperAdmin || false
 
   const navItems = [
     { href: '/admin/flows', label: 'Flows' },
@@ -67,10 +68,15 @@ export default function AdminLayout({
               </div>
             </div>
 
-            {/* Right: Workspace + Sign out */}
-            <div className="flex items-center gap-6">
+            {/* Right: Workspace + Platform Admin + Sign out */}
+            <div className="flex items-center gap-4">
               {workspaceName && (
                 <span className="text-[13px] text-grey-40 bg-surface px-3 py-1.5 rounded-[8px]">{workspaceName}</span>
+              )}
+              {isSuperAdmin && (
+                <Link href="/platform-admin" className="text-[13px] text-amber-600 bg-amber-50 px-3 py-1.5 rounded-[8px] font-medium hover:bg-amber-100">
+                  Platform Admin
+                </Link>
               )}
               <button
                 onClick={() => signOut({ callbackUrl: '/login' })}

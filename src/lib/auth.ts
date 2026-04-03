@@ -43,17 +43,15 @@ export const authOptions: NextAuthOptions = {
         }
 
         const membership = user.memberships[0]
-        if (!membership) {
-          return null
-        }
 
         return {
           id: user.id,
           email: user.email,
           name: user.name || user.email,
-          workspaceId: membership.workspaceId,
-          workspaceName: membership.workspace.name,
-          role: membership.role,
+          isSuperAdmin: user.isSuperAdmin,
+          workspaceId: membership?.workspaceId || '',
+          workspaceName: membership?.workspace.name || '',
+          role: membership?.role || 'member',
         }
       },
     }),
@@ -68,6 +66,7 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
+        token.isSuperAdmin = (user as any).isSuperAdmin
         token.workspaceId = (user as any).workspaceId
         token.workspaceName = (user as any).workspaceName
         token.role = (user as any).role
@@ -77,6 +76,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string
+        ;(session.user as any).isSuperAdmin = token.isSuperAdmin as boolean
         ;(session.user as any).workspaceId = token.workspaceId as string
         ;(session.user as any).workspaceName = token.workspaceName as string
         ;(session.user as any).role = token.role as string
@@ -87,13 +87,13 @@ export const authOptions: NextAuthOptions = {
 }
 
 /**
- * Get authenticated workspace session for admin API routes.
- * Returns { userId, workspaceId, role } or null if unauthorized.
+ * Get authenticated workspace session for business admin API routes.
  */
 export async function getWorkspaceSession(): Promise<{
   userId: string
   workspaceId: string
   role: string
+  isSuperAdmin: boolean
 } | null> {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return null
@@ -103,12 +103,24 @@ export async function getWorkspaceSession(): Promise<{
     userId: session.user.id,
     workspaceId,
     role: (session.user as any).role || 'member',
+    isSuperAdmin: (session.user as any).isSuperAdmin || false,
   }
 }
 
 /**
- * Helper: return 401 response.
+ * Get super admin session. Returns null if not a super admin.
  */
+export async function getSuperAdminSession(): Promise<{ userId: string } | null> {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return null
+  if (!(session.user as any).isSuperAdmin) return null
+  return { userId: session.user.id }
+}
+
 export function unauthorized() {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+}
+
+export function forbidden() {
+  return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 }
