@@ -147,6 +147,7 @@ interface StepEditorPanelProps {
   step: Step
   allSteps: Step[]
   videos: Video[]
+  hideVideo?: boolean
   onUpdateStep: (stepId: string, data: Partial<Step>) => void
   onDeleteStep: (stepId: string) => void
   onAddOption: (stepId: string) => void
@@ -160,6 +161,7 @@ export default function StepEditorPanel({
   step,
   allSteps,
   videos,
+  hideVideo,
   onUpdateStep,
   onDeleteStep,
   onAddOption,
@@ -448,7 +450,7 @@ export default function StepEditorPanel({
             </div>
           )}
 
-          {step.video && (
+          {step.video && !hideVideo && (
             <div className="mt-2">
               <CaptionedVideo
                 src={step.video.url}

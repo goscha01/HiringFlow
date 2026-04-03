@@ -1281,6 +1281,7 @@ export default function FlowBuilderPage() {
                 step={selectedStep}
                 allSteps={flow.steps}
                 videos={videos}
+                hideVideo={!!previewStepId}
                 onUpdateStep={updateStep}
                 onDeleteStep={deleteStep}
                 onAddOption={addOption}
