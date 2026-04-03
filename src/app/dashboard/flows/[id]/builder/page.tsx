@@ -1000,8 +1000,8 @@ export default function FlowBuilderPage() {
                             </label>
                           </div>
                         </div>
-                        {/* Video preview */}
-                        {popupStep.video?.url && (
+                        {/* Video preview — hide when preview modal is open */}
+                        {popupStep.video?.url && !previewStepId && (
                           <video src={popupStep.video.url} controls className="w-full rounded-[8px] max-h-[50vh] object-contain" />
                         )}
                         {renderButtonConfig(popupStep)}
