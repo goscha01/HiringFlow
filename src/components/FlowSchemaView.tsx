@@ -1212,15 +1212,39 @@ export default function FlowSchemaView({
     return 'grab'
   }
 
+  // Resize canvas to match container
+  useEffect(() => {
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
+    const ro = new ResizeObserver(() => {
+      const w = container.clientWidth
+      const h = container.clientHeight
+      if (w > 0 && h > 0) {
+        const dpr = window.devicePixelRatio || 1
+        canvas.width = w * dpr
+        canvas.height = h * dpr
+        canvas.style.width = `${w}px`
+        canvas.style.height = `${h}px`
+      }
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [])
+
   return (
     <div
       ref={containerRef}
+      onClick={(e) => {
+        // Fallback: if canvas is not receiving events, log from container
+        console.log('[Schema] container click', { clientX: e.clientX, clientY: e.clientY, target: (e.target as HTMLElement).tagName })
+      }}
       className="relative overflow-hidden bg-gray-50 rounded-lg border border-gray-200"
       style={{ cursor: getCursor(), width: '100%', height: '100%', minHeight: '500px' }}
     >
       <canvas
         ref={canvasRef}
-        style={{ display: 'block', width: '100%', height: '100%' }}
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
