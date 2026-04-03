@@ -871,7 +871,7 @@ export default function FlowBuilderPage() {
           />
         </div>
       ) : viewMode === 'schema' ? (
-        <div className="flex-1 min-h-0 relative">
+        <div className="flex-1" style={{ minHeight: '500px' }}>
           <FlowSchemaView
             steps={flow.steps}
             startMessage={flow.startMessage}
