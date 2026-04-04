@@ -22,6 +22,13 @@ const SOURCES = [
   { value: 'other', label: 'Other' },
 ]
 
+const DEFAULT_AD_COPY: Record<string, { headline: string; body: string; requirements: string; benefits: string; cta: string }> = {
+  indeed: { headline: 'Now Hiring — Join Our Team!', body: 'We are looking for motivated team members to join our growing company.\n\nThis is a great opportunity for someone who wants to grow their career.', requirements: '- Must be authorized to work\n- Reliable transportation\n- Positive attitude', benefits: '- Competitive pay\n- Flexible schedule\n- Growth opportunities', cta: 'Apply now — takes less than 5 minutes!' },
+  facebook: { headline: "We're Hiring! Come Work With Us", body: "Looking for your next gig? We're hiring and we'd love to hear from you.\n\nNo long applications. Just a quick intro and you could start next week.", requirements: '', benefits: '- Weekly pay\n- Friendly team\n- No experience needed', cta: 'Tap the link to apply — it only takes a few minutes!' },
+  craigslist: { headline: 'HIRING NOW — Apply Today', body: 'Immediate openings available.\n\nWe are looking for reliable, hardworking individuals. Full-time and part-time positions.', requirements: '- Must be 18+\n- Background check required\n- Valid ID', benefits: '- Start ASAP\n- Paid training\n- Weekly pay', cta: 'Click the link below to apply online.' },
+  _default: { headline: 'We Are Hiring!', body: 'Join our team! We have openings available and are looking for great people.', requirements: '', benefits: '- Competitive pay\n- Great team', cta: 'Apply now through our quick online process!' },
+}
+
 export default function CampaignsPage() {
   const [ads, setAds] = useState<Ad[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
@@ -36,6 +43,13 @@ export default function CampaignsPage() {
   const [saving, setSaving] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'ads' | 'sources' | 'links'>('ads')
+  // Ad copy fields in modal
+  const [adHeadline, setAdHeadline] = useState('')
+  const [adBody, setAdBody] = useState('')
+  const [adRequirements, setAdRequirements] = useState('')
+  const [adBenefits, setAdBenefits] = useState('')
+  const [adCta, setAdCta] = useState('')
+  const [showAdCopy, setShowAdCopy] = useState(true)
 
   useEffect(() => {
     Promise.all([
@@ -47,8 +61,16 @@ export default function CampaignsPage() {
 
   const refresh = async () => { const r = await fetch('/api/ads'); if (r.ok) setAds(await r.json()) }
 
+  const loadAdCopyDefaults = (src: string) => {
+    const d = DEFAULT_AD_COPY[src] || DEFAULT_AD_COPY._default
+    setAdHeadline(d.headline); setAdBody(d.body); setAdRequirements(d.requirements); setAdBenefits(d.benefits); setAdCta(d.cta)
+  }
+
   const openCreate = () => {
-    setEditingAd(null); setName(''); setSource('indeed'); setCampaign(''); setFlowId(flows[0]?.id || ''); setShowModal(true)
+    setEditingAd(null); setName(''); setSource('indeed'); setCampaign(''); setFlowId(flows[0]?.id || '')
+    const d = DEFAULT_AD_COPY.indeed
+    setAdHeadline(d.headline); setAdBody(d.body); setAdRequirements(d.requirements); setAdBenefits(d.benefits); setAdCta(d.cta)
+    setShowAdCopy(true); setShowModal(true)
   }
   const openEdit = (ad: Ad) => {
     setEditingAd(ad); setName(ad.name); setSource(ad.source); setCampaign(ad.campaign || ''); setFlowId(ad.flowId); setShowModal(true)
@@ -282,59 +304,86 @@ export default function CampaignsPage() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[480px]" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-xl font-semibold text-grey-15 mb-6">{editingAd ? 'Edit Ad' : 'New Ad'}</h2>
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold text-grey-15 mb-5">{editingAd ? 'Edit Ad' : 'New Ad'}</h2>
 
             <div className="space-y-4">
-              {/* Apply from template */}
-              {!editingAd && adTemplates.length > 0 && (
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Start from Ad Template</label>
-                  <select
-                    onChange={(e) => {
-                      const t = adTemplates.find(t => t.id === e.target.value)
-                      if (t) {
-                        setName(t.name)
-                        setSource(t.source === 'general' ? 'indeed' : t.source)
-                        setCampaign(t.headline)
-                      }
-                    }}
-                    className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    <option value="">Choose a template (optional)...</option>
-                    {adTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.source})</option>)}
-                  </select>
-                  <p className="text-xs text-grey-50 mt-1">Pre-fills name and source from your saved ad templates</p>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Ad Name</label>
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Indeed Cleaner Ad - Miami" className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" autoFocus />
                 </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Ad Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Indeed Cleaner Ad - Miami" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" autoFocus />
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Assign to Flow</label>
+                  <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select flow...</option>
+                    {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Source</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-5 gap-1.5">
                   {SOURCES.map(({ value, label }) => (
-                    <button key={value} onClick={() => setSource(value)} className={`py-2 text-xs rounded-[8px] border font-medium ${source === value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                    <button key={value} onClick={() => { setSource(value); loadAdCopyDefaults(value) }} className={`py-1.5 text-xs rounded-[6px] border font-medium ${source === value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
                       {label}
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Assign to Flow</label>
-                <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                  <option value="">Select flow...</option>
-                  {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
+                <p className="text-xs text-grey-50 mt-1">Changing source loads recommended ad copy for that platform</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Campaign / Group (optional)</label>
-                <input type="text" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="e.g. Q1 Hiring, Miami Market" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <input type="text" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="e.g. Q1 Hiring, Miami Market" className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+
+              {/* Ad Copy Section */}
+              <div className="border-t border-surface-border pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-semibold text-grey-15">Ad Copy</label>
+                  <div className="flex items-center gap-2">
+                    {adTemplates.length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          const t = adTemplates.find(t => t.id === e.target.value)
+                          if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdRequirements(t.requirements || ''); setAdBenefits(t.benefits || ''); setAdCta(t.callToAction || ''); setSource(t.source === 'general' ? source : t.source) }
+                        }}
+                        className="text-xs px-2 py-1 border border-surface-border rounded-[6px] text-grey-35"
+                      >
+                        <option value="">Load from template...</option>
+                        {adTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    )}
+                    <button onClick={() => loadAdCopyDefaults(source)} className="text-xs text-brand-500 hover:text-brand-600">Reset to Default</button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-grey-40 mb-1">Headline</label>
+                    <input type="text" value={adHeadline} onChange={(e) => setAdHeadline(e.target.value)} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-grey-40 mb-1">Body</label>
+                    <textarea value={adBody} onChange={(e) => setAdBody(e.target.value)} rows={3} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Requirements</label>
+                      <textarea value={adRequirements} onChange={(e) => setAdRequirements(e.target.value)} rows={2} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Benefits</label>
+                      <textarea value={adBenefits} onChange={(e) => setAdBenefits(e.target.value)} rows={2} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-grey-40 mb-1">Call to Action</label>
+                    <input type="text" value={adCta} onChange={(e) => setAdCta(e.target.value)} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                </div>
               </div>
 
               {editingAd && (
@@ -348,7 +397,7 @@ export default function CampaignsPage() {
               )}
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3 mt-5">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={save} disabled={saving || !name.trim() || !flowId} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editingAd ? 'Save Changes' : 'Create Ad'}</button>
             </div>

@@ -151,10 +151,10 @@ export default function ContentPage() {
       {/* AD TEMPLATES TAB */}
       {tab === 'ads' && (
         <>
-          {/* Starter templates */}
-          {adTemplates.length === 0 && !adLoading && (
+          {/* Default templates — always visible */}
+          {!adLoading && (
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-grey-20 mb-3">Quick Start — Create from Template</h3>
+              <h3 className="text-sm font-semibold text-grey-20 mb-3">Default Templates — click to use as starting point</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {AD_STARTERS.map((s, i) => (
                   <button key={i} onClick={() => openCreateAd(s)} className="bg-white rounded-[8px] border border-surface-border p-4 text-left hover:shadow-md hover:border-brand-300 transition-all">
