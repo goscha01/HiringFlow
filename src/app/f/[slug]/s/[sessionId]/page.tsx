@@ -341,33 +341,27 @@ export default function SessionPlayerPage() {
           </div>
         )}
 
-        {/* Submission */}
+        {/* Submission — Continue button */}
         {step.stepType === 'submission' && (
           <div className={`space-y-4 ${overlay ? '' : 'max-w-md mx-auto'}`}>
-            <div>
-              <label className={`block text-sm font-medium ${overlay ? 'text-white/80' : 'text-gray-700'} mb-2`}>
-                Record a video response (optional)
-              </label>
-              <VideoRecorder onRecordComplete={(blob) => setRecordedVideo(blob)} recordedVideo={recordedVideo} />
-            </div>
-            <div>
-              <label className={`block text-sm font-medium ${overlay ? 'text-white/80' : 'text-gray-700'} mb-2`}>
-                Or write a message
-              </label>
-              <textarea
-                value={textMessage}
-                onChange={(e) => setTextMessage(e.target.value)}
-                rows={3}
-                placeholder="Type your response here..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
             <button
-              onClick={submitSubmission}
-              disabled={(!textMessage && !recordedVideo) || submitting}
-              className="w-full py-3 bg-brand-500 text-white rounded-xl font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-600 transition-colors"
+              onClick={async () => {
+                setSubmitting(true)
+                const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ stepId: step.stepId }),
+                })
+                if (res.ok) { const data = await res.json(); if (data.finished) router.push(`/f/${slug}/s/${sessionId}/done`); else fetchStep() }
+                setSubmitting(false)
+              }}
+              disabled={submitting || (!showOptions && !!step.videoUrl)}
+              className={`w-full py-3.5 px-5 rounded-xl border-2 text-center font-semibold transition-all ${
+                showOptions || !step.videoUrl
+                  ? overlay ? 'border-white/40 hover:bg-white/10 text-white' : 'border-brand-500 bg-brand-50 text-brand-700 hover:bg-brand-100'
+                  : 'opacity-40 cursor-not-allowed border-gray-200 text-gray-400'
+              }`}
             >
-              {submitting ? 'Submitting...' : 'Submit Response'}
+              {submitting ? 'Continuing...' : 'Continue'}
             </button>
           </div>
         )}

@@ -215,13 +215,16 @@ export default function StepPreviewModal({
           )}
 
           {step.stepType === 'submission' ? (
-            <div className="text-center text-gray-400 text-sm py-4">
-              <p className="mb-3">Candidate would record a video or type a response here.</p>
+            <div className="text-center py-4">
               <button
-                onClick={() => onNavigate('__end__')}
-                className="px-6 py-2.5 bg-brand-500 text-white rounded-lg hover:bg-brand-600 text-sm font-medium"
+                onClick={() => {
+                  if (step.options.length > 0) handleOptionClick(step.options[0])
+                  else onNavigate('__end__')
+                }}
+                disabled={!showOptions}
+                className="w-full max-w-sm mx-auto py-3 bg-brand-500 text-white rounded-lg hover:bg-brand-600 text-sm font-semibold disabled:opacity-40"
               >
-                Simulate Submit &rarr; End
+                Continue
               </button>
             </div>
           ) : (
