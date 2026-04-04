@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 
 interface Flow { id: string; name: string; slug: string }
+interface AdTemplateItem { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null }
 interface Ad {
   id: string; name: string; source: string; campaign: string | null
   slug: string; isActive: boolean; flowId: string
@@ -24,6 +25,7 @@ const SOURCES = [
 export default function CampaignsPage() {
   const [ads, setAds] = useState<Ad[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
+  const [adTemplates, setAdTemplates] = useState<AdTemplateItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editingAd, setEditingAd] = useState<Ad | null>(null)
@@ -39,7 +41,8 @@ export default function CampaignsPage() {
     Promise.all([
       fetch('/api/ads').then(r => r.json()),
       fetch('/api/flows').then(r => r.json()),
-    ]).then(([a, f]) => { setAds(a); setFlows(f); setLoading(false) })
+      fetch('/api/ad-templates').then(r => r.json()).catch(() => []),
+    ]).then(([a, f, t]) => { setAds(a); setFlows(f); setAdTemplates(t); setLoading(false) })
   }, [])
 
   const refresh = async () => { const r = await fetch('/api/ads'); if (r.ok) setAds(await r.json()) }
@@ -283,6 +286,28 @@ export default function CampaignsPage() {
             <h2 className="text-xl font-semibold text-grey-15 mb-6">{editingAd ? 'Edit Ad' : 'New Ad'}</h2>
 
             <div className="space-y-4">
+              {/* Apply from template */}
+              {!editingAd && adTemplates.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Start from Ad Template</label>
+                  <select
+                    onChange={(e) => {
+                      const t = adTemplates.find(t => t.id === e.target.value)
+                      if (t) {
+                        setName(t.name)
+                        setSource(t.source === 'general' ? 'indeed' : t.source)
+                        setCampaign(t.headline)
+                      }
+                    }}
+                    className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="">Choose a template (optional)...</option>
+                    {adTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.source})</option>)}
+                  </select>
+                  <p className="text-xs text-grey-50 mt-1">Pre-fills name and source from your saved ad templates</p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Ad Name</label>
                 <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Indeed Cleaner Ad - Miami" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" autoFocus />
