@@ -341,23 +341,22 @@ export default function CampaignsPage() {
 
               {/* Ad Copy Section */}
               <div className="border-t border-surface-border pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm font-semibold text-grey-15">Ad Copy</label>
-                  <div className="flex items-center gap-2">
-                    {adTemplates.length > 0 && (
-                      <select
-                        onChange={(e) => {
-                          const t = adTemplates.find(t => t.id === e.target.value)
-                          if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdRequirements(t.requirements || ''); setAdBenefits(t.benefits || ''); setAdCta(t.callToAction || ''); setSource(t.source === 'general' ? source : t.source) }
-                        }}
-                        className="text-xs px-2 py-1 border border-surface-border rounded-[6px] text-grey-35"
-                      >
-                        <option value="">Load from template...</option>
-                        {adTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                    )}
-                    <button onClick={() => loadAdCopyDefaults(source)} className="text-xs text-brand-500 hover:text-brand-600">Reset to Default</button>
-                  </div>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Ad Copy Template</label>
+                  <select
+                    defaultValue="__default__"
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val === '__default__') { loadAdCopyDefaults(source); return }
+                      const t = adTemplates.find(t => t.id === val)
+                      if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdRequirements(t.requirements || ''); setAdBenefits(t.benefits || ''); setAdCta(t.callToAction || ''); if (t.source !== 'general') setSource(t.source) }
+                    }}
+                    className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="__default__">Default — {SOURCES.find(s => s.value === source)?.label || source} template</option>
+                    {adTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.source})</option>)}
+                  </select>
+                  <p className="text-xs text-grey-50 mt-1">Pre-filled with recommended copy. Pick a saved template or edit below.</p>
                 </div>
 
                 <div className="space-y-3">
