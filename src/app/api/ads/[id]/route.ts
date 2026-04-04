@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
+  const ad = await prisma.ad.findFirst({
+    where: { id: params.id, workspaceId: ws.workspaceId },
+    include: { flow: { select: { id: true, name: true, slug: true, isPublished: true } } },
+  })
+  if (!ad) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  return NextResponse.json(ad)
+}
+
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()

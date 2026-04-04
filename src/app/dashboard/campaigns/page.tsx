@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 
 interface Flow { id: string; name: string; slug: string }
 interface AdTemplateItem { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null }
@@ -217,6 +218,7 @@ export default function CampaignsPage() {
                         </button>
                       </td>
                       <td className="px-5 py-4 text-right space-x-3">
+                        <Link href={`/dashboard/campaigns/preview/${ad.id}`} className="text-xs text-purple-500 hover:text-purple-600 font-medium">Preview</Link>
                         <button onClick={() => copyLink(ad.slug, ad.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
                           {copiedId === ad.id ? 'Copied!' : 'Copy Link'}
                         </button>
