@@ -9,16 +9,40 @@ interface Ad {
   slug: string; isActive: boolean
   flow: { id: string; name: string; slug: string; isPublished: boolean }
 }
+interface AdTemplate {
+  id: string; name: string; source: string; headline: string; bodyText: string
+  requirements: string | null; benefits: string | null; callToAction: string | null
+}
+
+const DEFAULT_COPY: Record<string, { headline: string; body: string; requirements: string; benefits: string; cta: string }> = {
+  indeed: { headline: 'Now Hiring — Join Our Team!', body: 'We are looking for motivated team members to join our growing company.\n\nThis is a great opportunity for someone who wants to grow their career.', requirements: '- Must be authorized to work\n- Reliable transportation\n- Positive attitude', benefits: '- Competitive pay\n- Flexible schedule\n- Growth opportunities', cta: 'Apply now — takes less than 5 minutes!' },
+  facebook: { headline: "We're Hiring! Come Work With Us", body: "Looking for your next gig? We're hiring and we'd love to hear from you.\n\nNo long applications. Just a quick intro and you could start next week.", requirements: '', benefits: '- Weekly pay\n- Friendly team\n- No experience needed', cta: 'Tap the link to apply — it only takes a few minutes!' },
+  craigslist: { headline: 'HIRING NOW — Apply Today', body: 'Immediate openings available.\n\nWe are looking for reliable, hardworking individuals. Full-time and part-time positions.', requirements: '- Must be 18+\n- Background check required\n- Valid ID', benefits: '- Start ASAP\n- Paid training\n- Weekly pay', cta: 'Click the link below to apply online.' },
+  _default: { headline: 'We Are Hiring!', body: 'Join our team! We have openings available and are looking for great people.', requirements: '', benefits: '- Competitive pay\n- Great team', cta: 'Apply now through our quick online process!' },
+}
+
+const SOURCE_STYLES: Record<string, { bg: string; accent: string; logo: string; name: string }> = {
+  indeed: { bg: '#F5F5F5', accent: '#2164F3', logo: '#2164F3', name: 'Indeed' },
+  facebook: { bg: '#F0F2F5', accent: '#1877F2', logo: '#1877F2', name: 'Facebook Jobs' },
+  craigslist: { bg: '#F5F0FF', accent: '#800080', logo: '#800080', name: 'Craigslist' },
+  linkedin: { bg: '#F3F6F8', accent: '#0A66C2', logo: '#0A66C2', name: 'LinkedIn Jobs' },
+  google: { bg: '#F8F9FA', accent: '#1A73E8', logo: '#4285F4', name: 'Google Jobs' },
+  _default: { bg: '#F7F7F8', accent: '#FF9500', logo: '#FF9500', name: 'Job Board' },
+}
 
 export default function AdPreviewPage() {
   const params = useParams()
   const id = params.id as string
   const [ad, setAd] = useState<Ad | null>(null)
+  const [templates, setTemplates] = useState<AdTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('__default__')
   const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    fetch(`/api/ads/${id}`).then(r => r.ok ? r.json() : null).then(d => { setAd(d); setLoading(false) })
+    Promise.all([
+      fetch(`/api/ads/${id}`).then(r => r.ok ? r.json() : null),
+      fetch('/api/ad-templates').then(r => r.json()).catch(() => []),
+    ]).then(([a, t]) => { setAd(a); setTemplates(t); setLoading(false) })
   }, [id])
 
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
@@ -26,163 +50,124 @@ export default function AdPreviewPage() {
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const trackedLink = `${baseUrl}/a/${ad.slug}`
-  const flowLink = `${baseUrl}/f/${ad.flow.slug}`
-  const canTest = ad.isActive && ad.flow.isPublished
+  const style = SOURCE_STYLES[ad.source] || SOURCE_STYLES._default
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(trackedLink)
-    setCopied(true); setTimeout(() => setCopied(false), 2000)
+  // Resolve copy from template or default
+  let copy: { headline: string; body: string; requirements: string; benefits: string; cta: string }
+  if (selectedTemplateId !== '__default__') {
+    const t = templates.find(t => t.id === selectedTemplateId)
+    if (t) {
+      copy = { headline: t.headline, body: t.bodyText, requirements: t.requirements || '', benefits: t.benefits || '', cta: t.callToAction || '' }
+    } else {
+      copy = DEFAULT_COPY[ad.source] || DEFAULT_COPY._default
+    }
+  } else {
+    copy = DEFAULT_COPY[ad.source] || DEFAULT_COPY._default
   }
 
   return (
     <div>
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/dashboard/campaigns" className="text-grey-40 hover:text-grey-15">&larr; Campaigns</Link>
-        <h1 className="text-2xl font-semibold text-grey-15">Ad Preview: {ad.name}</h1>
-      </div>
-
-      {/* Status bar */}
-      <div className="flex items-center gap-3 mb-6">
-        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${ad.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-          {ad.isActive ? 'Active' : 'Paused'}
-        </span>
-        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${ad.flow.isPublished ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-          Flow: {ad.flow.isPublished ? 'Published' : 'Not Published'}
-        </span>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-brand-50 text-brand-600 font-medium capitalize">{ad.source}</span>
-        {ad.campaign && <span className="text-xs text-grey-40">Campaign: {ad.campaign}</span>}
-      </div>
-
-      {!canTest && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-[8px] p-4 mb-6">
-          <p className="text-sm text-yellow-800 font-medium">Cannot test the full workflow yet:</p>
-          <ul className="text-sm text-yellow-700 mt-1 list-disc list-inside">
-            {!ad.isActive && <li>Ad is paused — activate it in Campaigns</li>}
-            {!ad.flow.isPublished && <li>Flow &quot;{ad.flow.name}&quot; is not published — publish it in the flow builder</li>}
-          </ul>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Link href="/dashboard/campaigns" className="text-grey-40 hover:text-grey-15">&larr; Campaigns</Link>
+          <h1 className="text-xl font-semibold text-grey-15">Ad Preview</h1>
         </div>
-      )}
+        <div className="flex items-center gap-3">
+          <select
+            value={selectedTemplateId}
+            onChange={(e) => setSelectedTemplateId(e.target.value)}
+            className="px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-15"
+          >
+            <option value="__default__">Default {ad.source} copy</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Workflow steps */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-grey-20">Candidate Workflow</h3>
-
-          {/* Step 1: Tracked Link */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center">1</span>
-              <span className="text-sm font-semibold text-grey-15">Candidate clicks your tracked link</span>
-            </div>
-            <div className="bg-surface rounded-[8px] p-3 flex items-center gap-2">
-              <code className="flex-1 text-sm text-grey-15 truncate">{trackedLink}</code>
-              <button onClick={copyLink} className={`text-xs px-3 py-1.5 rounded-[6px] font-medium flex-shrink-0 ${copied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}>
-                {copied ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-            <p className="text-xs text-grey-50 mt-2">This link is what you post on {ad.source}. It tracks which ad brought the candidate.</p>
+      {/* Mock job board posting */}
+      <div className="max-w-2xl mx-auto">
+        {/* Mock browser chrome */}
+        <div className="bg-gray-200 rounded-t-[12px] px-4 py-2.5 flex items-center gap-2">
+          <div className="flex gap-1.5">
+            <div className="w-3 h-3 rounded-full bg-red-400" />
+            <div className="w-3 h-3 rounded-full bg-yellow-400" />
+            <div className="w-3 h-3 rounded-full bg-green-400" />
           </div>
-
-          {/* Step 2: Start Screen */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center">2</span>
-              <span className="text-sm font-semibold text-grey-15">Candidate sees start screen</span>
-            </div>
-            <p className="text-sm text-grey-35">They enter their name/info and click Start. A new session is created with source attribution from this ad.</p>
-          </div>
-
-          {/* Step 3: Flow */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center">3</span>
-              <span className="text-sm font-semibold text-grey-15">Candidate completes flow: {ad.flow.name}</span>
-            </div>
-            <p className="text-sm text-grey-35">They go through your screening steps — video questions, forms, info screens.</p>
-          </div>
-
-          {/* Step 4: Automation */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">4</span>
-              <span className="text-sm font-semibold text-grey-15">Automations fire</span>
-            </div>
-            <p className="text-sm text-grey-35">If you have automations set for &quot;Flow Completed&quot; or &quot;Flow Passed&quot;, emails are sent automatically (training invite, scheduling link, etc.)</p>
-          </div>
-
-          {/* Step 5: Pipeline */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold flex items-center justify-center">5</span>
-              <span className="text-sm font-semibold text-grey-15">Candidate appears in your pipeline</span>
-            </div>
-            <p className="text-sm text-grey-35">View them in Candidates with source &quot;{ad.source}&quot; and ad &quot;{ad.name}&quot;. Track them through training → scheduling → hired.</p>
+          <div className="flex-1 bg-white rounded-md px-3 py-1 text-xs text-grey-40 ml-2 truncate">
+            {ad.source === 'craigslist' ? 'craigslist.org > jobs > general labor' : `${ad.source}.com/jobs`}
           </div>
         </div>
 
-        {/* Right: Test it */}
-        <div>
-          <h3 className="text-sm font-semibold text-grey-20 mb-4">Test It</h3>
-
-          <div className="bg-white rounded-[12px] border-2 border-brand-200 p-6 text-center">
-            <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        {/* Mock site header */}
+        <div className="px-6 py-3 border-b" style={{ backgroundColor: style.bg }}>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: style.logo }}>
+              {style.name.charAt(0)}
             </div>
-            <h3 className="text-lg font-semibold text-grey-15 mb-2">Run the Full Workflow</h3>
-            <p className="text-sm text-grey-40 mb-6">Click below to experience exactly what your candidates see — from ad click through the entire flow.</p>
+            <span className="text-sm font-semibold" style={{ color: style.accent }}>{style.name}</span>
+          </div>
+        </div>
 
-            {canTest ? (
-              <a
-                href={trackedLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block w-full bg-brand-500 text-white py-3.5 px-6 rounded-[8px] hover:bg-brand-600 transition-colors font-semibold text-lg"
-              >
-                Start as Candidate →
-              </a>
-            ) : (
-              <button disabled className="w-full bg-gray-200 text-grey-40 py-3.5 px-6 rounded-[8px] font-semibold text-lg cursor-not-allowed">
-                Activate ad + publish flow first
-              </button>
+        {/* Job posting */}
+        <div className="bg-white border-x border-b rounded-b-[12px] shadow-lg">
+          <div className="p-8">
+            {/* Title */}
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{copy.headline}</h1>
+            <div className="flex items-center gap-3 mb-6 text-sm text-gray-500">
+              <span>{ad.name}</span>
+              <span>&middot;</span>
+              <span className="capitalize">{ad.source}</span>
+              {ad.campaign && <><span>&middot;</span><span>{ad.campaign}</span></>}
+            </div>
+
+            {/* Body */}
+            <div className="text-gray-700 whitespace-pre-wrap mb-6 leading-relaxed">{copy.body}</div>
+
+            {/* Requirements */}
+            {copy.requirements && (
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-2">Requirements</h3>
+                <div className="text-gray-700 whitespace-pre-wrap">{copy.requirements}</div>
+              </div>
             )}
 
-            <div className="mt-4 space-y-2">
-              <a href={flowLink} target="_blank" rel="noopener noreferrer" className="block text-sm text-brand-500 hover:text-brand-600">
-                Preview flow directly (no tracking) →
-              </a>
-              <Link href={`/dashboard/flows/${ad.flow.id}/builder`} className="block text-sm text-grey-35 hover:text-grey-15">
-                Edit flow →
-              </Link>
-            </div>
-          </div>
+            {/* Benefits */}
+            {copy.benefits && (
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-2">What We Offer</h3>
+                <div className="text-gray-700 whitespace-pre-wrap">{copy.benefits}</div>
+              </div>
+            )}
 
-          {/* Quick checklist */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-6 mt-4">
-            <h4 className="text-sm font-semibold text-grey-15 mb-3">Setup Checklist</h4>
-            <div className="space-y-2">
-              {[
-                { label: 'Flow created', done: true },
-                { label: 'Flow has steps', done: true },
-                { label: 'Flow published', done: ad.flow.isPublished },
-                { label: 'Ad active', done: ad.isActive },
-                { label: 'Automations set up', done: null, note: 'optional' },
-                { label: 'Training created', done: null, note: 'optional' },
-                { label: 'Scheduling link added', done: null, note: 'optional' },
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  {item.done === true ? (
-                    <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                  ) : item.done === false ? (
-                    <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                  ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0" />
-                  )}
-                  <span className={`text-sm ${item.done === false ? 'text-red-600' : 'text-grey-35'}`}>{item.label}</span>
-                  {item.note && <span className="text-xs text-grey-50">({item.note})</span>}
-                </div>
-              ))}
-            </div>
+            {/* CTA */}
+            {copy.cta && (
+              <div className="bg-gray-50 rounded-[8px] p-4 mb-6">
+                <p className="text-gray-800 font-medium">{copy.cta}</p>
+              </div>
+            )}
+
+            {/* Apply button — REAL tracked link */}
+            <a
+              href={trackedLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full text-center py-4 rounded-[8px] text-white font-semibold text-lg transition-colors hover:opacity-90"
+              style={{ backgroundColor: style.accent }}
+            >
+              Apply Now
+            </a>
+
+            <p className="text-center text-xs text-gray-400 mt-3">
+              This link goes to: <code className="text-gray-500">{trackedLink}</code>
+            </p>
           </div>
+        </div>
+
+        {/* Info below */}
+        <div className="mt-6 bg-surface rounded-[8px] border border-surface-border p-4">
+          <p className="text-xs text-grey-40 text-center">
+            This is a mock preview of how your ad appears. The &quot;Apply Now&quot; button uses your real tracked link — clicking it starts the actual candidate workflow.
+          </p>
         </div>
       </div>
     </div>
