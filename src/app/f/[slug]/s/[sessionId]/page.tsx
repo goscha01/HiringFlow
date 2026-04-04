@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import VideoRecorder from '@/components/VideoRecorder'
 import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from '@/components/CaptionedVideo'
@@ -58,6 +58,17 @@ export default function SessionPlayerPage() {
   const [textMessage, setTextMessage] = useState('')
   const [textAnswer, setTextAnswer] = useState('')
   const [recordedVideo, setRecordedVideo] = useState<Blob | null>(null)
+  const [isDesktop, setIsDesktop] = useState(true)
+
+  // Detect desktop vs mobile to render only one video element
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+    setIsDesktop(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
   // Form state
   const [showForm, setShowForm] = useState(false)
   const [formValues, setFormValues] = useState<Record<string, string>>({})
@@ -450,12 +461,14 @@ export default function SessionPlayerPage() {
   return (
     <div className="min-h-screen bg-gray-900">
       {/* Desktop: side-by-side */}
-      <div className="hidden lg:flex h-screen">
+      {isDesktop && (
+      <div className="flex h-screen">
         {/* Left: Video — fill screen height */}
         <div className="flex-1 flex items-center justify-center p-4">
           {step.videoUrl ? (
             <div className="w-full h-full flex items-center justify-center">
               <CaptionedVideo
+                key={`desktop-${step.stepId}`}
                 src={step.videoUrl}
                 segments={step.segments || []}
                 captionsEnabled={step.captionsEnabled || false}
@@ -481,13 +494,16 @@ export default function SessionPlayerPage() {
           {renderQuestionContent(false)}
         </div>
       </div>
+      )}
 
       {/* Mobile: video with overlay questions */}
-      <div className="lg:hidden flex flex-col min-h-screen">
+      {!isDesktop && (
+      <div className="flex flex-col min-h-screen">
         <div className="flex-1 relative flex items-center justify-center">
           {step.videoUrl ? (
             <div className="w-full h-full">
               <CaptionedVideo
+                key={`mobile-${step.stepId}`}
                 src={step.videoUrl}
                 segments={step.segments || []}
                 captionsEnabled={step.captionsEnabled || false}
@@ -509,6 +525,7 @@ export default function SessionPlayerPage() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }
