@@ -145,6 +145,7 @@ export default function FlowBuilderPage() {
   const [addStepButtonText, setAddStepButtonText] = useState('Continue')
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
+  const [stepVideoProgress, setStepVideoProgress] = useState(0)
   const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
   const [titleWarning, setTitleWarning] = useState(false)
   const stepVideoInputRef = useRef<HTMLInputElement>(null)
@@ -202,9 +203,10 @@ export default function FlowBuilderPage() {
     const file = e.target.files?.[0]
     if (!file || !file.type.startsWith('video/')) return
     setUploadingStepVideo(true)
+    setStepVideoProgress(0)
     try {
       const { uploadVideoFile } = await import('@/lib/upload-client')
-      const result = await uploadVideoFile(file)
+      const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p))
       if (result.id) {
         setAddStepVideoId(result.id)
         setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
@@ -1423,11 +1425,19 @@ export default function FlowBuilderPage() {
                         <span className="text-sm text-brand-700 font-medium">Video uploaded</span>
                         <button onClick={() => setAddStepVideoId('')} className="ml-auto text-xs text-brand-500">Change</button>
                       </div>
+                    ) : uploadingStepVideo ? (
+                      <div className="w-full p-6 border-2 border-brand-300 bg-brand-50 rounded-[8px] text-center">
+                        <div className="w-10 h-10 mx-auto mb-3 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm font-medium text-brand-700">Uploading... {stepVideoProgress}%</span>
+                        <div className="w-full bg-brand-200 rounded-full h-2 mt-3">
+                          <div className="bg-brand-500 h-2 rounded-full transition-all duration-300" style={{ width: `${stepVideoProgress}%` }} />
+                        </div>
+                      </div>
                     ) : (
-                      <label className={`block w-full p-6 border-2 border-dashed rounded-[8px] text-center cursor-pointer transition-colors ${uploadingStepVideo ? 'border-brand-300 bg-brand-50' : 'border-surface-divider hover:border-brand-400'}`}>
+                      <label className="block w-full p-6 border-2 border-dashed rounded-[8px] text-center cursor-pointer transition-colors border-surface-divider hover:border-brand-400">
                         <svg className="w-10 h-10 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                        <span className="text-sm text-grey-40">{uploadingStepVideo ? 'Uploading...' : 'Click to upload or drag video here'}</span>
-                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} disabled={uploadingStepVideo} className="hidden" />
+                        <span className="text-sm text-grey-40">Click to upload or drag video here</span>
+                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} className="hidden" />
                       </label>
                     )}
                     <p className="text-xs text-grey-40 mt-2">Or select existing:</p>
