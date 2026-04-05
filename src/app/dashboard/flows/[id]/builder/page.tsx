@@ -1373,20 +1373,7 @@ export default function FlowBuilderPage() {
               {/* Phase 2: Video config — matches edit modal layout */}
               {addStepType === 'submission' && (
                 <div className="space-y-4">
-                  {/* Title */}
-                  <div>
-                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Step Title</label>
-                    <input
-                      type="text"
-                      value={addStepTitle}
-                      onChange={(e) => { setAddStepTitle(e.target.value); setTitleWarning(false) }}
-                      placeholder="e.g. Introduction Video"
-                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${titleWarning ? 'border-red-400 bg-red-50/30' : 'border-surface-border'}`}
-                    />
-                    {titleWarning && <p className="text-xs text-red-600 mt-1">Title is required</p>}
-                  </div>
-
-                  {/* Video — same layout as edit: dropdown + upload button */}
+                  {/* Video select + upload — same as edit */}
                   <div>
                     <label className="block text-sm font-medium text-grey-20 mb-1.5">Video</label>
                     <div className="flex gap-2">
@@ -1417,12 +1404,49 @@ export default function FlowBuilderPage() {
                     )}
                   </div>
 
-                  {/* Info */}
-                  <div className="bg-brand-50 border border-brand-200 rounded-[8px] p-3">
-                    <p className="text-sm text-brand-700">Candidate watches the video then clicks <strong>Continue</strong> to proceed.</p>
+                  {/* Video preview — same as edit */}
+                  {addStepVideoId && (() => {
+                    const vid = videos.find(v => v.id === addStepVideoId)
+                    return vid?.url ? <video src={vid.url} controls className="w-full rounded-[8px] max-h-[50vh] object-contain" /> : null
+                  })()}
+
+                  {/* Action Button — same as edit */}
+                  <div className="border-t border-surface-border pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-grey-20">Action Button</label>
+                      <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-[#FF9500]">
+                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-4" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={addStepTitle || 'Continue'}
+                        onChange={(e) => setAddStepTitle(e.target.value)}
+                        placeholder="Continue"
+                        className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      />
+                      <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
+                        <option value="">→ Next step (auto)</option>
+                        {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                      </select>
+                    </div>
                   </div>
 
-                  <button onClick={submitAddStep} disabled={uploadingStepVideo} className="w-full btn-primary py-3 disabled:opacity-50">Add Video Step</button>
+                  {/* Combine with — same as edit */}
+                  <div className="border-t border-surface-border pt-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-grey-20">Combine with</label>
+                      <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-gray-300">
+                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-0.5" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setShowAddStepModal(false)} className="btn-secondary flex-1">Cancel</button>
+                    <button onClick={submitAddStep} disabled={uploadingStepVideo} className="btn-primary flex-1 disabled:opacity-50">Save</button>
+                  </div>
                 </div>
               )}
 
