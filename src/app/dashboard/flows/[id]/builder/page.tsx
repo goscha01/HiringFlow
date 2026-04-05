@@ -1370,83 +1370,59 @@ export default function FlowBuilderPage() {
                 </>
               )}
 
-              {/* Phase 2: Video config */}
+              {/* Phase 2: Video config — matches edit modal layout */}
               {addStepType === 'submission' && (
                 <div className="space-y-4">
+                  {/* Title */}
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-sm font-medium text-grey-20">Step Title</label>
-                      <button
-                        onClick={() => {
-                          const next = !autoTitleEnabled
-                          setAutoTitleEnabled(next)
-                          if (next && addStepVideoId) generateTitleFromVideo(addStepVideoId)
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <span className={`text-[11px] ${autoTitleEnabled ? 'text-brand-500' : 'text-grey-40'}`}>
-                          {autoTitleEnabled ? 'AI title' : 'Manual'}
-                        </span>
-                        <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoTitleEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}>
-                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoTitleEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                        </div>
-                      </button>
-                    </div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Step Title</label>
                     <input
                       type="text"
                       value={addStepTitle}
                       onChange={(e) => { setAddStepTitle(e.target.value); setTitleWarning(false) }}
-                      onFocus={() => { if (autoTitleEnabled) setAutoTitleEnabled(false) }}
-                      placeholder={autoTitleEnabled ? 'Will be generated from video transcript...' : 'e.g. Introduction Video'}
-                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${titleWarning ? 'border-red-400 bg-red-50/30' : autoTitleEnabled ? 'border-brand-200 bg-brand-50/30 text-grey-40' : 'border-surface-border'}`}
+                      placeholder="e.g. Introduction Video"
+                      className={`w-full px-4 py-3 border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 ${titleWarning ? 'border-red-400 bg-red-50/30' : 'border-surface-border'}`}
                     />
-                    {titleWarning && (
-                      <div className="mt-2 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-[8px]">
-                        <svg className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-                        <div className="flex-1">
-                          <p className="text-sm text-red-700 font-medium">Step title is required</p>
-                          <p className="text-xs text-red-600 mt-0.5">Enter a title manually or let AI generate one from the video.</p>
-                          <button
-                            onClick={() => { setAutoTitleEnabled(true); setTitleWarning(false); if (addStepVideoId) generateTitleFromVideo(addStepVideoId) }}
-                            className="mt-2 flex items-center gap-1.5 text-xs font-medium text-brand-500 hover:text-brand-600"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                            Generate title automatically
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    {titleWarning && <p className="text-xs text-red-600 mt-1">Title is required</p>}
                   </div>
+
+                  {/* Video — same layout as edit: dropdown + upload button */}
                   <div>
-                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Upload Video</label>
-                    {addStepVideoId ? (
-                      <div className="flex items-center gap-3 p-3 bg-brand-50 rounded-[8px] border border-brand-200">
-                        <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        <span className="text-sm text-brand-700 font-medium">Video uploaded</span>
-                        <button onClick={() => setAddStepVideoId('')} className="ml-auto text-xs text-brand-500">Change</button>
-                      </div>
-                    ) : uploadingStepVideo ? (
-                      <div className="w-full p-6 border-2 border-brand-300 bg-brand-50 rounded-[8px] text-center">
-                        <div className="w-10 h-10 mx-auto mb-3 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm font-medium text-brand-700">Uploading... {stepVideoProgress}%</span>
-                        <div className="w-full bg-brand-200 rounded-full h-2 mt-3">
-                          <div className="bg-brand-500 h-2 rounded-full transition-all duration-300" style={{ width: `${stepVideoProgress}%` }} />
-                        </div>
-                      </div>
-                    ) : (
-                      <label className="block w-full p-6 border-2 border-dashed rounded-[8px] text-center cursor-pointer transition-colors border-surface-divider hover:border-brand-400">
-                        <svg className="w-10 h-10 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                        <span className="text-sm text-grey-40">Click to upload or drag video here</span>
-                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} className="hidden" />
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Video</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={addStepVideoId}
+                        onChange={(e) => { setAddStepVideoId(e.target.value) }}
+                        className="flex-1 px-4 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        <option value="">Select video...</option>
+                        {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                      </select>
+                      <label className={`px-4 py-2.5 text-xs font-medium rounded-[8px] cursor-pointer transition-colors whitespace-nowrap ${
+                        uploadingStepVideo
+                          ? 'bg-brand-100 text-brand-400 cursor-not-allowed'
+                          : 'bg-brand-50 text-brand-600 border border-brand-200 hover:bg-brand-100'
+                      }`}>
+                        {uploadingStepVideo ? `${stepVideoProgress}%` : 'Upload'}
+                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} disabled={uploadingStepVideo} className="hidden" />
                       </label>
+                    </div>
+                    {uploadingStepVideo && (
+                      <div className="mt-2">
+                        <div className="w-full bg-brand-200 rounded-full h-1.5">
+                          <div className="bg-brand-500 h-1.5 rounded-full transition-all duration-300" style={{ width: `${stepVideoProgress}%` }} />
+                        </div>
+                        <p className="text-xs text-grey-40 mt-1">Uploading video...</p>
+                      </div>
                     )}
-                    <p className="text-xs text-grey-40 mt-2">Or select existing:</p>
-                    <select value={addStepVideoId} onChange={(e) => { setAddStepVideoId(e.target.value); if (e.target.value && autoTitleEnabled) generateTitleFromVideo(e.target.value) }} className="w-full mt-1 px-3 py-2 text-sm border border-surface-border rounded-[8px]">
-                      <option value="">Choose from library...</option>
-                      {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
-                    </select>
                   </div>
-                  <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Video Step</button>
+
+                  {/* Info */}
+                  <div className="bg-brand-50 border border-brand-200 rounded-[8px] p-3">
+                    <p className="text-sm text-brand-700">Candidate watches the video then clicks <strong>Continue</strong> to proceed.</p>
+                  </div>
+
+                  <button onClick={submitAddStep} disabled={uploadingStepVideo} className="w-full btn-primary py-3 disabled:opacity-50">Add Video Step</button>
                 </div>
               )}
 

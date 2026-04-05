@@ -877,7 +877,7 @@ export default function StepEditorPanel({
                 >
                   <option value="question">Question Step</option>
                   <option value="form">Form Step (Collect Information)</option>
-                  <option value="submission">Submission Step (Video/Text Response)</option>
+                  <option value="submission">Video Step (Watch + Continue)</option>
                   <option value="info">Info Step (Instructions/Notice)</option>
                 </select>
               </div>
@@ -927,12 +927,12 @@ export default function StepEditorPanel({
                 </div>
               )}
 
-              {/* Submission Info */}
+              {/* Video Step Info */}
               {step.stepType === 'submission' && (
                 <div className="bg-brand-50 border border-brand-200 rounded-md p-4">
-                  <h4 className="font-medium text-brand-800 mb-2">Submission Step</h4>
+                  <h4 className="font-medium text-brand-800 mb-2">Video Step</h4>
                   <p className="text-sm text-brand-700">
-                    Candidates will be able to record a video and/or submit a text message.
+                    Candidate watches the video then clicks Continue to proceed.
                   </p>
                 </div>
               )}
