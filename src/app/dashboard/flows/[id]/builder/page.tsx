@@ -34,6 +34,7 @@ interface Step {
   infoContent?: string | null
   formEnabled?: boolean
   formConfig?: any
+  buttonConfig?: { enabled?: boolean; text?: string; nextStepId?: string | null } | null
   combinedWithId?: string | null
   captionsEnabled?: boolean
   captionStyle?: any
@@ -534,17 +535,23 @@ export default function FlowBuilderPage() {
 
   // --- Shared editor content for Start/End screens ---
   const renderButtonConfig = (step: Step) => {
-    const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string; nextStepId?: string | null } | null
+    const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string; nextStepId?: string | null } | null | undefined
     const isEnabled = btnCfg?.enabled ?? false
     const updateBtnConfig = (updates: Record<string, unknown>) => {
-      updateStep(step.id, { buttonConfig: { ...btnCfg, enabled: true, text: btnCfg?.text || 'Continue', ...updates } } as any)
+      const newCfg = { ...(btnCfg || {}), enabled: true, text: btnCfg?.text || 'Continue', ...updates }
+      console.log('[ButtonConfig] updating', step.id, newCfg)
+      updateStep(step.id, { buttonConfig: newCfg } as any)
     }
     return (
       <div className="border-t border-surface-border pt-4 mt-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-grey-20">Action Button</label>
           <button
-            onClick={() => updateStep(step.id, { buttonConfig: { ...btnCfg, enabled: !isEnabled, text: btnCfg?.text || 'Continue' } } as any)}
+            onClick={() => {
+              const newCfg = { ...(btnCfg || {}), enabled: !isEnabled, text: btnCfg?.text || 'Continue' }
+              console.log('[ButtonConfig] toggle', step.id, 'enabled:', !isEnabled, newCfg)
+              updateStep(step.id, { buttonConfig: newCfg } as any)
+            }}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
           >
             <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
