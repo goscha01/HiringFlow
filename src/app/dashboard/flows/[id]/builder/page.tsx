@@ -265,8 +265,9 @@ export default function FlowBuilderPage() {
     setTitleWarning(false)
     const config: Record<string, unknown> = {}
     if (addStepType === 'submission') {
-      config.title = addStepTitle.trim() || 'Video Response'
+      config.title = addStepTitle.trim() || 'Continue'
       config.videoId = addStepVideoId || undefined
+      config.buttonConfig = { enabled: true, text: addStepTitle.trim() || 'Continue' }
     } else if (addStepType === 'question') {
       config.title = addStepTitle.trim() || addStepQuestion || 'Question'
       config.questionText = addStepQuestion
