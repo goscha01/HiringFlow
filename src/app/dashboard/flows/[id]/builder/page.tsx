@@ -155,7 +155,7 @@ export default function FlowBuilderPage() {
     const stepNum = (flow?.steps.length || 0) + 1
     const defaults: Record<string, Record<string, unknown>> = {
       question: { title: `Question ${stepNum}`, stepType: 'question', questionType: 'single' },
-      submission: { title: `Video ${stepNum}`, stepType: 'question', questionType: 'button', questionText: '', options: ['Continue'] },
+      submission: { title: `Video ${stepNum}`, stepType: 'submission' },
       form: { title: `Application Form`, stepType: 'form', formEnabled: true, formConfig: { fields: [
         { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
         { id: 'email', label: 'Email', type: 'email', required: true, enabled: true, isBuiltIn: true },
