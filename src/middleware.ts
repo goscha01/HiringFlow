@@ -22,6 +22,7 @@ export default withAuth(
         if (path.startsWith('/a/')) return true
         if (path.startsWith('/t/')) return true
         if (path.startsWith('/schedule/')) return true
+        if (path.startsWith('/call/')) return true
         if (path.startsWith('/api/public/')) return true
         if (path === '/') return true
         if (path === '/login') return true
@@ -52,5 +53,5 @@ export default withAuth(
 )
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/platform-admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/register'],
+  matcher: ['/', '/dashboard/:path*', '/platform-admin/:path*', '/api/:path*', '/f/:path*', '/a/:path*', '/t/:path*', '/schedule/:path*', '/call/:path*', '/register'],
 }

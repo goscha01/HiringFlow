@@ -24,6 +24,7 @@ export default function AdminLayout({
     { href: '/dashboard/trainings', label: 'Trainings' },
     { href: '/dashboard/scheduling', label: 'Scheduling' },
     { href: '/dashboard/content', label: 'Content' },
+    { href: '/dashboard/ai-calls', label: 'AI Calls' },
     { href: '/dashboard/analytics', label: 'Analytics' },
     { href: '/dashboard/settings', label: 'Settings' },
   ]
