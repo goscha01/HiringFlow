@@ -273,7 +273,7 @@ export default function FlowBuilderPage() {
       config.title = addStepTitle.trim() || addStepQuestion || 'Question'
       config.questionText = addStepQuestion
       config.questionType = addStepQuestionType
-      config.options = addStepOptions.filter(o => o.text.trim()).map(o => ({ text: o.text, nextStepId: o.nextStepId }))
+      config.options = addStepOptions.filter(o => o.text.trim()).map(o => ({ text: o.text, nextStepId: o.nextStepId === '__end__' ? null : o.nextStepId }))
     } else if (addStepType === 'form') {
       config.title = addStepTitle.trim() || 'Application Form'
       config.formConfig = { fields: addStepFormFields }
