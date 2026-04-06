@@ -1382,33 +1382,63 @@ export default function FlowBuilderPage() {
               {/* Phase 2: Video config — matches edit modal layout */}
               {addStepType === 'submission' && (
                 <div className="space-y-4">
-                  {/* Video select + upload — same as edit */}
+                  {/* Video — drag & drop + select + upload */}
                   <div>
                     <label className="block text-sm font-medium text-grey-20 mb-1.5">Video</label>
-                    <div className="flex gap-2">
-                      <select
-                        value={addStepVideoId}
-                        onChange={(e) => { setAddStepVideoId(e.target.value) }}
-                        className="flex-1 px-4 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    {!addStepVideoId && !uploadingStepVideo ? (
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
+                        onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
+                        onDrop={async (e) => {
+                          e.preventDefault()
+                          e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
+                          const file = e.dataTransfer.files[0]
+                          if (file && file.type.startsWith('video/')) {
+                            setUploadingStepVideo(true); setStepVideoProgress(0)
+                            try {
+                              const { uploadVideoFile } = await import('@/lib/upload-client')
+                              const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p))
+                              if (result.id) {
+                                setAddStepVideoId(result.id)
+                                setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+                              }
+                            } catch {}
+                            setUploadingStepVideo(false)
+                          }
+                        }}
+                        className="border-2 border-dashed border-surface-border rounded-[8px] p-6 text-center transition-colors cursor-pointer hover:border-brand-400"
+                        onClick={() => stepVideoInputRef.current?.click()}
                       >
-                        <option value="">Select video...</option>
-                        {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
-                      </select>
-                      <label className={`px-4 py-2.5 text-xs font-medium rounded-[8px] cursor-pointer transition-colors whitespace-nowrap ${
-                        uploadingStepVideo
-                          ? 'bg-brand-100 text-brand-400 cursor-not-allowed'
-                          : 'bg-brand-50 text-brand-600 border border-brand-200 hover:bg-brand-100'
-                      }`}>
-                        {uploadingStepVideo ? `${stepVideoProgress}%` : 'Upload'}
-                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} disabled={uploadingStepVideo} className="hidden" />
-                      </label>
-                    </div>
-                    {uploadingStepVideo && (
-                      <div className="mt-2">
-                        <div className="w-full bg-brand-200 rounded-full h-1.5">
-                          <div className="bg-brand-500 h-1.5 rounded-full transition-all duration-300" style={{ width: `${stepVideoProgress}%` }} />
+                        <svg className="w-10 h-10 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                        <p className="text-sm text-grey-40 mb-1">Drag & drop video here</p>
+                        <p className="text-xs text-grey-50">or click to browse</p>
+                        <input ref={stepVideoInputRef} type="file" accept="video/*" onChange={handleStepVideoUpload} className="hidden" />
+                      </div>
+                    ) : uploadingStepVideo ? (
+                      <div className="border-2 border-brand-300 bg-brand-50 rounded-[8px] p-6 text-center">
+                        <div className="w-10 h-10 mx-auto mb-3 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm font-medium text-brand-700">Uploading... {stepVideoProgress}%</span>
+                        <div className="w-full bg-brand-200 rounded-full h-2 mt-3">
+                          <div className="bg-brand-500 h-2 rounded-full transition-all duration-300" style={{ width: `${stepVideoProgress}%` }} />
                         </div>
-                        <p className="text-xs text-grey-40 mt-1">Uploading video...</p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 p-3 bg-brand-50 rounded-[8px] border border-brand-200">
+                        <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        <span className="text-sm text-brand-700 font-medium flex-1 truncate">{videos.find(v => v.id === addStepVideoId)?.displayName || videos.find(v => v.id === addStepVideoId)?.filename || 'Video selected'}</span>
+                        <button onClick={() => setAddStepVideoId('')} className="text-xs text-brand-500 hover:text-brand-600">Change</button>
+                      </div>
+                    )}
+                    {!uploadingStepVideo && (
+                      <div className="mt-2">
+                        <select
+                          value={addStepVideoId}
+                          onChange={(e) => { setAddStepVideoId(e.target.value) }}
+                          className="w-full px-3 py-2 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        >
+                          <option value="">Or select from library...</option>
+                          {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                        </select>
                       </div>
                     )}
                   </div>
