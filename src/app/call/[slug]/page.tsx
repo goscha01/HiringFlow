@@ -238,43 +238,26 @@ export default function CandidateCallPage() {
                 <button onClick={refreshCallCards} className="text-xs text-[#FF9500] hover:text-[#EA8500]">Refresh</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {callCards.map((c, i) => {
-                  const scoreMatch = c.transcript_summary?.match(/(\d+)\/100/) || null
-                  return (
+                {callCards.map((c, i) => (
                     <button
                       key={c.conversation_id}
                       onClick={async () => { setTab('history'); await fetchHistory(); viewDetail(c.conversation_id) }}
                       className="bg-white rounded-[10px] border border-[#F1F1F3] p-4 text-left hover:border-[#FF9500] hover:shadow-sm transition-all"
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-[#8A8A8C]">Call {callCards.length - i}</span>
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-[#262626]">Call {callCards.length - i}</span>
+                        <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
                           c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
                           c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
                           'bg-gray-100 text-[#8A8A8C]'
                         }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        {scoreMatch && (
-                          <span className={`text-2xl font-bold ${
-                            parseInt(scoreMatch[1]) >= 90 ? 'text-green-600' :
-                            parseInt(scoreMatch[1]) >= 80 ? 'text-blue-600' :
-                            parseInt(scoreMatch[1]) >= 70 ? 'text-yellow-600' : 'text-red-600'
-                          }`}>{scoreMatch[1]}</span>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          {c.transcript_summary && <p className="text-xs text-[#59595A] line-clamp-2">{c.transcript_summary}</p>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 mt-2 text-[10px] text-[#8A8A8C]">
-                        <span>{formatDuration(c.call_duration_secs)}</span>
-                        <span>&middot;</span>
-                        <span>{formatDate(c.start_time_unix_secs)}</span>
-                        <span className="ml-auto text-[#FF9500] font-medium">View details →</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#8A8A8C]">{formatDuration(c.call_duration_secs)} &middot; {formatDate(c.start_time_unix_secs)}</span>
+                        <span className="text-xs text-[#FF9500] font-medium">View evaluation →</span>
                       </div>
                     </button>
-                  )
-                })}
+                  ))}
               </div>
             </div>
           )}
@@ -305,30 +288,19 @@ export default function CandidateCallPage() {
                     <thead>
                       <tr className="border-b border-[#F1F1F3] bg-[#F7F7F8]">
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-[#8A8A8C] uppercase">Call</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-[#8A8A8C] uppercase">Score</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-[#8A8A8C] uppercase">Result</th>
                         <th className="px-4 py-2.5 text-right text-xs font-medium text-[#8A8A8C] uppercase">Duration</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F1F1F3]">
-                      {conversations.map((c, i) => {
-                        const sm = c.transcript_summary?.match(/(\d+)\/100/) || null
-                        const scoreVal = sm ? parseInt(sm[1]) : null
-                        return (
+                      {conversations.map((c, i) => (
                         <tr key={c.conversation_id} onClick={() => viewDetail(c.conversation_id)} className={`cursor-pointer hover:bg-[#FAFAFA] transition-colors ${selectedConv?.conversation_id === c.conversation_id ? 'bg-[#FFF7ED]' : ''}`}>
                           <td className="px-4 py-3">
                             <div className="text-sm font-medium text-[#262626]">Call {conversations.length - i}</div>
                             <div className="text-xs text-[#8A8A8C]">{formatDate(c.start_time_unix_secs)}</div>
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            {scoreVal !== null ? (
-                              <span className={`text-lg font-bold ${scoreVal >= 90 ? 'text-green-600' : scoreVal >= 80 ? 'text-blue-600' : scoreVal >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>{scoreVal}</span>
-                            ) : (
-                              <span className="text-sm text-[#8A8A8C]">—</span>
-                            )}
-                          </td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                            <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
                               c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
                               c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
                               'bg-gray-100 text-[#8A8A8C]'
@@ -336,8 +308,7 @@ export default function CandidateCallPage() {
                           </td>
                           <td className="px-4 py-3 text-sm text-[#262626] text-right">{formatDuration(c.call_duration_secs)}</td>
                         </tr>
-                        )
-                      })}
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -350,19 +321,26 @@ export default function CandidateCallPage() {
                     ) : (() => {
                       // Parse evaluation rationale
                       const rationale = Object.values(selectedConv.analysis?.evaluation_criteria_results || {})[0]?.rationale || ''
-                      const scoreMatch = rationale.match(/Score:\s*(\d+)\/(\d+)\s*\(([^)]+)\)/)
-                      const score = scoreMatch ? { value: parseInt(scoreMatch[1]), total: parseInt(scoreMatch[2]), label: scoreMatch[3] } : null
+                      // Try multiple score patterns
+                      const scoreMatch = rationale.match(/Score:\s*(\d+)\/(\d+)\s*\(([^)]+)\)/) || rationale.match(/(\d+)\/100\s*\(([^)]+)\)/) || rationale.match(/(\d+)\s*\/\s*100/)
+                      let score: { value: number; total: number; label: string } | null = null
+                      if (scoreMatch) {
+                        if (scoreMatch[3]) score = { value: parseInt(scoreMatch[1]), total: parseInt(scoreMatch[2]), label: scoreMatch[3] }
+                        else if (scoreMatch[2] && isNaN(parseInt(scoreMatch[2]))) score = { value: parseInt(scoreMatch[1]), total: 100, label: scoreMatch[2] }
+                        else score = { value: parseInt(scoreMatch[1]), total: parseInt(scoreMatch[2]) || 100, label: parseInt(scoreMatch[1]) >= 90 ? 'Excellent' : parseInt(scoreMatch[1]) >= 80 ? 'Good' : parseInt(scoreMatch[1]) >= 70 ? 'Needs Improvement' : 'Requires Retraining' }
+                      }
                       const doneWell: string[] = []
                       const needsImprovement: string[] = []
                       let section: 'none' | 'well' | 'improve' = 'none'
                       for (const line of rationale.split('\n')) {
                         const t = line.trim()
-                        if (t.toLowerCase().includes('areas done well')) { section = 'well'; continue }
-                        if (t.toLowerCase().includes('areas needing improvement') || t.toLowerCase().includes('needing improvement')) { section = 'improve'; continue }
+                        if (t.toLowerCase().includes('done well') || t.toLowerCase().includes('strengths')) { section = 'well'; continue }
+                        if (t.toLowerCase().includes('improvement') || t.toLowerCase().includes('weaknesses') || t.toLowerCase().includes('areas for')) { section = 'improve'; continue }
                         if (t.startsWith('- ') && section === 'well') doneWell.push(t.slice(2))
                         if (t.startsWith('- ') && section === 'improve') needsImprovement.push(t.slice(2))
                       }
                       const criteriaName = Object.values(selectedConv.analysis?.evaluation_criteria_results || {})[0]?.criteria_id || 'Call Evaluation'
+                      const callResult = selectedConv.analysis?.call_successful
 
                       return (
                         <>
@@ -373,19 +351,30 @@ export default function CandidateCallPage() {
                               <span className="text-xs text-[#8A8A8C]">{formatDuration(selectedConv.call_duration_secs)}</span>
                             </div>
 
-                            {score && (
-                              <div className="flex items-center gap-3 mb-4">
+                            {/* Always show result prominently */}
+                            <div className="flex items-center gap-3 mb-4">
+                              {score ? (
                                 <div className={`text-3xl font-bold ${score.value >= 90 ? 'text-green-600' : score.value >= 80 ? 'text-blue-600' : score.value >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
                                   {score.value}/{score.total}
                                 </div>
-                                <div className="flex gap-1.5">
-                                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${score.value >= 90 ? 'bg-green-100 text-green-700' : score.value >= 80 ? 'bg-blue-100 text-blue-700' : score.value >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{score.label}</span>
-                                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${selectedConv.analysis?.call_successful === 'success' ? 'bg-green-100 text-green-700' : selectedConv.analysis?.call_successful === 'failure' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-[#8A8A8C]'}`}>
-                                    {selectedConv.analysis?.call_successful === 'success' ? 'Passed' : selectedConv.analysis?.call_successful === 'failure' ? 'Failed' : 'Pending'}
-                                  </span>
+                              ) : (
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center ${callResult === 'success' ? 'bg-green-100' : callResult === 'failure' ? 'bg-red-100' : 'bg-gray-100'}`}>
+                                  {callResult === 'success' ? (
+                                    <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                  ) : callResult === 'failure' ? (
+                                    <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                  ) : (
+                                    <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" /></svg>
+                                  )}
                                 </div>
+                              )}
+                              <div>
+                                {score && <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${score.value >= 90 ? 'bg-green-100 text-green-700' : score.value >= 80 ? 'bg-blue-100 text-blue-700' : score.value >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{score.label}</span>}
+                                <span className={`text-sm px-3 py-1 rounded-full font-semibold ${score ? 'ml-1.5' : ''} ${callResult === 'success' ? 'bg-green-100 text-green-700' : callResult === 'failure' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-[#8A8A8C]'}`}>
+                                  {callResult === 'success' ? 'Passed' : callResult === 'failure' ? 'Failed' : 'Pending'}
+                                </span>
                               </div>
-                            )}
+                            </div>
 
                             {doneWell.length > 0 && (
                               <div className="mb-3">
@@ -415,8 +404,11 @@ export default function CandidateCallPage() {
                               </div>
                             )}
 
-                            {!score && !doneWell.length && !needsImprovement.length && rationale && (
-                              <p className="text-xs text-[#59595A] whitespace-pre-wrap">{rationale}</p>
+                            {!doneWell.length && !needsImprovement.length && rationale && (
+                              <div className="bg-[#F7F7F8] rounded-[8px] p-3">
+                                <h4 className="text-xs font-semibold text-[#59595A] uppercase tracking-wide mb-1.5">Feedback</h4>
+                                <p className="text-xs text-[#262626] whitespace-pre-wrap leading-relaxed">{rationale}</p>
+                              </div>
                             )}
                           </div>
 
