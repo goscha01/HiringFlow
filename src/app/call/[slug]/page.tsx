@@ -126,21 +126,17 @@ export default function CandidateCallPage() {
 
       {/* Call tab */}
       {tab === 'call' && (
-        <div className="flex-1 flex flex-col">
-          {/* Task summary — parsed evaluation criteria */}
+        <div className="flex-1 flex">
+          {/* Left: evaluation checklist — scrollable */}
           {criteria.length > 0 && (() => {
-            // Parse the markdown prompt into sections
             const parseSections = (text: string) => {
               const sections: Array<{ title: string; items: string[]; isScoring?: boolean }> = []
               let currentTitle = ''
               let currentItems: string[] = []
               let isScoring = false
-
               for (const line of text.split('\n')) {
                 const trimmed = line.trim()
                 if (!trimmed) continue
-
-                // Section header: **TITLE**
                 const headerMatch = trimmed.match(/^\*\*(.+?)\*\*:?$/) || trimmed.match(/^\*\*(.+?)\*\*/)
                 if (headerMatch && !trimmed.startsWith('- ')) {
                   if (currentTitle) sections.push({ title: currentTitle, items: currentItems, isScoring })
@@ -149,92 +145,75 @@ export default function CandidateCallPage() {
                   isScoring = currentTitle.toUpperCase().includes('SCORING')
                   continue
                 }
-
-                // List item: - text
-                if (trimmed.startsWith('- ')) {
-                  currentItems.push(trimmed.slice(2))
-                }
+                if (trimmed.startsWith('- ')) currentItems.push(trimmed.slice(2))
               }
               if (currentTitle) sections.push({ title: currentTitle, items: currentItems, isScoring })
               return sections
             }
-
             const prompt = criteria[0]?.prompt || ''
             const sections = parseSections(prompt)
-
-            // Split into checklist vs scoring
             const checklist = sections.filter(s => !s.isScoring && !s.title.toUpperCase().includes('FEEDBACK') && !s.title.toUpperCase().includes('CRITICAL'))
             const scoring = sections.filter(s => s.isScoring)
             const critical = sections.filter(s => s.title.toUpperCase().includes('CRITICAL'))
-            const feedback = sections.filter(s => s.title.toUpperCase().includes('FEEDBACK'))
 
             return (
-              <div className="border-b border-[#F1F1F3] overflow-y-auto" style={{ maxHeight: '40vh' }}>
-                <div className="max-w-3xl mx-auto px-6 py-5">
-                  <h3 className="text-base font-semibold text-[#262626] mb-4">
-                    {agentName || 'Call'} — Evaluation Checklist
-                  </h3>
+              <div className="w-[420px] flex-shrink-0 border-r border-[#F1F1F3] overflow-y-auto p-5">
+                <h3 className="text-base font-semibold text-[#262626] mb-4">
+                  {agentName || 'Call'} — Evaluation Checklist
+                </h3>
 
-                  {/* Checklist sections */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    {checklist.map((section, i) => (
-                      <div key={i} className="bg-[#FFF7ED] rounded-[10px] p-4">
-                        <h4 className="text-xs font-semibold text-[#FF9500] uppercase tracking-wide mb-2">{section.title}</h4>
-                        <ul className="space-y-1">
-                          {section.items.map((item, j) => (
-                            <li key={j} className="flex items-start gap-2">
-                              <svg className="w-3.5 h-3.5 text-[#FF9500] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                              <span className="text-xs text-[#262626]">{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
+                <div className="space-y-3">
+                  {checklist.map((section, i) => (
+                    <div key={i} className="bg-[#FFF7ED] rounded-[10px] p-3.5">
+                      <h4 className="text-[10px] font-semibold text-[#FF9500] uppercase tracking-wide mb-1.5">{section.title}</h4>
+                      <ul className="space-y-0.5">
+                        {section.items.map((item, j) => (
+                          <li key={j} className="flex items-start gap-1.5">
+                            <svg className="w-3 h-3 text-[#FF9500] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            <span className="text-[11px] text-[#262626]">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
 
-                  {/* Critical errors */}
                   {critical.length > 0 && (
-                    <div className="bg-red-50 rounded-[10px] p-4 mb-4">
-                      <h4 className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">{critical[0].title}</h4>
-                      <ul className="space-y-1">
+                    <div className="bg-red-50 rounded-[10px] p-3.5">
+                      <h4 className="text-[10px] font-semibold text-red-600 uppercase tracking-wide mb-1.5">{critical[0].title}</h4>
+                      <ul className="space-y-0.5">
                         {critical[0].items.map((item, j) => (
-                          <li key={j} className="flex items-start gap-2">
-                            <svg className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            <span className="text-xs text-red-700">{item}</span>
+                          <li key={j} className="flex items-start gap-1.5">
+                            <svg className="w-3 h-3 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span className="text-[11px] text-red-700">{item}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  {/* Scoring table */}
                   {scoring.length > 0 && (
-                    <div className="bg-[#F7F7F8] rounded-[10px] p-4 mb-4">
-                      <h4 className="text-xs font-semibold text-[#59595A] uppercase tracking-wide mb-2">Scoring</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div className="bg-[#F7F7F8] rounded-[10px] p-3.5">
+                      <h4 className="text-[10px] font-semibold text-[#59595A] uppercase tracking-wide mb-1.5">Scoring</h4>
+                      <div className="grid grid-cols-2 gap-1.5">
                         {scoring[0].items.map((item, j) => {
                           const [range, label] = item.split(':').map(s => s.trim())
                           const colors = ['bg-green-100 text-green-700', 'bg-blue-100 text-blue-700', 'bg-yellow-100 text-yellow-700', 'bg-red-100 text-red-700']
                           return (
-                            <div key={j} className={`rounded-[8px] p-2.5 text-center ${colors[j] || 'bg-gray-100 text-gray-700'}`}>
-                              <div className="text-sm font-bold">{range}</div>
-                              <div className="text-[10px] font-medium">{label}</div>
+                            <div key={j} className={`rounded-[6px] p-2 text-center ${colors[j] || 'bg-gray-100 text-gray-700'}`}>
+                              <div className="text-xs font-bold">{range}</div>
+                              <div className="text-[9px] font-medium">{label}</div>
                             </div>
                           )
                         })}
                       </div>
                     </div>
                   )}
-
-                  {/* Feedback note */}
-                  {feedback.length > 0 && feedback[0].items.length > 0 && (
-                    <p className="text-xs text-[#8A8A8C] italic">{feedback[0].items.join(' ')}</p>
-                  )}
                 </div>
               </div>
             )
           })()}
-          {/* Widget */}
+
+          {/* Right: widget — smaller, centered */}
           <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef} />
         </div>
       )}
@@ -362,10 +341,10 @@ export default function CandidateCallPage() {
       <style jsx global>{`
         elevenlabs-convai {
           position: relative !important;
-          width: 500px !important;
-          height: 600px !important;
-          max-width: 95vw !important;
-          max-height: 85vh !important;
+          width: 360px !important;
+          height: 480px !important;
+          max-width: 90vw !important;
+          max-height: 80vh !important;
           bottom: auto !important;
           right: auto !important;
           left: auto !important;
