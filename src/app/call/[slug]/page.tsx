@@ -7,7 +7,8 @@ import { useEffect, useRef, useState } from 'react'
 interface EvalResult {
   conversation_id: string
   status: string
-  duration: number
+  call_duration_secs: number
+  transcript: Array<{ role: string; message: string; time_in_call_secs: number }>
   analysis: {
     call_successful: string | null
     transcript_summary: string | null
@@ -58,35 +59,30 @@ export default function CandidateCallPage() {
     return () => clearInterval(interval)
   }, [agentId, candidateName])
 
-  const fetchResults = async () => {
+  const fetchResults = async (retries = 3) => {
     setLoadingResults(true)
     setResultError('')
-    try {
-      // Wait a few seconds for ElevenLabs to process the evaluation
-      await new Promise(r => setTimeout(r, 3000))
 
-      const res = await fetch(`/api/public/ai-calls/${agentId}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.analysis) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        if (i > 0) await new Promise(r => setTimeout(r, 3000))
+
+        const res = await fetch(`/api/public/ai-calls/${agentId}`)
+        if (res.ok) {
+          const data = await res.json()
           setResults(data)
           setShowResults(true)
-        } else {
-          // Analysis not ready yet, try once more
-          await new Promise(r => setTimeout(r, 5000))
-          const res2 = await fetch(`/api/public/ai-calls/${agentId}`)
-          if (res2.ok) {
-            const data2 = await res2.json()
-            setResults(data2)
-            setShowResults(true)
-          }
+          setLoadingResults(false)
+          return
         }
-      } else {
-        setResultError('Could not load results. Please try again.')
-      }
-    } catch {
-      setResultError('Failed to load results.')
+
+        const err = await res.json().catch(() => ({}))
+        if (err.processing && i < retries - 1) continue
+
+      } catch { /* retry */ }
     }
+
+    setResultError('Results are still processing. Please wait a moment and try again.')
     setLoadingResults(false)
   }
 
@@ -109,7 +105,7 @@ export default function CandidateCallPage() {
         </div>
         {!showResults && (
           <button
-            onClick={fetchResults}
+            onClick={() => fetchResults()}
             disabled={loadingResults}
             className="px-4 py-2 text-xs font-medium rounded-[8px] bg-[#FF9500] text-white hover:bg-[#EA8500] disabled:opacity-50 transition-colors"
           >
@@ -140,7 +136,7 @@ export default function CandidateCallPage() {
                 {results.analysis?.call_successful === 'success' ? 'Great Job!' :
                  results.analysis?.call_successful === 'failure' ? 'Needs Improvement' : 'Call Complete'}
               </h2>
-              <p className="text-sm text-[#59595A]">Call duration: {formatDuration(results.duration)}</p>
+              <p className="text-sm text-[#59595A]">Call duration: {formatDuration(results.call_duration_secs)}</p>
             </div>
 
             {/* Summary */}
@@ -194,6 +190,27 @@ export default function CandidateCallPage() {
               </div>
             )}
 
+            {/* Transcript */}
+            {results.transcript && results.transcript.length > 0 && (
+              <div className="bg-white rounded-[12px] border border-[#F1F1F3] p-6">
+                <h3 className="text-sm font-semibold text-[#262626] mb-3">Transcript</h3>
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {results.transcript.map((turn, i) => (
+                    <div key={i} className={`flex gap-3 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold ${
+                        turn.role === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-[#FFF7ED] text-[#FF9500]'
+                      }`}>{turn.role === 'user' ? 'You' : 'AI'}</div>
+                      <div className={`max-w-[80%] ${turn.role === 'user' ? 'text-right' : ''}`}>
+                        <p className={`text-sm px-3 py-2 rounded-[8px] inline-block ${
+                          turn.role === 'user' ? 'bg-blue-50 text-[#262626]' : 'bg-[#F7F7F8] text-[#262626]'
+                        }`}>{turn.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Done */}
             <div className="text-center pt-4 pb-8">
               <p className="text-sm text-[#8A8A8C]">Thank you{candidateName ? `, ${candidateName}` : ''}! You can close this page.</p>
@@ -206,8 +223,11 @@ export default function CandidateCallPage() {
           <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef} />
 
           {resultError && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 rounded-[8px] px-4 py-2">
-              <p className="text-xs text-red-700">{resultError}</p>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white border border-[#F1F1F3] rounded-[12px] px-6 py-4 shadow-lg text-center">
+              <p className="text-sm text-[#59595A] mb-2">{resultError}</p>
+              <button onClick={() => fetchResults()} className="px-4 py-2 text-xs font-medium rounded-[8px] bg-[#FF9500] text-white hover:bg-[#EA8500]">
+                Try Again
+              </button>
             </div>
           )}
         </>
