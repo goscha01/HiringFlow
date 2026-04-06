@@ -90,10 +90,45 @@ export default function AICallsPage() {
 
   const viewCandidateConvs = async (cand: Candidate) => {
     setSelectedCandidate(cand); setSelectedConv(null); setCandidateConvs([])
-    if (cand.conversationIds.length === 0) return
     setLoadingCandidateConvs(true)
+
+    // Auto-link: find unassigned conversations that started after candidate was created
+    const allAssignedIds = candidates.flatMap(c => c.conversationIds)
+    const candidateCreatedAt = Math.floor(new Date(cand.createdAt).getTime() / 1000)
+    const unassigned = conversations.filter(c =>
+      !allAssignedIds.includes(c.conversation_id) &&
+      c.start_time_unix_secs >= candidateCreatedAt - 60 // within 1 min before creation is ok
+    )
+
+    // Auto-assign unassigned conversations to this candidate (most likely theirs)
+    let updatedIds = [...cand.conversationIds]
+    for (const conv of unassigned) {
+      // Only auto-assign if no other candidate was created between this candidate and the conversation
+      const otherCandidatesAfter = candidates.filter(c =>
+        c.id !== cand.id &&
+        Math.floor(new Date(c.createdAt).getTime() / 1000) > candidateCreatedAt &&
+        Math.floor(new Date(c.createdAt).getTime() / 1000) <= conv.start_time_unix_secs
+      )
+      if (otherCandidatesAfter.length === 0 && !updatedIds.includes(conv.conversation_id)) {
+        updatedIds.push(conv.conversation_id)
+        // Save to backend
+        await fetch(`/api/ai-calls/candidates/${cand.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: conv.conversation_id }),
+        })
+      }
+    }
+
+    // Update local state
+    if (updatedIds.length !== cand.conversationIds.length) {
+      setCandidates(prev => prev.map(c => c.id === cand.id ? { ...c, conversationIds: updatedIds } : c))
+      cand = { ...cand, conversationIds: updatedIds }
+    }
+
+    // Fetch details for all linked conversations
+    if (updatedIds.length === 0) { setLoadingCandidateConvs(false); return }
     const details = await Promise.all(
-      cand.conversationIds.map(async cid => {
+      updatedIds.map(async cid => {
         const r = await fetch(`/api/ai-calls/conversations/${cid}`)
         return r.ok ? r.json() : null
       })
