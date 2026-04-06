@@ -266,9 +266,9 @@ export default function FlowBuilderPage() {
     setTitleWarning(false)
     const config: Record<string, unknown> = {}
     if (addStepType === 'submission') {
-      config.title = addStepTitle.trim() || 'Continue'
+      config.title = addStepTitle.trim() || addStepButtonText || 'Video'
       config.videoId = addStepVideoId || undefined
-      config.buttonConfig = { enabled: true, text: addStepTitle.trim() || 'Continue' }
+      if (addStepButtonEnabled) config.buttonConfig = { enabled: true, text: addStepButtonText || 'Continue' }
     } else if (addStepType === 'question') {
       config.title = addStepTitle.trim() || addStepQuestion || 'Question'
       config.questionText = addStepQuestion
@@ -1361,7 +1361,7 @@ export default function FlowBuilderPage() {
                     ].map(({ type, label, desc, color, icon }) => (
                       <button
                         key={type}
-                        onClick={() => setAddStepType(type)}
+                        onClick={() => { setAddStepType(type); if (type === 'submission') { setAddStepButtonEnabled(true); setAddStepButtonText('Continue') } }}
                         className={`flex flex-col items-center gap-3 p-6 rounded-[12px] border-2 border-surface-border hover:border-brand-500 hover:bg-brand-50 transition-all group`}
                       >
                         <div className={`w-14 h-14 rounded-[12px] bg-${color}-50 group-hover:bg-${color}-100 flex items-center justify-center`}>
@@ -1419,37 +1419,51 @@ export default function FlowBuilderPage() {
                     return vid?.url ? <video src={vid.url} controls className="w-full rounded-[8px] max-h-[50vh] object-contain" /> : null
                   })()}
 
-                  {/* Action Button — same as edit */}
+                  {/* Action Button */}
                   <div className="border-t border-surface-border pt-4">
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-sm font-medium text-grey-20">Action Button</label>
-                      <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-[#FF9500]">
-                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-4" />
+                      <button
+                        onClick={() => setAddStepButtonEnabled(!addStepButtonEnabled)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${addStepButtonEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${addStepButtonEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                    {addStepButtonEnabled && (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={addStepButtonText}
+                          onChange={(e) => setAddStepButtonText(e.target.value)}
+                          placeholder="Continue"
+                          className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                        <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
+                          <option value="">→ Next step (auto)</option>
+                          {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                        </select>
                       </div>
-                    </div>
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={addStepTitle || 'Continue'}
-                        onChange={(e) => setAddStepTitle(e.target.value)}
-                        placeholder="Continue"
-                        className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                      />
-                      <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
-                        <option value="">→ Next step (auto)</option>
-                        {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
-                      </select>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Combine with — same as edit */}
+                  {/* Combine with */}
                   <div className="border-t border-surface-border pt-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <label className="text-sm font-medium text-grey-20">Combine with</label>
-                      <div className="relative inline-flex h-5 w-9 items-center rounded-full bg-gray-300">
-                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-0.5" />
-                      </div>
+                      <button
+                        onClick={() => setCombineEnabled(!combineEnabled)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${combineEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${combineEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
                     </div>
+                    {combineEnabled && flow && flow.steps.length > 0 && (
+                      <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
+                        <option value="">Select step to combine with...</option>
+                        {flow.steps.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                      </select>
+                    )}
                   </div>
 
                   <div className="flex gap-3 pt-2">
