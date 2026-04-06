@@ -79,14 +79,14 @@ export default function CandidateCallPage() {
         {/* Widget will be inserted here */}
       </div>
 
-      {/* Override widget styles — white bg, centered, orange buttons */}
+      {/* Override widget styles — centered, large, white bg */}
       <style jsx global>{`
         elevenlabs-convai {
           position: relative !important;
-          width: 400px !important;
-          height: 500px !important;
-          max-width: 90vw !important;
-          max-height: 80vh !important;
+          width: 500px !important;
+          height: 600px !important;
+          max-width: 95vw !important;
+          max-height: 85vh !important;
           bottom: auto !important;
           right: auto !important;
           left: auto !important;
@@ -94,30 +94,13 @@ export default function CandidateCallPage() {
           z-index: 1 !important;
         }
 
-        elevenlabs-convai::part(widget) {
-          width: 100% !important;
-          height: 100% !important;
-          max-width: 100% !important;
-          max-height: 100% !important;
-          border-radius: 16px !important;
-          background: white !important;
-          box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important;
-          border: 1px solid #F1F1F3 !important;
-        }
-
-        /* Orange start/action button */
-        elevenlabs-convai button[class*="start"],
-        elevenlabs-convai button[class*="action"],
-        elevenlabs-convai button[class*="call"] {
-          background: #FF9500 !important;
-          border-color: #FF9500 !important;
-          color: white !important;
-        }
-
-        elevenlabs-convai button[class*="start"]:hover,
-        elevenlabs-convai button[class*="action"]:hover,
-        elevenlabs-convai button[class*="call"]:hover {
-          background: #EA8500 !important;
+        @media (max-width: 640px) {
+          elevenlabs-convai {
+            width: 100vw !important;
+            height: calc(100vh - 52px) !important;
+            max-width: 100vw !important;
+            max-height: calc(100vh - 52px) !important;
+          }
         }
       `}</style>
     </div>
