@@ -24,6 +24,7 @@ interface Step {
   stepType: string
   questionType: string
   combinedWithId?: string | null
+  buttonConfig?: { enabled?: boolean; text?: string; nextStepId?: string | null } | null
   options: Option[]
 }
 
@@ -522,12 +523,23 @@ export default function FlowSchemaView({
       }
     }
 
-    // Step option connections
+    // Step option connections + buttonConfig connections
     for (const step of steps) {
       const pos = positions[step.id]
       if (!pos) continue
 
       const out = getOutputPort(pos)
+
+      // Draw buttonConfig connection to a specific step (not __end__, not null)
+      const btnNext = (step as any).buttonConfig?.nextStepId
+      if (btnNext && btnNext !== '__end__') {
+        const targetPos = positions[btnNext]
+        if (targetPos) {
+          const inp = getInputPort(targetPos)
+          drawConnection(ctx, out.x, out.y, inp.x, inp.y, (step as any).buttonConfig?.text || 'Continue', false, '#FF9500')
+        }
+      }
+
       for (const option of step.options) {
         if (!option.nextStepId) continue
         const targetPos = positions[option.nextStepId]
@@ -553,17 +565,31 @@ export default function FlowSchemaView({
       }
     }
 
-    // End connection — only from the last step by order
+    // End connections — from last step + any step explicitly set to End
     const endPos = positions[END_ID]
-    if (endPos && endStepId && endMessage !== '') {
-      const eStepPos = positions[endStepId]
-      if (eStepPos) {
-        const fromX = eStepPos.x + NODE_W
-        const fromY = eStepPos.y + NODE_H / 2
-        const toX = endPos.x
-        const toY = endPos.y + SPECIAL_H / 2
-        drawConnection(ctx, fromX, fromY, toX, toY, '', false, '#FF9500')
+    if (endPos && endMessage !== '') {
+      const toX = endPos.x
+      const toY = endPos.y + SPECIAL_H / 2
+      const drawnEndFrom = new Set<string>()
+
+      // Last step by order always connects to End
+      if (endStepId) drawnEndFrom.add(endStepId)
+
+      // Steps with buttonConfig.nextStepId === '__end__'
+      for (const step of steps) {
+        if ((step as any).buttonConfig?.nextStepId === '__end__') {
+          drawnEndFrom.add(step.id)
+        }
       }
+
+      drawnEndFrom.forEach(stepId => {
+        const eStepPos = positions[stepId]
+        if (eStepPos) {
+          const fromX = eStepPos.x + NODE_W
+          const fromY = eStepPos.y + NODE_H / 2
+          drawConnection(ctx, fromX, fromY, toX, toY, '', false, '#FF9500')
+        }
+      })
     }
 
     // Draw in-progress connection or reconnection
