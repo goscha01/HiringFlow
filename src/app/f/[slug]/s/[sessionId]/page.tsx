@@ -127,14 +127,32 @@ export default function SessionPlayerPage() {
     setVideoEnded(true)
   }
 
-  const handleFormSubmit = () => {
+  const handleFormSubmit = async () => {
+    if (!step) return
     // Validate required fields
-    const enabledFields = step?.formConfig?.fields?.filter(f => f.enabled) || []
+    const enabledFields = step.formConfig?.fields?.filter(f => f.enabled) || []
     const missingRequired = enabledFields.filter(f => f.required && !formValues[f.id]?.trim())
     if (missingRequired.length > 0) return
 
     setFormSubmitted(true)
     setShowForm(false)
+    setSubmitting(true)
+
+    // Submit form data to the API
+    const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stepId: step.stepId, formData: formValues }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.finished) {
+        router.push(`/f/${slug}/s/${sessionId}/done`)
+      } else {
+        fetchStep()
+      }
+    }
+    setSubmitting(false)
   }
 
   const navigateToStep = async (stepId: string) => {
