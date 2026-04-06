@@ -243,7 +243,7 @@ export default function CandidateCallPage() {
                   return (
                     <button
                       key={c.conversation_id}
-                      onClick={() => { setTab('history'); fetchHistory(); setTimeout(() => viewDetail(c.conversation_id), 500) }}
+                      onClick={async () => { setTab('history'); await fetchHistory(); viewDetail(c.conversation_id) }}
                       className="bg-white rounded-[10px] border border-[#F1F1F3] p-4 text-left hover:border-[#FF9500] hover:shadow-sm transition-all"
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -304,28 +304,40 @@ export default function CandidateCallPage() {
                   <table className="min-w-full">
                     <thead>
                       <tr className="border-b border-[#F1F1F3] bg-[#F7F7F8]">
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-[#8A8A8C] uppercase">Date</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-medium text-[#8A8A8C] uppercase">Duration</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-[#8A8A8C] uppercase">Call</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-[#8A8A8C] uppercase">Score</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-[#8A8A8C] uppercase">Result</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-medium text-[#8A8A8C] uppercase">Duration</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F1F1F3]">
-                      {conversations.map(c => (
+                      {conversations.map((c, i) => {
+                        const sm = c.transcript_summary?.match(/(\d+)\/100/) || null
+                        const scoreVal = sm ? parseInt(sm[1]) : null
+                        return (
                         <tr key={c.conversation_id} onClick={() => viewDetail(c.conversation_id)} className={`cursor-pointer hover:bg-[#FAFAFA] transition-colors ${selectedConv?.conversation_id === c.conversation_id ? 'bg-[#FFF7ED]' : ''}`}>
                           <td className="px-4 py-3">
-                            <div className="text-sm text-[#262626]">{formatDate(c.start_time_unix_secs)}</div>
-                            {c.transcript_summary && <p className="text-xs text-[#8A8A8C] mt-0.5 line-clamp-1">{c.transcript_summary}</p>}
+                            <div className="text-sm font-medium text-[#262626]">Call {conversations.length - i}</div>
+                            <div className="text-xs text-[#8A8A8C]">{formatDate(c.start_time_unix_secs)}</div>
                           </td>
-                          <td className="px-4 py-3 text-sm text-[#262626] text-right">{formatDuration(c.call_duration_secs)}</td>
+                          <td className="px-4 py-3 text-center">
+                            {scoreVal !== null ? (
+                              <span className={`text-lg font-bold ${scoreVal >= 90 ? 'text-green-600' : scoreVal >= 80 ? 'text-blue-600' : scoreVal >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>{scoreVal}</span>
+                            ) : (
+                              <span className="text-sm text-[#8A8A8C]">—</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
                               c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
                               c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
                               'bg-gray-100 text-[#8A8A8C]'
                             }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
                           </td>
+                          <td className="px-4 py-3 text-sm text-[#262626] text-right">{formatDuration(c.call_duration_secs)}</td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
