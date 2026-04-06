@@ -537,6 +537,7 @@ export default function FlowBuilderPage() {
   const renderButtonConfig = (step: Step) => {
     const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string; nextStepId?: string | null } | null | undefined
     const isEnabled = btnCfg?.enabled ?? false
+    console.log('[ButtonConfig] render', step.id, 'btnCfg:', JSON.stringify(btnCfg), 'isEnabled:', isEnabled)
     const updateBtnConfig = (updates: Record<string, unknown>) => {
       const newCfg = { ...(btnCfg || {}), enabled: true, text: btnCfg?.text || 'Continue', ...updates }
       console.log('[ButtonConfig] updating', step.id, newCfg)
