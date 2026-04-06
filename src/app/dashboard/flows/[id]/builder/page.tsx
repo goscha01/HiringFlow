@@ -276,28 +276,40 @@ export default function FlowBuilderPage() {
     }
     // Check for duplicate title
     const config: Record<string, unknown> = {}
+
+    // Auto-generate title from content
+    const existingTitles = flow?.steps.map(s => s.title.toLowerCase()) || []
+    const makeUnique = (base: string) => {
+      let title = base
+      let n = 2
+      while (existingTitles.includes(title.toLowerCase())) {
+        title = `${base} ${n}`
+        n++
+      }
+      return title
+    }
+
     let finalTitle = ''
     if (addStepType === 'submission') {
-      finalTitle = addStepTitle.trim() || addStepButtonText || 'Video'
+      const videoName = addStepVideoId ? (videos.find(v => v.id === addStepVideoId)?.displayName || videos.find(v => v.id === addStepVideoId)?.filename?.replace(/\.[^.]+$/, '') || '') : ''
+      finalTitle = addStepTitle.trim() || videoName || 'Video'
     } else if (addStepType === 'question') {
-      finalTitle = addStepTitle.trim() || addStepQuestion || 'Question'
+      const questionTitle = addStepQuestion.trim() ? addStepQuestion.trim().slice(0, 60) + (addStepQuestion.trim().length > 60 ? '...' : '') : ''
+      finalTitle = addStepTitle.trim() || questionTitle || 'Question'
     } else if (addStepType === 'form') {
       finalTitle = addStepTitle.trim() || 'Application Form'
     } else if (addStepType === 'info') {
       finalTitle = addStepTitle.trim() || 'Welcome'
     }
-    if (flow?.steps.some(s => s.title.toLowerCase() === finalTitle.toLowerCase())) {
-      setTitleWarning(true)
-      alert(`A step named "${finalTitle}" already exists. Please use a different name.`)
-      return
-    }
+    finalTitle = makeUnique(finalTitle)
     setTitleWarning(false)
+
     if (addStepType === 'submission') {
       config.title = finalTitle
       config.videoId = addStepVideoId || undefined
       if (addStepButtonEnabled) config.buttonConfig = { enabled: true, text: addStepButtonText || 'Continue' }
     } else if (addStepType === 'question') {
-      config.title = addStepTitle.trim() || addStepQuestion || 'Question'
+      config.title = finalTitle
       config.questionText = addStepQuestion
       config.questionType = addStepQuestionType
       config.options = addStepOptions.filter(o => o.text.trim()).map(o => ({ text: o.text, nextStepId: o.nextStepId === '__end__' ? null : o.nextStepId }))
