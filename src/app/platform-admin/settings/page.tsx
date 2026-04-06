@@ -15,6 +15,7 @@ const PROVIDER_FIELDS = [
   { key: 'sendgrid_api_key', label: 'SendGrid API Key', category: 'email', placeholder: 'SG.xxxxx (set via env var)', note: 'Usually set via SENDGRID_API_KEY env var' },
   { key: 'sendgrid_from_email', label: 'SendGrid From Email', category: 'email', placeholder: 'hello@hirefunnel.app' },
   { key: 'sendgrid_from_name', label: 'SendGrid From Name', category: 'email', placeholder: 'HireFunnel' },
+  { key: 'elevenlabs_api_key', label: 'ElevenLabs API Key', category: 'integrations', placeholder: 'sk_xxxxxxxxxxxxxxxx', note: 'Required for AI Calls — fetches conversations and evaluations' },
   { key: 'calendly_api_key', label: 'Calendly API Key (future)', category: 'integrations', placeholder: 'For future Calendly API integration' },
   { key: 'platform_name', label: 'Platform Name', category: 'general', placeholder: 'HireFunnel' },
   { key: 'support_email', label: 'Support Email', category: 'general', placeholder: 'support@hirefunnel.app' },

@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { useConversation } from '@elevenlabs/react'
 
 export default function CandidateCallPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const agentId = params.slug as string
+  const candidateName = searchParams.get('name') || ''
 
   const [callActive, setCallActive] = useState(false)
   const [callDuration, setCallDuration] = useState(0)
@@ -70,7 +72,7 @@ export default function CandidateCallPage() {
       {/* Header */}
       <div className="bg-white border-b border-[#F1F1F3] px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-[#262626]">AI Voice Call</h1>
+          <h1 className="text-lg font-semibold text-[#262626]">{candidateName ? `AI Call — ${candidateName}` : 'AI Voice Call'}</h1>
           {callActive && <span className="text-sm text-[#59595A]">{formatDuration(callDuration)}</span>}
         </div>
       </div>

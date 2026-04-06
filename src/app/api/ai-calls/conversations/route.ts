@@ -6,20 +6,23 @@ export async function GET(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
+  // Get agent ID from workspace settings
   const workspace = await prisma.workspace.findUnique({ where: { id: ws.workspaceId } })
-  if (!workspace) return unauthorized()
+  const wsSettings = (workspace?.settings || {}) as Record<string, string>
+  const agentId = wsSettings.elevenlabs_agent_id
 
-  const settings = (workspace.settings || {}) as Record<string, string>
-  const apiKey = settings.elevenlabs_api_key
-  const agentId = settings.elevenlabs_agent_id
-
-  if (!apiKey || !agentId) {
-    return NextResponse.json({ error: 'ElevenLabs API key and Agent ID required. Configure in AI Calls settings.' }, { status: 400 })
+  if (!agentId) {
+    return NextResponse.json({ error: 'ElevenLabs Agent ID not configured. Set it in AI Calls settings.' }, { status: 400 })
   }
 
-  // Fetch conversations from ElevenLabs
+  // Get API key from platform settings
+  const platformKey = await prisma.platformSetting.findUnique({ where: { key: 'elevenlabs_api_key' } })
+  if (!platformKey?.value) {
+    return NextResponse.json({ error: 'ElevenLabs API key not configured by platform admin.' }, { status: 400 })
+  }
+
   const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations?agent_id=${agentId}&page_size=100`, {
-    headers: { 'xi-api-key': apiKey },
+    headers: { 'xi-api-key': platformKey.value },
   })
 
   if (!res.ok) {
@@ -27,6 +30,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: `ElevenLabs API error: ${res.status}`, details: err }, { status: res.status })
   }
 
-  const data = await res.json()
-  return NextResponse.json(data)
+  return NextResponse.json(await res.json())
 }
