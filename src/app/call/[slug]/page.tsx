@@ -126,8 +126,8 @@ export default function CandidateCallPage() {
 
       {/* Call tab */}
       {tab === 'call' && (
-        <div className="flex-1 flex">
-          {/* Left: evaluation checklist — scrollable */}
+        <div className="flex-1 overflow-y-auto relative">
+          {/* Full page checklist content */}
           {criteria.length > 0 && (() => {
             const parseSections = (text: string) => {
               const sections: Array<{ title: string; items: string[]; isScoring?: boolean }> = []
@@ -157,64 +157,64 @@ export default function CandidateCallPage() {
             const critical = sections.filter(s => s.title.toUpperCase().includes('CRITICAL'))
 
             return (
-              <div className="w-[420px] flex-shrink-0 border-r border-[#F1F1F3] overflow-y-auto p-5">
-                <h3 className="text-base font-semibold text-[#262626] mb-4">
+              <div className="max-w-3xl mx-auto px-6 py-6">
+                <h3 className="text-lg font-semibold text-[#262626] mb-5">
                   {agentName || 'Call'} — Evaluation Checklist
                 </h3>
 
-                <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
                   {checklist.map((section, i) => (
-                    <div key={i} className="bg-[#FFF7ED] rounded-[10px] p-3.5">
-                      <h4 className="text-[10px] font-semibold text-[#FF9500] uppercase tracking-wide mb-1.5">{section.title}</h4>
-                      <ul className="space-y-0.5">
+                    <div key={i} className="bg-[#FFF7ED] rounded-[12px] p-4">
+                      <h4 className="text-xs font-semibold text-[#FF9500] uppercase tracking-wide mb-2">{section.title}</h4>
+                      <ul className="space-y-1">
                         {section.items.map((item, j) => (
-                          <li key={j} className="flex items-start gap-1.5">
-                            <svg className="w-3 h-3 text-[#FF9500] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                            <span className="text-[11px] text-[#262626]">{item}</span>
+                          <li key={j} className="flex items-start gap-2">
+                            <svg className="w-3.5 h-3.5 text-[#FF9500] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            <span className="text-sm text-[#262626]">{item}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   ))}
-
-                  {critical.length > 0 && (
-                    <div className="bg-red-50 rounded-[10px] p-3.5">
-                      <h4 className="text-[10px] font-semibold text-red-600 uppercase tracking-wide mb-1.5">{critical[0].title}</h4>
-                      <ul className="space-y-0.5">
-                        {critical[0].items.map((item, j) => (
-                          <li key={j} className="flex items-start gap-1.5">
-                            <svg className="w-3 h-3 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            <span className="text-[11px] text-red-700">{item}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {scoring.length > 0 && (
-                    <div className="bg-[#F7F7F8] rounded-[10px] p-3.5">
-                      <h4 className="text-[10px] font-semibold text-[#59595A] uppercase tracking-wide mb-1.5">Scoring</h4>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {scoring[0].items.map((item, j) => {
-                          const [range, label] = item.split(':').map(s => s.trim())
-                          const colors = ['bg-green-100 text-green-700', 'bg-blue-100 text-blue-700', 'bg-yellow-100 text-yellow-700', 'bg-red-100 text-red-700']
-                          return (
-                            <div key={j} className={`rounded-[6px] p-2 text-center ${colors[j] || 'bg-gray-100 text-gray-700'}`}>
-                              <div className="text-xs font-bold">{range}</div>
-                              <div className="text-[9px] font-medium">{label}</div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
+
+                {critical.length > 0 && (
+                  <div className="bg-red-50 rounded-[12px] p-4 mb-5">
+                    <h4 className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">{critical[0].title}</h4>
+                    <ul className="space-y-1">
+                      {critical[0].items.map((item, j) => (
+                        <li key={j} className="flex items-start gap-2">
+                          <svg className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          <span className="text-sm text-red-700">{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {scoring.length > 0 && (
+                  <div className="bg-[#F7F7F8] rounded-[12px] p-4">
+                    <h4 className="text-xs font-semibold text-[#59595A] uppercase tracking-wide mb-2">Scoring</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {scoring[0].items.map((item, j) => {
+                        const [range, label] = item.split(':').map(s => s.trim())
+                        const colors = ['bg-green-100 text-green-700', 'bg-blue-100 text-blue-700', 'bg-yellow-100 text-yellow-700', 'bg-red-100 text-red-700']
+                        return (
+                          <div key={j} className={`rounded-[8px] p-3 text-center ${colors[j] || 'bg-gray-100 text-gray-700'}`}>
+                            <div className="text-sm font-bold">{range}</div>
+                            <div className="text-[10px] font-medium">{label}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })()}
 
-          {/* Right: widget — smaller, centered */}
-          <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef} />
+          {/* Widget — small floating bottom-right */}
+          <div ref={widgetContainerRef} className="fixed bottom-0 right-0 z-50" />
         </div>
       )}
 
@@ -380,25 +380,9 @@ export default function CandidateCallPage() {
       )}
 
       <style jsx global>{`
+        /* Let widget use its default floating style — bottom right */
         elevenlabs-convai {
-          position: relative !important;
-          width: 360px !important;
-          height: 480px !important;
-          max-width: 90vw !important;
-          max-height: 80vh !important;
-          bottom: auto !important;
-          right: auto !important;
-          left: auto !important;
-          top: auto !important;
-          z-index: 1 !important;
-        }
-        @media (max-width: 640px) {
-          elevenlabs-convai {
-            width: 100vw !important;
-            height: calc(100vh - 52px) !important;
-            max-width: 100vw !important;
-            max-height: calc(100vh - 52px) !important;
-          }
+          z-index: 50 !important;
         }
       `}</style>
     </div>
