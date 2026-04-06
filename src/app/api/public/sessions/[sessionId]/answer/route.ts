@@ -8,7 +8,13 @@ export async function POST(
 ) {
   try {
     const body = await request.json()
-    const { stepId, optionId, optionIds, formData, textAnswer } = body
+    const { stepId, optionId, optionIds, formData, textAnswer, jumpTo } = body
+
+    // Support progress bar navigation — jump to specific step
+    if (jumpTo) {
+      await prisma.session.update({ where: { id: params.sessionId }, data: { lastStepId: jumpTo } })
+      return NextResponse.json({ nextStepId: jumpTo })
+    }
 
     // Support both single optionId and array optionIds
     const selectedOptionIds: string[] = optionIds || (optionId ? [optionId] : [])

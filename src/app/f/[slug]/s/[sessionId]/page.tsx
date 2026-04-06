@@ -26,6 +26,21 @@ interface FormField {
   isBuiltIn?: boolean
 }
 
+interface CombinedStepData {
+  stepId: string
+  title: string
+  videoUrl: string | null
+  questionText: string | null
+  stepType: string
+  infoContent?: string | null
+  questionType?: string
+  captionsEnabled?: boolean
+  segments?: Segment[]
+  formEnabled?: boolean
+  formConfig?: { fields: FormField[] } | null
+  options: StepOption[]
+}
+
 interface StepData {
   stepId: string
   title: string
@@ -34,12 +49,14 @@ interface StepData {
   stepType: string
   infoContent?: string | null
   progress?: { current: number; total: number }
+  stepIds?: string[]
   questionType: string
   captionsEnabled?: boolean
   captionStyle?: CaptionStyle | null
   segments?: Segment[]
   formEnabled?: boolean
   formConfig?: { fields: FormField[] } | null
+  combinedStep?: CombinedStepData | null
   options: StepOption[]
   finished?: boolean
 }
@@ -117,6 +134,17 @@ export default function SessionPlayerPage() {
 
     setFormSubmitted(true)
     setShowForm(false)
+  }
+
+  const navigateToStep = async (stepId: string) => {
+    // Jump to a specific step by setting lastStepId
+    await fetch(`/api/public/sessions/${sessionId}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stepId: step?.stepId, jumpTo: stepId }),
+    })
+    setVideoEnded(false)
+    fetchStep()
   }
 
   const selectOption = async (option: StepOption) => {
@@ -435,12 +463,20 @@ export default function SessionPlayerPage() {
           </p>
         )}
 
-        {/* Progress bar */}
+        {/* Progress bar — clickable */}
         {step.progress && (
           <div className="mt-4">
             <div className="flex gap-1">
               {Array.from({ length: step.progress.total }).map((_, i) => (
-                <div key={i} className={`flex-1 h-1 rounded-full ${i < step.progress!.current ? 'bg-brand-500' : 'bg-gray-200'}`} />
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (step.stepIds && step.stepIds[i] && step.stepIds[i] !== step.stepId) {
+                      navigateToStep(step.stepIds[i])
+                    }
+                  }}
+                  className={`flex-1 h-2 rounded-full transition-colors cursor-pointer hover:opacity-80 ${i < step.progress!.current ? 'bg-brand-500' : 'bg-gray-200 hover:bg-gray-300'}`}
+                />
               ))}
             </div>
             <p className={`text-center text-xs mt-1 ${overlay ? 'text-white/40' : 'text-gray-400'}`}>
@@ -457,35 +493,68 @@ export default function SessionPlayerPage() {
       {/* Desktop: side-by-side */}
       {isDesktop && (
       <div className="flex h-screen">
-        {/* Left: Video — fill screen height */}
+        {/* Left: Video — from main step or combined step */}
         <div className="flex-1 flex items-center justify-center p-4">
-          {step.videoUrl ? (
-            <div className="w-full h-full flex items-center justify-center">
-              <CaptionedVideo
-                key={`desktop-${step.stepId}`}
-                src={step.videoUrl}
-                segments={step.segments || []}
-                captionsEnabled={step.captionsEnabled || false}
-                captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
-                autoPlay
-                onEnded={handleVideoEnd}
-                className="rounded-lg shadow-2xl"
-                videoClassName="max-h-[100vh] w-auto max-w-full"
-              />
-            </div>
-          ) : (
-            <div className="text-white text-center">
-              <h2 className="text-2xl font-semibold">{step.title}</h2>
-            </div>
-          )}
+          {(() => {
+            const videoUrl = step.videoUrl || step.combinedStep?.videoUrl
+            const videoSegments = step.videoUrl ? step.segments : step.combinedStep?.segments
+            const videoCaptionsEnabled = step.videoUrl ? step.captionsEnabled : step.combinedStep?.captionsEnabled
+            if (videoUrl) {
+              return (
+                <div className="w-full h-full flex items-center justify-center">
+                  <CaptionedVideo
+                    key={`desktop-${step.stepId}`}
+                    src={videoUrl}
+                    segments={videoSegments || []}
+                    captionsEnabled={videoCaptionsEnabled || false}
+                    captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
+                    autoPlay
+                    onEnded={handleVideoEnd}
+                    className="rounded-lg shadow-2xl"
+                    videoClassName="max-h-[100vh] w-auto max-w-full"
+                  />
+                </div>
+              )
+            }
+            return (
+              <div className="text-white text-center">
+                <h2 className="text-2xl font-semibold">{step.title}</h2>
+              </div>
+            )
+          })()}
         </div>
 
-        {/* Right: Questions */}
+        {/* Right: Questions — from main step or combined step */}
         <div className="w-[400px] bg-white flex flex-col justify-center p-8 overflow-y-auto">
-          {step.title && (
-            <h3 className="text-sm font-medium text-gray-400 mb-4 uppercase tracking-wide">{step.title}</h3>
-          )}
-          {renderQuestionContent(false)}
+          {(() => {
+            // If combined: show combined step's question/options
+            const cs = step.combinedStep
+            const questionStep = cs && (cs.stepType === 'question' || cs.options.length > 0) ? cs : null
+            const displayTitle = questionStep ? cs!.title : step.title
+            const displayQuestion = questionStep ? cs!.questionText : step.questionText
+            return (
+              <>
+                {displayTitle && <h3 className="text-sm font-medium text-gray-400 mb-4 uppercase tracking-wide">{displayTitle}</h3>}
+                {questionStep && displayQuestion && <h3 className="text-lg font-semibold text-gray-900 mb-4">{displayQuestion}</h3>}
+                {questionStep ? (
+                  <div className="space-y-2.5 max-w-md mx-auto">
+                    {questionStep.options.map(opt => (
+                      <button
+                        key={opt.optionId}
+                        onClick={() => selectOption(opt)}
+                        disabled={submitting || (!showOptions && !!step.videoUrl)}
+                        className={`w-full py-3 px-5 rounded-xl border-2 text-left transition-all border-gray-200 hover:border-brand-500 hover:bg-brand-50 text-gray-900 ${submitting ? 'opacity-50' : ''} ${!showOptions && step.videoUrl ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        <span className="font-medium text-sm">{opt.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  renderQuestionContent(false)
+                )}
+              </>
+            )
+          })()}
         </div>
       </div>
       )}
