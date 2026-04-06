@@ -133,7 +133,7 @@ export default function FlowBuilderPage() {
   const [addStepTitle, setAddStepTitle] = useState('')
   const [addStepVideoId, setAddStepVideoId] = useState('')
   const [addStepQuestion, setAddStepQuestion] = useState('')
-  const [addStepOptions, setAddStepOptions] = useState(['', ''])
+  const [addStepOptions, setAddStepOptions] = useState<Array<{ text: string; nextStepId: string | null }>>([{ text: '', nextStepId: null }, { text: '', nextStepId: null }])
   const [addStepQuestionType, setAddStepQuestionType] = useState('single')
   const [addStepFormFields, setAddStepFormFields] = useState([
     { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
@@ -185,7 +185,7 @@ export default function FlowBuilderPage() {
     setAddStepTitle('')
     setAddStepVideoId('')
     setAddStepQuestion('')
-    setAddStepOptions(['', ''])
+    setAddStepOptions([{ text: '', nextStepId: null }, { text: '', nextStepId: null }])
     setAddStepQuestionType('single')
     setAddStepInfoText('')
     setAddStepImageUrl(null)
@@ -273,7 +273,7 @@ export default function FlowBuilderPage() {
       config.title = addStepTitle.trim() || addStepQuestion || 'Question'
       config.questionText = addStepQuestion
       config.questionType = addStepQuestionType
-      config.options = addStepOptions.filter(o => o.trim())
+      config.options = addStepOptions.filter(o => o.text.trim()).map(o => ({ text: o.text, nextStepId: o.nextStepId }))
     } else if (addStepType === 'form') {
       config.title = addStepTitle.trim() || 'Application Form'
       config.formConfig = { fields: addStepFormFields }
@@ -1523,19 +1523,23 @@ export default function FlowBuilderPage() {
                         {addStepOptions.map((opt, i) => (
                           <div key={i} className="space-y-1">
                             <div className="flex gap-2">
-                              <input type="text" value={opt} onChange={(e) => { const n = [...addStepOptions]; n[i] = e.target.value; setAddStepOptions(n) }} placeholder={`Option ${i + 1}`} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                              <input type="text" value={opt.text} onChange={(e) => { const n = [...addStepOptions]; n[i] = { ...n[i], text: e.target.value }; setAddStepOptions(n) }} placeholder={`Option ${i + 1}`} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500" />
                               {addStepOptions.length > 2 && (
                                 <button onClick={() => setAddStepOptions(addStepOptions.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm px-2">&times;</button>
                               )}
                             </div>
-                            <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[6px] text-grey-40">
+                            <select
+                              value={opt.nextStepId || ''}
+                              onChange={(e) => { const n = [...addStepOptions]; n[i] = { ...n[i], nextStepId: e.target.value || null }; setAddStepOptions(n) }}
+                              className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[6px] text-grey-40"
+                            >
                               <option value="">→ Next step (auto)</option>
                               <option value="__end__">→ End</option>
                               {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
                             </select>
                           </div>
                         ))}
-                        <button onClick={() => setAddStepOptions([...addStepOptions, ''])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add option</button>
+                        <button onClick={() => setAddStepOptions([...addStepOptions, { text: '', nextStepId: null }])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add option</button>
                       </div>
                     </div>
                   )}

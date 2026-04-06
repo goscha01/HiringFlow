@@ -46,8 +46,9 @@ export async function POST(
         // Create answer options if provided
         ...(options && Array.isArray(options) && options.length > 0 && {
           options: {
-            create: options.map((optText: string) => ({
-              optionText: optText,
+            create: options.map((opt: string | { text: string; nextStepId?: string | null }) => ({
+              optionText: typeof opt === 'string' ? opt : opt.text,
+              ...(typeof opt === 'object' && opt.nextStepId ? { nextStepId: opt.nextStepId } : {}),
             })),
           },
         }),
