@@ -148,6 +148,7 @@ export default function FlowBuilderPage() {
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
   const [stepVideoProgress, setStepVideoProgress] = useState(0)
   const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
+  const [combineAfterCreateId, setCombineAfterCreateId] = useState<string | null>(null)
   const [titleWarning, setTitleWarning] = useState(false)
   const stepVideoInputRef = useRef<HTMLInputElement>(null)
 
@@ -174,7 +175,17 @@ export default function FlowBuilderPage() {
     if (res.ok) {
       const newStep = await res.json()
       setShowAddStepModal(false)
-      // Re-fetch full flow to get video data on steps
+
+      // Auto-combine if triggered from Combine dropdown
+      if (combineAfterCreateId) {
+        await fetch(`/api/steps/${combineAfterCreateId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ combinedWithId: newStep.id }),
+        })
+        setCombineAfterCreateId(null)
+      }
+
       await fetchFlow()
       setSelectedStepId(newStep.id)
     }
@@ -606,7 +617,7 @@ export default function FlowBuilderPage() {
           <select
             value=""
             onChange={(e) => {
-              if (e.target.value === '__create__') { setCombineEnabled(false); addStep(); return }
+              if (e.target.value === '__create__') { setCombineEnabled(false); setCombineAfterCreateId(step.id); addStep(); return }
               if (e.target.value) { updateStep(step.id, { combinedWithId: e.target.value } as any); setCombineEnabled(false) }
             }}
             className="w-full px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500"
@@ -1337,7 +1348,7 @@ export default function FlowBuilderPage() {
 
       {/* Add Step Modal */}
       {showAddStepModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowAddStepModal(false)}>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => { setShowAddStepModal(false); setCombineAfterCreateId(null) }}>
           <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 pb-0">
               <div className="flex items-center gap-3">
