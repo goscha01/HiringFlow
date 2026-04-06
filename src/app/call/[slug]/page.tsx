@@ -58,61 +58,66 @@ export default function CandidateCallPage() {
   }, [agentId, candidateName])
 
   return (
-    <div className="min-h-screen bg-[#1a1a1a] flex flex-col" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
+    <div className="min-h-screen bg-white flex flex-col" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
       <Script src="https://elevenlabs.io/convai-widget/index.js" strategy="afterInteractive" />
 
       {/* Header */}
-      <div className="bg-[#262626] border-b border-[#333] px-6 py-3 flex items-center justify-between">
+      <div className="bg-white border-b border-[#F1F1F3] px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-[#FF9500] rounded-[6px] flex items-center justify-center">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-white">{candidateName ? `${candidateName} — AI Call` : 'AI Voice Call'}</h1>
-            <p className="text-[11px] text-[#888]">Powered by HireFunnel</p>
+            <h1 className="text-sm font-semibold text-[#262626]">{candidateName ? `${candidateName} — AI Call` : 'AI Voice Call'}</h1>
+            <p className="text-[11px] text-[#8A8A8C]">Powered by HireFunnel</p>
           </div>
         </div>
       </div>
 
-      {/* Widget embedded full page */}
-      <div className="flex-1 relative" ref={widgetContainerRef}>
+      {/* Widget embedded centered */}
+      <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef}>
         {/* Widget will be inserted here */}
       </div>
 
-      {/* Override widget styles to make it embedded, not floating */}
+      {/* Override widget styles — white bg, centered, orange buttons */}
       <style jsx global>{`
-        /* Remove floating positioning from the widget */
         elevenlabs-convai {
-          position: absolute !important;
-          inset: 0 !important;
-          width: 100% !important;
-          height: 100% !important;
-          max-width: 100% !important;
-          max-height: 100% !important;
+          position: relative !important;
+          width: 400px !important;
+          height: 500px !important;
+          max-width: 90vw !important;
+          max-height: 80vh !important;
           bottom: auto !important;
           right: auto !important;
+          left: auto !important;
+          top: auto !important;
           z-index: 1 !important;
         }
 
-        /* Make the widget's internal container fill the space */
         elevenlabs-convai::part(widget) {
           width: 100% !important;
           height: 100% !important;
           max-width: 100% !important;
           max-height: 100% !important;
-          border-radius: 0 !important;
-          position: absolute !important;
-          inset: 0 !important;
+          border-radius: 16px !important;
+          background: white !important;
+          box-shadow: 0 4px 24px rgba(0,0,0,0.08) !important;
+          border: 1px solid #F1F1F3 !important;
         }
 
-        /* Target shadow DOM elements via general styles */
-        elevenlabs-convai div[class*="widget"],
-        elevenlabs-convai > div {
-          width: 100% !important;
-          height: 100% !important;
-          max-width: 100% !important;
-          max-height: 100% !important;
-          border-radius: 0 !important;
+        /* Orange start/action button */
+        elevenlabs-convai button[class*="start"],
+        elevenlabs-convai button[class*="action"],
+        elevenlabs-convai button[class*="call"] {
+          background: #FF9500 !important;
+          border-color: #FF9500 !important;
+          color: white !important;
+        }
+
+        elevenlabs-convai button[class*="start"]:hover,
+        elevenlabs-convai button[class*="action"]:hover,
+        elevenlabs-convai button[class*="call"]:hover {
+          background: #EA8500 !important;
         }
       `}</style>
     </div>
