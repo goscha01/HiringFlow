@@ -1,88 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// GET — fetch call config + candidate's call history
+// GET — fetch the latest conversation evaluation for this agent
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
-  const candidateEmail = request.nextUrl.searchParams.get('email')
+  const agentId = params.slug
 
-  const config = await prisma.aICallConfig.findUnique({
-    where: { slug: params.slug },
+  // Get platform API key
+  const platformKey = await prisma.platformSetting.findUnique({ where: { key: 'elevenlabs_api_key' } })
+  if (!platformKey?.value) {
+    return NextResponse.json({ error: 'Not configured' }, { status: 400 })
+  }
+
+  // Fetch latest conversations for this agent
+  const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations?agent_id=${agentId}&page_size=1`, {
+    headers: { 'xi-api-key': platformKey.value },
   })
 
-  if (!config || !config.isActive) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!res.ok) {
+    return NextResponse.json({ error: 'Failed to fetch' }, { status: res.status })
   }
 
-  let calls: any[] = []
-  if (candidateEmail) {
-    calls = await prisma.aICall.findMany({
-      where: { configId: config.id, candidateEmail },
-      orderBy: { createdAt: 'asc' },
-    })
+  const data = await res.json()
+  const latest = data.conversations?.[0]
+
+  if (!latest) {
+    return NextResponse.json({ error: 'No conversations found' }, { status: 404 })
   }
+
+  // Fetch full detail with evaluation
+  const detailRes = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${latest.conversation_id}`, {
+    headers: { 'xi-api-key': platformKey.value },
+  })
+
+  if (!detailRes.ok) {
+    return NextResponse.json({ error: 'Failed to fetch detail' }, { status: detailRes.status })
+  }
+
+  const detail = await detailRes.json()
 
   return NextResponse.json({
-    id: config.id,
-    name: config.name,
-    agentId: config.agentId,
-    requiredCalls: config.requiredCalls,
-    completedCalls: calls.filter(c => c.status === 'completed').length,
-    calls,
+    conversation_id: detail.conversation_id,
+    status: detail.status,
+    duration: detail.call_duration_secs,
+    analysis: detail.analysis || null,
   })
-}
-
-// POST — log a call event (start, complete)
-export async function POST(request: NextRequest, { params }: { params: { slug: string } }) {
-  const config = await prisma.aICallConfig.findUnique({ where: { slug: params.slug } })
-  if (!config || !config.isActive) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
-  const { action, candidateName, candidateEmail, callId, durationSecs, transcript, evaluation } = await request.json()
-
-  if (action === 'start') {
-    // Count existing calls for this candidate
-    const existing = await prisma.aICall.count({
-      where: { configId: config.id, candidateEmail },
-    })
-
-    const call = await prisma.aICall.create({
-      data: {
-        configId: config.id,
-        candidateName,
-        candidateEmail,
-        callNumber: existing + 1,
-        status: 'in_progress',
-        startedAt: new Date(),
-      },
-    })
-
-    return NextResponse.json({ callId: call.id, callNumber: call.callNumber })
-  }
-
-  if (action === 'complete' && callId) {
-    const call = await prisma.aICall.update({
-      where: { id: callId },
-      data: {
-        status: 'completed',
-        completedAt: new Date(),
-        durationSecs: durationSecs || null,
-        transcript: transcript || null,
-        evaluation: evaluation || null,
-      },
-    })
-
-    const completedCount = await prisma.aICall.count({
-      where: { configId: config.id, candidateEmail, status: 'completed' },
-    })
-
-    return NextResponse.json({
-      callId: call.id,
-      completedCalls: completedCount,
-      requiredCalls: config.requiredCalls,
-      allDone: completedCount >= config.requiredCalls,
-    })
-  }
-
-  return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
 }

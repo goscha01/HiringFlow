@@ -2,7 +2,19 @@
 
 import { useParams, useSearchParams } from 'next/navigation'
 import Script from 'next/script'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+interface EvalResult {
+  conversation_id: string
+  status: string
+  duration: number
+  analysis: {
+    call_successful: string | null
+    transcript_summary: string | null
+    evaluation_criteria_results: Record<string, { criteria_id: string; result: string; rationale: string }>
+    data_collection_results: Record<string, { value: string; rationale: string }>
+  } | null
+}
 
 export default function CandidateCallPage() {
   const params = useParams()
@@ -10,18 +22,19 @@ export default function CandidateCallPage() {
   const agentId = params.slug as string
   const candidateName = searchParams.get('name') || ''
   const widgetContainerRef = useRef<HTMLDivElement>(null)
+  const [showResults, setShowResults] = useState(false)
+  const [results, setResults] = useState<EvalResult | null>(null)
+  const [loadingResults, setLoadingResults] = useState(false)
+  const [resultError, setResultError] = useState('')
 
   useEffect(() => {
-    // Create widget element after script loads
     const createWidget = () => {
       if (!widgetContainerRef.current) return
-      // Remove existing widget if any
       const existing = widgetContainerRef.current.querySelector('elevenlabs-convai')
       if (existing) existing.remove()
 
       const widget = document.createElement('elevenlabs-convai')
       widget.setAttribute('agent-id', agentId)
-      widget.setAttribute('variant', 'expanded')
       widget.setAttribute('avatar-orb-color-1', '#FF9500')
       widget.setAttribute('avatar-orb-color-2', '#EA8500')
       widget.setAttribute('action-text', 'Start Call')
@@ -32,30 +45,52 @@ export default function CandidateCallPage() {
       if (candidateName) {
         widget.setAttribute('dynamic-variables', JSON.stringify({ candidate_name: candidateName }))
       }
-      // Make it fill the container
-      widget.style.width = '100%'
-      widget.style.height = '100%'
-      widget.style.maxWidth = '100%'
-      widget.style.position = 'absolute'
-      widget.style.inset = '0'
 
       widgetContainerRef.current.appendChild(widget)
     }
 
-    // Check if script already loaded
-    if ((window as any).ElevenLabsConvai || document.querySelector('elevenlabs-convai')) {
-      createWidget()
-    } else {
-      // Wait for script
-      const interval = setInterval(() => {
-        if (customElements.get('elevenlabs-convai')) {
-          clearInterval(interval)
-          createWidget()
-        }
-      }, 100)
-      return () => clearInterval(interval)
-    }
+    const interval = setInterval(() => {
+      if (customElements.get('elevenlabs-convai')) {
+        clearInterval(interval)
+        createWidget()
+      }
+    }, 100)
+    return () => clearInterval(interval)
   }, [agentId, candidateName])
+
+  const fetchResults = async () => {
+    setLoadingResults(true)
+    setResultError('')
+    try {
+      // Wait a few seconds for ElevenLabs to process the evaluation
+      await new Promise(r => setTimeout(r, 3000))
+
+      const res = await fetch(`/api/public/ai-calls/${agentId}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.analysis) {
+          setResults(data)
+          setShowResults(true)
+        } else {
+          // Analysis not ready yet, try once more
+          await new Promise(r => setTimeout(r, 5000))
+          const res2 = await fetch(`/api/public/ai-calls/${agentId}`)
+          if (res2.ok) {
+            const data2 = await res2.json()
+            setResults(data2)
+            setShowResults(true)
+          }
+        }
+      } else {
+        setResultError('Could not load results. Please try again.')
+      }
+    } catch {
+      setResultError('Failed to load results.')
+    }
+    setLoadingResults(false)
+  }
+
+  const formatDuration = (s: number) => s ? `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}` : '—'
 
   return (
     <div className="min-h-screen bg-white flex flex-col" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
@@ -72,14 +107,112 @@ export default function CandidateCallPage() {
             <p className="text-[11px] text-[#8A8A8C]">Powered by HireFunnel</p>
           </div>
         </div>
+        {!showResults && (
+          <button
+            onClick={fetchResults}
+            disabled={loadingResults}
+            className="px-4 py-2 text-xs font-medium rounded-[8px] bg-[#FF9500] text-white hover:bg-[#EA8500] disabled:opacity-50 transition-colors"
+          >
+            {loadingResults ? 'Loading...' : 'See My Results'}
+          </button>
+        )}
       </div>
 
-      {/* Widget embedded centered */}
-      <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef}>
-        {/* Widget will be inserted here */}
-      </div>
+      {/* Results view */}
+      {showResults && results ? (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-lg mx-auto space-y-4">
+            {/* Overall result */}
+            <div className="bg-white rounded-[16px] border border-[#F1F1F3] p-8 text-center shadow-sm">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                results.analysis?.call_successful === 'success' ? 'bg-green-50' :
+                results.analysis?.call_successful === 'failure' ? 'bg-red-50' : 'bg-gray-50'
+              }`}>
+                {results.analysis?.call_successful === 'success' ? (
+                  <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                ) : results.analysis?.call_successful === 'failure' ? (
+                  <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                ) : (
+                  <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                )}
+              </div>
+              <h2 className="text-2xl font-bold text-[#262626] mb-1">
+                {results.analysis?.call_successful === 'success' ? 'Great Job!' :
+                 results.analysis?.call_successful === 'failure' ? 'Needs Improvement' : 'Call Complete'}
+              </h2>
+              <p className="text-sm text-[#59595A]">Call duration: {formatDuration(results.duration)}</p>
+            </div>
 
-      {/* Override widget styles — centered, large, white bg */}
+            {/* Summary */}
+            {results.analysis?.transcript_summary && (
+              <div className="bg-white rounded-[12px] border border-[#F1F1F3] p-6">
+                <h3 className="text-sm font-semibold text-[#262626] mb-2">Summary</h3>
+                <p className="text-sm text-[#59595A] leading-relaxed">{results.analysis.transcript_summary}</p>
+              </div>
+            )}
+
+            {/* Criteria */}
+            {results.analysis?.evaluation_criteria_results && Object.keys(results.analysis.evaluation_criteria_results).length > 0 && (
+              <div className="bg-white rounded-[12px] border border-[#F1F1F3] p-6">
+                <h3 className="text-sm font-semibold text-[#262626] mb-3">Evaluation</h3>
+                <div className="space-y-3">
+                  {Object.entries(results.analysis.evaluation_criteria_results).map(([key, val]) => (
+                    <div key={key} className="flex items-start gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        val.result === 'success' ? 'bg-green-100' : val.result === 'failure' ? 'bg-red-100' : 'bg-gray-100'
+                      }`}>
+                        {val.result === 'success' ? (
+                          <svg className="w-3.5 h-3.5 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                        ) : val.result === 'failure' ? (
+                          <svg className="w-3.5 h-3.5 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-gray-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-[#262626]">{val.criteria_id || key}</div>
+                        {val.rationale && <p className="text-xs text-[#8A8A8C] mt-0.5">{val.rationale}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Collected data */}
+            {results.analysis?.data_collection_results && Object.keys(results.analysis.data_collection_results).length > 0 && (
+              <div className="bg-white rounded-[12px] border border-[#F1F1F3] p-6">
+                <h3 className="text-sm font-semibold text-[#262626] mb-3">Your Responses</h3>
+                <div className="space-y-2">
+                  {Object.entries(results.analysis.data_collection_results).map(([key, val]) => (
+                    <div key={key} className="bg-[#F7F7F8] rounded-[8px] p-3">
+                      <div className="text-xs text-[#8A8A8C]">{key}</div>
+                      <div className="text-sm text-[#262626] font-medium">{val.value || '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Done */}
+            <div className="text-center pt-4 pb-8">
+              <p className="text-sm text-[#8A8A8C]">Thank you{candidateName ? `, ${candidateName}` : ''}! You can close this page.</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Widget area */}
+          <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef} />
+
+          {resultError && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 rounded-[8px] px-4 py-2">
+              <p className="text-xs text-red-700">{resultError}</p>
+            </div>
+          )}
+        </>
+      )}
+
       <style jsx global>{`
         elevenlabs-convai {
           position: relative !important;
