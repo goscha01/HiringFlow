@@ -45,6 +45,7 @@ export default function AutomationsPage() {
   const [nextStepUrl, setNextStepUrl] = useState('')
   const [trainingId, setTrainingId] = useState('')
   const [schedulingConfigId, setSchedulingConfigId] = useState('')
+  const [delayMinutes, setDelayMinutes] = useState(0)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -64,12 +65,13 @@ export default function AutomationsPage() {
   const openCreate = () => {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
     setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
-    setTrainingId(''); setSchedulingConfigId(''); setShowModal(true)
+    setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0); setShowModal(true)
   }
   const openEdit = (r: Rule) => {
     setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || '')
     setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
-    setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || ''); setShowModal(true)
+    setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
+    setDelayMinutes((r as any).delayMinutes || 0); setShowModal(true)
   }
 
   const save = async () => {
@@ -83,6 +85,7 @@ export default function AutomationsPage() {
       nextStepUrl: null as string | null,
       trainingId: nextStepType === 'training' ? (trainingId || null) : null,
       schedulingConfigId: nextStepType === 'scheduling' ? (schedulingConfigId || null) : null,
+      delayMinutes,
     }
     if (editing) {
       await fetch(`/api/automations/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -139,6 +142,7 @@ export default function AutomationsPage() {
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Flow</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Template</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Next Step</th>
+                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Delay</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Sent</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Status</th>
                 <th className="px-5 py-3 text-right text-xs font-medium text-grey-40 uppercase">Actions</th>
@@ -157,6 +161,13 @@ export default function AutomationsPage() {
                     ) : r.nextStepType === 'scheduling' && r.schedulingConfig ? (
                       <span className="text-xs px-2 py-1 rounded bg-purple-50 text-purple-700 font-medium">{r.schedulingConfig.name}</span>
                     ) : r.nextStepType || '—'}
+                  </td>
+                  <td className="px-5 py-4 text-xs text-grey-40">
+                    {(r as any).delayMinutes > 0 ? (
+                      (r as any).delayMinutes >= 1440 ? `${Math.round((r as any).delayMinutes / 1440)}d` :
+                      (r as any).delayMinutes >= 60 ? `${Math.round((r as any).delayMinutes / 60)}h` :
+                      `${(r as any).delayMinutes}m`
+                    ) : 'Instant'}
                   </td>
                   <td className="px-5 py-4 text-sm font-medium text-grey-15">{r._count.executions}</td>
                   <td className="px-5 py-4">
@@ -240,6 +251,26 @@ export default function AutomationsPage() {
                   <p className="text-xs text-grey-40 mt-1">Link clicks are tracked. Candidate status updates to &quot;invited to schedule&quot;.</p>
                 </div>
               )}
+              {/* Delay */}
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Delay</label>
+                <div className="flex gap-2">
+                  {[
+                    { value: 0, label: 'Immediately' },
+                    { value: 15, label: '15 min' },
+                    { value: 60, label: '1 hour' },
+                    { value: 360, label: '6 hours' },
+                    { value: 1440, label: '1 day' },
+                    { value: 4320, label: '3 days' },
+                    { value: 10080, label: '7 days' },
+                  ].map(d => (
+                    <button key={d.value} onClick={() => setDelayMinutes(d.value)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${delayMinutes === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                {delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Email will be sent {delayMinutes >= 1440 ? `${Math.round(delayMinutes / 1440)} day${delayMinutes >= 2880 ? 's' : ''}` : delayMinutes >= 60 ? `${Math.round(delayMinutes / 60)} hour${delayMinutes >= 120 ? 's' : ''}` : `${delayMinutes} minutes`} after trigger.</p>}
+              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>

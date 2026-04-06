@@ -28,6 +28,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(body.nextStepUrl !== undefined && { nextStepUrl: body.nextStepUrl || null }),
       ...(body.trainingId !== undefined && { trainingId: body.trainingId || null }),
       ...(body.schedulingConfigId !== undefined && { schedulingConfigId: body.schedulingConfigId || null }),
+      ...(body.delayMinutes !== undefined && { delayMinutes: body.delayMinutes || 0 }),
       ...(body.isActive !== undefined && { isActive: body.isActive }),
     },
   })

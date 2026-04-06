@@ -475,6 +475,7 @@ model AutomationRule {
   training        Training?           @relation(fields: [trainingId], references: [id])
   schedulingConfigId String?          @map("scheduling_config_id")
   schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
+  delayMinutes    Int                 @default(0) @map("delay_minutes") // 0 = immediate
   isActive        Boolean             @default(true) @map("is_active")
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")
