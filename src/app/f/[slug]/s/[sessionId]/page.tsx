@@ -24,6 +24,7 @@ interface FormField {
   enabled: boolean
   required: boolean
   isBuiltIn?: boolean
+  options?: string[]
 }
 
 interface CombinedStepData {
@@ -261,6 +262,39 @@ export default function SessionPlayerPage() {
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
                     placeholder={field.label}
                   />
+                ) : field.type === 'radio' && field.options ? (
+                  <div className="space-y-2">
+                    {field.options.map((opt, j) => (
+                      <label key={j} className={`flex items-center w-full px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${formValues[field.id] === opt ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <input type="radio" name={field.id} value={opt} checked={formValues[field.id] === opt} onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })} className="mr-3 accent-[#FF9500]" />
+                        <span className="text-sm text-gray-900">{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : field.type === 'multiselect' && field.options ? (
+                  <div className="space-y-2">
+                    {field.options.map((opt, j) => {
+                      const selected = (formValues[field.id] || '').split(',').filter(Boolean)
+                      const isChecked = selected.includes(opt)
+                      return (
+                        <label key={j} className={`flex items-center w-full px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${isChecked ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                          <input type="checkbox" checked={isChecked} onChange={() => {
+                            const next = isChecked ? selected.filter(s => s !== opt) : [...selected, opt]
+                            setFormValues({ ...formValues, [field.id]: next.join(',') })
+                          }} className="mr-3 accent-[#FF9500]" />
+                          <span className="text-sm text-gray-900">{opt}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ) : field.type === 'button' && field.options ? (
+                  <div className="flex flex-wrap gap-2">
+                    {field.options.map((opt, j) => (
+                      <button key={j} type="button" onClick={() => setFormValues({ ...formValues, [field.id]: opt })} className={`px-5 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${formValues[field.id] === opt ? 'border-brand-500 bg-brand-500 text-white' : 'border-gray-200 text-gray-900 hover:border-brand-400'}`}>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
                 ) : (
                   <input
                     type={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : 'text'}
