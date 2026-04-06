@@ -20,6 +20,8 @@ interface ConversationDetail {
   } | null
 }
 
+interface AgentCriteria { id: string; name: string; prompt: string }
+
 export default function CandidateCallPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -31,6 +33,15 @@ export default function CandidateCallPage() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [selectedConv, setSelectedConv] = useState<ConversationDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [agentName, setAgentName] = useState('')
+  const [criteria, setCriteria] = useState<AgentCriteria[]>([])
+
+  // Fetch agent criteria on mount
+  useEffect(() => {
+    fetch(`/api/public/ai-calls/${agentId}/agent`).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) { setAgentName(d.name || ''); setCriteria(d.criteria || []) }
+    }).catch(() => {})
+  }, [agentId])
 
   useEffect(() => {
     const createWidget = () => {
@@ -93,7 +104,7 @@ export default function CandidateCallPage() {
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-[#262626]">{candidateName ? `${candidateName} — AI Call` : 'AI Voice Call'}</h1>
+            <h1 className="text-sm font-semibold text-[#262626]">{candidateName ? `${candidateName} — ${agentName || 'AI Call'}` : agentName || 'AI Voice Call'}</h1>
             <p className="text-[11px] text-[#8A8A8C]">Powered by HireFunnel</p>
           </div>
         </div>
@@ -111,7 +122,31 @@ export default function CandidateCallPage() {
 
       {/* Call tab */}
       {tab === 'call' && (
-        <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef} />
+        <div className="flex-1 flex flex-col">
+          {/* Task summary — evaluation criteria */}
+          {criteria.length > 0 && (
+            <div className="bg-[#FFF7ED] border-b border-[#FFEDD5] px-6 py-4">
+              <div className="max-w-2xl mx-auto">
+                <h3 className="text-sm font-semibold text-[#262626] mb-2">
+                  {agentName ? `${agentName} — ` : ''}What you&apos;ll be evaluated on:
+                </h3>
+                <div className="space-y-1.5">
+                  {criteria.map((c, i) => (
+                    <div key={c.id || i} className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-[#FF9500] text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                      <div>
+                        <span className="text-sm font-medium text-[#262626]">{c.name}</span>
+                        {c.prompt && <p className="text-xs text-[#8A8A8C] mt-0.5">{c.prompt}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Widget */}
+          <div className="flex-1 relative flex items-center justify-center" ref={widgetContainerRef} />
+        </div>
       )}
 
       {/* History tab */}
