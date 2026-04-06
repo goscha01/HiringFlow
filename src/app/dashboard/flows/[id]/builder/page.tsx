@@ -322,6 +322,10 @@ export default function FlowBuilderPage() {
       body: JSON.stringify(data),
     })
     if (res.ok) {
+      // Re-fetch full flow to ensure all dropdowns show fresh data
+      if (data.title !== undefined) {
+        await fetchFlow()
+      } else {
       const updated = await res.json()
       setFlow((f) =>
         f
@@ -331,6 +335,7 @@ export default function FlowBuilderPage() {
             }
           : null
       )
+      }
     }
     setSaving(false)
   }
