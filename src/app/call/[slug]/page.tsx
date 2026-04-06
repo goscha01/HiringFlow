@@ -75,7 +75,11 @@ export default function CandidateCallPage() {
 
   const fetchHistory = async () => {
     setLoadingHistory(true)
-    const r = await fetch(`/api/public/ai-calls/${agentId}`)
+    // Fetch only this candidate's conversations if name is provided
+    const url = candidateName
+      ? `/api/public/ai-calls/${agentId}/link?name=${encodeURIComponent(candidateName)}`
+      : `/api/public/ai-calls/${agentId}`
+    const r = await fetch(url)
     if (r.ok) {
       const data = await r.json()
       setConversations(data.conversations || [])

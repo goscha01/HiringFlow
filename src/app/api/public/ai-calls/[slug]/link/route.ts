@@ -40,14 +40,23 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     })
 
     if (candidate && candidate.conversationIds.length > 0) {
-      // Fetch detail for each conversation
+      // Fetch detail for each conversation and normalize to list format
       const convDetails = await Promise.all(
         candidate.conversationIds.map(async (cid) => {
           const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${cid}`, {
             headers: { 'xi-api-key': platformKey.value },
           })
-          if (r.ok) return r.json()
-          return null
+          if (!r.ok) return null
+          const d = await r.json()
+          return {
+            conversation_id: d.conversation_id,
+            status: d.status,
+            start_time_unix_secs: d.metadata?.start_time_unix_secs || Math.floor(new Date(d.metadata?.created_at || 0).getTime() / 1000),
+            call_duration_secs: d.call_duration_secs || 0,
+            message_count: d.transcript?.length || 0,
+            call_successful: d.analysis?.call_successful || null,
+            transcript_summary: d.analysis?.transcript_summary || null,
+          }
         })
       )
       return NextResponse.json({ conversations: convDetails.filter(Boolean) })
