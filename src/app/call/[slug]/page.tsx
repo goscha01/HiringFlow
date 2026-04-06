@@ -213,8 +213,6 @@ export default function CandidateCallPage() {
             )
           })()}
 
-          {/* Widget — small floating bottom-right */}
-          <div ref={widgetContainerRef} className="fixed bottom-0 right-0 z-50" />
         </div>
       )}
 
@@ -379,8 +377,10 @@ export default function CandidateCallPage() {
         </div>
       )}
 
+      {/* Widget — always present, floating bottom-right */}
+      <div ref={widgetContainerRef} className="fixed bottom-4 right-4 z-50" />
+
       <style jsx global>{`
-        /* Let widget use its default floating style — bottom right */
         elevenlabs-convai {
           z-index: 50 !important;
         }
