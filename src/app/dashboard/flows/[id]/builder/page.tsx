@@ -977,7 +977,6 @@ export default function FlowBuilderPage() {
             <div
               key={`popup-${popupStepId}-${flow.steps.map(s => s.title).join(',')}`}
               className="absolute inset-0 flex items-center justify-center z-30 bg-black/30 backdrop-blur-[2px]"
-              onClick={() => setPopupStepId(null)}
             >
               <div
                 className="bg-white rounded-[12px] shadow-2xl border border-surface-border w-full max-w-[480px] max-h-[85vh] overflow-y-auto p-5"
@@ -1430,7 +1429,7 @@ export default function FlowBuilderPage() {
 
       {/* Add Step Modal */}
       {showAddStepModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => { setShowAddStepModal(false); setCombineAfterCreateId(null) }}>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
           <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[560px] max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 pb-0">
               <div className="flex items-center gap-3">
