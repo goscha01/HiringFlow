@@ -574,6 +574,7 @@ export default function FlowBuilderPage() {
               className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
             >
               <option value="">→ Next step (auto)</option>
+              <option value="__end__">→ Finish (end flow)</option>
               {flow?.steps.filter(s => s.id !== step.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
             </select>
           </div>
@@ -1068,7 +1069,8 @@ export default function FlowBuilderPage() {
                                     onChange={(e) => updateOption(opt.id, { nextStepId: e.target.value || null })}
                                     className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
                                   >
-                                    <option value="">→ End flow</option>
+                                    <option value="">→ Next step (auto)</option>
+                                    <option value="__end__">→ Finish (end flow)</option>
                                     {flow.steps.filter(s => s.id !== popupStep.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
                                   </select>
                                 </div>
@@ -1471,6 +1473,7 @@ export default function FlowBuilderPage() {
                         />
                         <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
                           <option value="">→ Next step (auto)</option>
+                          <option value="__end__">→ Finish (end flow)</option>
                           {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
                         </select>
                       </div>
