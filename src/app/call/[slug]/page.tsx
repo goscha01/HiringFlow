@@ -31,7 +31,6 @@ export default function CandidateCallPage() {
       widget.setAttribute('speaking-text', 'Speaking...')
       if (candidateName) {
         widget.setAttribute('dynamic-variables', JSON.stringify({ candidate_name: candidateName }))
-        widget.setAttribute('override-first-message', `Hi ${candidateName}! Welcome to your training call. How are you doing today?`)
       }
       // Make it fill the container
       widget.style.width = '100%'
