@@ -322,10 +322,6 @@ export default function FlowBuilderPage() {
       body: JSON.stringify(data),
     })
     if (res.ok) {
-      // Re-fetch full flow to ensure all dropdowns show fresh data
-      if (data.title !== undefined) {
-        await fetchFlow()
-      } else {
       const updated = await res.json()
       setFlow((f) =>
         f
@@ -335,7 +331,6 @@ export default function FlowBuilderPage() {
             }
           : null
       )
-      }
     }
     setSaving(false)
   }
@@ -965,9 +960,10 @@ export default function FlowBuilderPage() {
             onAddStep={addStep}
           />
 
-          {/* Popup editor overlay */}
+          {/* Popup editor overlay — key forces re-render on flow change */}
           {popupStepId && (
             <div
+              key={`popup-${popupStepId}-${flow.steps.map(s => s.title).join(',')}`}
               className="absolute inset-0 flex items-center justify-center z-30 bg-black/30 backdrop-blur-[2px]"
               onClick={() => setPopupStepId(null)}
             >
