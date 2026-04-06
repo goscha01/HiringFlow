@@ -229,17 +229,6 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              {nextStepType === 'email' && (
-                <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Follow-up Email Template</label>
-                  <select value={nextStepUrl || ''} onChange={(e) => setNextStepUrl(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Select template...</option>
-                    {templates.map(t => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
-                  </select>
-                  {templates.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/dashboard/content">Create a template first →</Link></p>}
-                  <p className="text-xs text-grey-40 mt-1">A follow-up email will be sent to the candidate as the next step. <Link href="/dashboard/content" className="text-brand-500 hover:text-brand-600">Manage templates →</Link></p>
-                </div>
-              )}
               {nextStepType === 'training' && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Training</label>
