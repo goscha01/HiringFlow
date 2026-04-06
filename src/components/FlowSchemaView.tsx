@@ -553,34 +553,35 @@ export default function FlowSchemaView({
       }
     }
 
-    // Single End connection — last step by order
+    // End connections — draw from any step that has terminal options (nextStepId === null)
     const endPos = positions[END_ID]
-    if (endPos && endStepId && endMessage !== '') {
-      const eStepPos = positions[endStepId]
-      if (eStepPos) {
-        const fromX = eStepPos.x + NODE_W
-        const fromY = eStepPos.y + NODE_H / 2
-        const toX = endPos.x
-        const toY = endPos.y + SPECIAL_H / 2
-        const isEndArrowSelected = selectedArrow?.kind === 'end'
-        drawConnection(ctx, fromX, fromY, toX, toY, '', false, isEndArrowSelected ? '#FF9500' : '#FF9500')
+    if (endPos && endMessage !== '') {
+      const toX = endPos.x
+      const toY = endPos.y + SPECIAL_H / 2
+      const terminalStepIds = new Set<string>()
 
-        if (isEndArrowSelected) {
-          // Drag handle at the card end
-          ctx.beginPath()
-          ctx.arc(fromX, fromY, 13, 0, Math.PI * 2)
-          ctx.fillStyle = '#FF9500'
-          ctx.fill()
-          ctx.strokeStyle = '#ffffff'
-          ctx.lineWidth = 2.5
-          ctx.stroke()
-          ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 10px system-ui'
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillText('\u2194', fromX, fromY)
+      // Find steps with options that have no nextStepId (terminal = goes to End)
+      for (const step of steps) {
+        const hasTerminalOption = step.options.some(o => !o.nextStepId)
+        const isLastStep = step.id === endStepId
+        if (hasTerminalOption || isLastStep) {
+          terminalStepIds.add(step.id)
         }
       }
+      // Also add last step if it has no options at all (submission steps)
+      if (endStepId && !terminalStepIds.has(endStepId)) {
+        const lastStep = steps.find(s => s.id === endStepId)
+        if (lastStep && lastStep.options.length === 0) terminalStepIds.add(endStepId)
+      }
+
+      terminalStepIds.forEach(stepId => {
+        const eStepPos = positions[stepId]
+        if (eStepPos) {
+          const fromX = eStepPos.x + NODE_W
+          const fromY = eStepPos.y + NODE_H / 2
+          drawConnection(ctx, fromX, fromY, toX, toY, '', false, '#FF9500')
+        }
+      })
     }
 
     // Draw in-progress connection or reconnection

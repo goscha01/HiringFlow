@@ -568,7 +568,7 @@ export default function FlowBuilderPage() {
               className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
             >
               <option value="">→ Next step (auto)</option>
-              <option value="__end__">→ Finish (end flow)</option>
+              <option value="__end__">→ End</option>
               {flow?.steps.filter(s => s.id !== step.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
             </select>
           </div>
@@ -1057,11 +1057,11 @@ export default function FlowBuilderPage() {
                                   </div>
                                   <select
                                     value={opt.nextStepId || ''}
-                                    onChange={(e) => updateOption(opt.id, { nextStepId: e.target.value || null })}
+                                    onChange={(e) => updateOption(opt.id, { nextStepId: e.target.value === '__end__' ? null : (e.target.value || null) })}
                                     className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
                                   >
                                     <option value="">→ Next step (auto)</option>
-                                    <option value="__end__">→ Finish (end flow)</option>
+                                    <option value="__end__">→ End</option>
                                     {flow.steps.filter(s => s.id !== popupStep.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
                                   </select>
                                 </div>
@@ -1464,7 +1464,7 @@ export default function FlowBuilderPage() {
                         />
                         <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
                           <option value="">→ Next step (auto)</option>
-                          <option value="__end__">→ Finish (end flow)</option>
+                          <option value="__end__">→ End</option>
                           {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
                         </select>
                       </div>
@@ -1521,18 +1521,28 @@ export default function FlowBuilderPage() {
                       <label className="block text-sm font-medium text-grey-20 mb-1.5">Answer Options</label>
                       <div className="space-y-2">
                         {addStepOptions.map((opt, i) => (
-                          <div key={i} className="flex gap-2">
-                            <input type="text" value={opt} onChange={(e) => { const n = [...addStepOptions]; n[i] = e.target.value; setAddStepOptions(n) }} placeholder={`Option ${i + 1}`} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                            {addStepOptions.length > 2 && (
-                              <button onClick={() => setAddStepOptions(addStepOptions.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm px-2">&times;</button>
-                            )}
+                          <div key={i} className="space-y-1">
+                            <div className="flex gap-2">
+                              <input type="text" value={opt} onChange={(e) => { const n = [...addStepOptions]; n[i] = e.target.value; setAddStepOptions(n) }} placeholder={`Option ${i + 1}`} className="flex-1 px-3 py-2 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                              {addStepOptions.length > 2 && (
+                                <button onClick={() => setAddStepOptions(addStepOptions.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm px-2">&times;</button>
+                              )}
+                            </div>
+                            <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[6px] text-grey-40">
+                              <option value="">→ Next step (auto)</option>
+                              <option value="__end__">→ End</option>
+                              {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                            </select>
                           </div>
                         ))}
                         <button onClick={() => setAddStepOptions([...addStepOptions, ''])} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add option</button>
                       </div>
                     </div>
                   )}
-                  <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Question Step</button>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setShowAddStepModal(false)} className="btn-secondary flex-1">Cancel</button>
+                    <button onClick={submitAddStep} className="btn-primary flex-1">Save</button>
+                  </div>
                 </div>
               )}
 

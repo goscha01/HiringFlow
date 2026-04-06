@@ -959,11 +959,11 @@ export default function StepEditorPanel({
                           />
                           <select
                             value={option.nextStepId || ''}
-                            onChange={(e) => onUpdateOption(option.id, { nextStepId: e.target.value || null })}
+                            onChange={(e) => onUpdateOption(option.id, { nextStepId: e.target.value === '__end__' ? null : (e.target.value || null) })}
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
                           >
                             <option value="">→ Next step (auto)</option>
-                            <option value="__end__">→ Finish (end flow)</option>
+                            <option value="__end__">→ End</option>
                             {allSteps.filter((s) => s.id !== step.id).map((s) => (
                               <option key={s.id} value={s.id}>→ {s.title}</option>
                             ))}
