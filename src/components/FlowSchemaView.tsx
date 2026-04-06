@@ -1194,17 +1194,17 @@ export default function FlowSchemaView({
     }
   }
 
-  // Attach wheel listener with { passive: false } to allow preventDefault
+  // Attach wheel listener to container (not canvas which has pointer-events: none)
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const container = containerRef.current
+    if (!container) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const delta = e.deltaY > 0 ? -0.08 : 0.08
       setScale((s) => Math.min(2, Math.max(0.3, s + delta)))
     }
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
+    container.addEventListener('wheel', onWheel, { passive: false })
+    return () => container.removeEventListener('wheel', onWheel)
   }, [])
 
   const getCursor = () => {
