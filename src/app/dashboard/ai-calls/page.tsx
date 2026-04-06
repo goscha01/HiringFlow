@@ -20,10 +20,12 @@ interface ConversationDetail {
   } | null
 }
 
+interface Agent { agent_id: string; name: string }
+
 export default function AICallsPage() {
+  const [agents, setAgents] = useState<Agent[]>([])
   const [agentId, setAgentId] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [agentName, setAgentName] = useState('')
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [candidateName, setCandidateName] = useState('')
@@ -37,22 +39,32 @@ export default function AICallsPage() {
   const [loadingDetail, setLoadingDetail] = useState(false)
 
   useEffect(() => {
-    fetch('/api/workspace/settings').then(r => r.json()).then(d => {
-      const s = (d.settings || {}) as Record<string, string>
-      if (s.elevenlabs_agent_id) { setAgentId(s.elevenlabs_agent_id); fetchConversations() }
+    Promise.all([
+      fetch('/api/workspace/settings').then(r => r.json()),
+      fetch('/api/ai-calls/agents').then(r => r.ok ? r.json() : []),
+    ]).then(([ws, agentList]) => {
+      setAgents(agentList)
+      const s = (ws.settings || {}) as Record<string, string>
+      if (s.elevenlabs_agent_id) {
+        setAgentId(s.elevenlabs_agent_id)
+        const found = agentList.find((a: Agent) => a.agent_id === s.elevenlabs_agent_id)
+        if (found) setAgentName(found.name)
+        fetchConversations()
+      }
       setLoading(false)
     })
   }, [])
 
-  const saveAgentId = async () => {
-    setSaving(true)
+  const selectAgent = async (id: string) => {
+    setAgentId(id)
+    const found = agents.find(a => a.agent_id === id)
+    setAgentName(found?.name || '')
     await fetch('/api/workspace/settings', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings: { elevenlabs_agent_id: agentId } }),
+      body: JSON.stringify({ settings: { elevenlabs_agent_id: id } }),
     })
-    setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000)
-    if (agentId) fetchConversations()
+    if (id) fetchConversations()
   }
 
   const fetchConversations = async () => {
@@ -99,43 +111,41 @@ export default function AICallsPage() {
         )}
       </div>
 
-      {/* Agent config — compact */}
-      {!agentId ? (
-        <div className="bg-white rounded-[12px] border border-surface-border p-6 max-w-lg mb-6">
-          <h3 className="text-lg font-semibold text-grey-15 mb-3">Connect Your Agent</h3>
-          <div>
-            <label className="block text-sm font-medium text-grey-20 mb-1.5">ElevenLabs Agent ID</label>
-            <div className="flex gap-2">
-              <input type="text" value={agentId} onChange={e => setAgentId(e.target.value)} placeholder="agent_xxx" className="flex-1 px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-              <button onClick={saveAgentId} disabled={!agentId.trim()} className="btn-primary px-6 disabled:opacity-50">{saved ? 'Saved!' : 'Save'}</button>
-            </div>
-            <p className="text-xs text-grey-50 mt-1">From your ElevenLabs dashboard. API key is set by platform admin.</p>
+      {/* Agent selector + candidate link */}
+      <div className="bg-white rounded-[12px] border border-surface-border p-5 mb-6">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-grey-20 mb-1">Agent</label>
+            <select
+              value={agentId}
+              onChange={(e) => selectAgent(e.target.value)}
+              className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">Select an agent...</option>
+              {agents.map(a => <option key={a.agent_id} value={a.agent_id}>{a.name}</option>)}
+            </select>
           </div>
         </div>
-      ) : (
-        <>
-          {/* Generate candidate link */}
-          <div className="bg-white rounded-[12px] border border-surface-border p-5 mb-6">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-grey-20 mb-1">Create link for candidate</label>
-                <div className="flex gap-2">
-                  <input type="text" value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Candidate name" className="flex-1 px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                  <button
-                    onClick={() => candidateLink && copyLink(candidateLink, setCandidateCopied)}
-                    disabled={!candidateName.trim()}
-                    className={`px-4 py-2 text-xs font-medium rounded-[8px] disabled:opacity-50 ${candidateCopied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}
-                  >
-                    {candidateCopied ? 'Copied!' : 'Copy Link'}
-                  </button>
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="text-xs text-grey-50 block">Agent</span>
-                <button onClick={() => { setAgentId(''); }} className="text-xs text-grey-40 font-mono">{agentId.slice(0, 20)}... <span className="text-brand-500 ml-1">change</span></button>
-              </div>
+
+        {agentId && (
+          <div className="pt-4 border-t border-surface-border">
+            <label className="block text-xs font-medium text-grey-20 mb-1">Create call link for candidate</label>
+            <div className="flex gap-2">
+              <input type="text" value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Candidate name" className="flex-1 px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              <button
+                onClick={() => candidateLink && copyLink(candidateLink, setCandidateCopied)}
+                disabled={!candidateName.trim()}
+                className={`px-5 py-2.5 text-xs font-medium rounded-[8px] disabled:opacity-50 ${candidateCopied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}
+              >
+                {candidateCopied ? 'Copied!' : 'Copy Link'}
+              </button>
             </div>
           </div>
+        )}
+      </div>
+
+      {agentId && (
+        <>
 
           {/* Conversations */}
           {callError ? (
