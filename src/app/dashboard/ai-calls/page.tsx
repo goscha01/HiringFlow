@@ -2,32 +2,22 @@
 
 import { useState, useEffect } from 'react'
 
+interface Agent { agent_id: string; name: string }
+interface Candidate { id: string; name: string; agentId: string; conversationIds: string[]; createdAt: string }
 interface Conversation {
-  conversation_id: string; agent_id: string; status: string
-  start_time_unix_secs: number; call_duration_secs: number
-  message_count: number; call_successful: string | null
+  conversation_id: string; status: string; start_time_unix_secs: number
+  call_duration_secs: number; message_count: number; call_successful: string | null
   transcript_summary: string | null
 }
-
 interface ConversationDetail {
   conversation_id: string; status: string; call_duration_secs: number
   transcript: Array<{ role: string; message: string; time_in_call_secs: number }>
   analysis: {
-    call_successful: string | null
-    transcript_summary: string | null
+    call_successful: string | null; transcript_summary: string | null
     evaluation_criteria_results: Record<string, { criteria_id: string; result: string; rationale: string }>
     data_collection_results: Record<string, { value: string; rationale: string }>
   } | null
 }
-
-interface Agent { agent_id: string; name: string }
-
-const RESULT_FILTERS = [
-  { value: 'all', label: 'All' },
-  { value: 'success', label: 'Passed' },
-  { value: 'failure', label: 'Failed' },
-  { value: 'unknown', label: 'Pending' },
-]
 
 export default function AICallsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -37,88 +27,112 @@ export default function AICallsPage() {
   const [candidateName, setCandidateName] = useState('')
   const [candidateCopied, setCandidateCopied] = useState(false)
 
+  const [candidates, setCandidates] = useState<Candidate[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loadingCalls, setLoadingCalls] = useState(false)
   const [callError, setCallError] = useState('')
+  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null)
   const [selectedConv, setSelectedConv] = useState<ConversationDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  const [resultFilter, setResultFilter] = useState('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [candidateConvs, setCandidateConvs] = useState<ConversationDetail[]>([])
+  const [loadingCandidateConvs, setLoadingCandidateConvs] = useState(false)
+
+  // Assign modal
+  const [showAssign, setShowAssign] = useState(false)
+  const [assignConvId, setAssignConvId] = useState('')
+  const [assignCandidateId, setAssignCandidateId] = useState('')
 
   useEffect(() => {
     Promise.all([
       fetch('/api/workspace/settings').then(r => r.json()),
       fetch('/api/ai-calls/agents').then(r => r.ok ? r.json() : []),
-    ]).then(([ws, agentList]) => {
+      fetch('/api/ai-calls/candidates').then(r => r.ok ? r.json() : []),
+    ]).then(([ws, agentList, candList]) => {
       setAgents(agentList)
+      setCandidates(candList)
       const s = (ws.settings || {}) as Record<string, string>
-      if (s.elevenlabs_agent_id) {
-        setAgentId(s.elevenlabs_agent_id)
-        fetchConversations()
-      }
+      if (s.elevenlabs_agent_id) { setAgentId(s.elevenlabs_agent_id); fetchConversations() }
       setLoading(false)
     })
   }, [])
 
   const selectAgent = async (id: string) => {
-    setAgentId(id)
-    setSelectedConv(null)
-    await fetch('/api/workspace/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings: { elevenlabs_agent_id: id } }),
-    })
+    setAgentId(id); setSelectedCandidate(null); setSelectedConv(null)
+    await fetch('/api/workspace/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: { elevenlabs_agent_id: id } }) })
     if (id) fetchConversations()
   }
 
   const fetchConversations = async () => {
     setLoadingCalls(true); setCallError('')
     const r = await fetch('/api/ai-calls/conversations')
-    if (r.ok) { setConversations((await r.json()).conversations || []) }
-    else { const err = await r.json().catch(() => ({})); setCallError(err.error || 'Failed to load') }
+    if (r.ok) setConversations((await r.json()).conversations || [])
+    else { const err = await r.json().catch(() => ({})); setCallError(err.error || 'Failed') }
     setLoadingCalls(false)
   }
 
-  const viewDetail = async (convId: string) => {
-    setLoadingDetail(true)
-    const r = await fetch(`/api/ai-calls/conversations/${convId}`)
-    if (r.ok) setSelectedConv(await r.json())
-    setLoadingDetail(false)
+  const createCandidateLink = async () => {
+    if (!candidateName.trim() || !agentId) return
+    // Save candidate
+    const r = await fetch('/api/ai-calls/candidates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: candidateName.trim(), agentId }),
+    })
+    if (r.ok) {
+      const c = await r.json()
+      setCandidates(prev => [c, ...prev])
+    }
+    // Copy link
+    const link = `${window.location.origin}/call/${agentId}?name=${encodeURIComponent(candidateName.trim())}`
+    navigator.clipboard.writeText(link)
+    setCandidateCopied(true); setTimeout(() => setCandidateCopied(false), 2000)
+    setCandidateName('')
+  }
+
+  const viewCandidateConvs = async (cand: Candidate) => {
+    setSelectedCandidate(cand); setSelectedConv(null); setCandidateConvs([])
+    if (cand.conversationIds.length === 0) return
+    setLoadingCandidateConvs(true)
+    const details = await Promise.all(
+      cand.conversationIds.map(async cid => {
+        const r = await fetch(`/api/ai-calls/conversations/${cid}`)
+        return r.ok ? r.json() : null
+      })
+    )
+    setCandidateConvs(details.filter(Boolean))
+    setLoadingCandidateConvs(false)
+  }
+
+  const assignConversation = async () => {
+    if (!assignConvId || !assignCandidateId) return
+    await fetch(`/api/ai-calls/candidates/${assignCandidateId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: assignConvId }),
+    })
+    // Refresh
+    const r = await fetch('/api/ai-calls/candidates')
+    if (r.ok) setCandidates(await r.json())
+    setShowAssign(false); setAssignConvId(''); setAssignCandidateId('')
+    if (selectedCandidate) {
+      const updated = candidates.find(c => c.id === selectedCandidate.id)
+      if (updated) viewCandidateConvs(updated)
+    }
+  }
+
+  const deleteCandidate = async (id: string) => {
+    if (!confirm('Remove this candidate?')) return
+    await fetch(`/api/ai-calls/candidates/${id}`, { method: 'DELETE' })
+    setCandidates(prev => prev.filter(c => c.id !== id))
+    if (selectedCandidate?.id === id) { setSelectedCandidate(null); setCandidateConvs([]) }
   }
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-  const callLink = agentId ? `${baseUrl}/call/${agentId}` : ''
-  const candidateLink = agentId && candidateName.trim()
-    ? `${baseUrl}/call/${agentId}?name=${encodeURIComponent(candidateName.trim())}`
-    : ''
-
-  const copyLink = (link: string, setter: (v: boolean) => void) => {
-    navigator.clipboard.writeText(link); setter(true); setTimeout(() => setter(false), 2000)
-  }
-
   const formatDate = (unix: number) => new Date(unix * 1000).toLocaleString()
+  const formatDateStr = (s: string) => new Date(s).toLocaleDateString()
   const formatDuration = (s: number) => s ? `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}` : '—'
 
-  // Filtering
-  const filtered = conversations.filter(c => {
-    if (resultFilter !== 'all') {
-      const result = c.call_successful || 'unknown'
-      if (result !== resultFilter) return false
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      const summary = (c.transcript_summary || '').toLowerCase()
-      const id = c.conversation_id.toLowerCase()
-      if (!summary.includes(q) && !id.includes(q)) return false
-    }
-    return true
-  })
-
   // Stats
-  const totalCalls = conversations.length
   const passed = conversations.filter(c => c.call_successful === 'success').length
   const failed = conversations.filter(c => c.call_successful === 'failure').length
-  const avgDuration = totalCalls > 0 ? Math.round(conversations.reduce((s, c) => s + (c.call_duration_secs || 0), 0) / totalCalls) : 0
 
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
 
@@ -129,14 +143,9 @@ export default function AICallsPage() {
           <h1 className="text-[36px] font-semibold text-grey-15">AI Calls</h1>
           <p className="text-grey-35 mt-1">Voice agent conversations and candidate evaluations</p>
         </div>
-        {agentId && (
-          <button onClick={() => copyLink(callLink, setCopied)} className={`px-5 py-2.5 text-sm font-medium rounded-[8px] ${copied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}>
-            {copied ? 'Copied!' : 'Copy General Link'}
-          </button>
-        )}
       </div>
 
-      {/* Agent + candidate link */}
+      {/* Agent + create link */}
       <div className="bg-white rounded-[12px] border border-surface-border p-5 mb-6">
         <div className="flex items-center gap-4 mb-4">
           <div className="flex-1">
@@ -151,9 +160,9 @@ export default function AICallsPage() {
           <div className="pt-4 border-t border-surface-border">
             <label className="block text-xs font-medium text-grey-20 mb-1">Create call link for candidate</label>
             <div className="flex gap-2">
-              <input type="text" value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Candidate name" className="flex-1 px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-              <button onClick={() => candidateLink && copyLink(candidateLink, setCandidateCopied)} disabled={!candidateName.trim()} className={`px-5 py-2.5 text-xs font-medium rounded-[8px] disabled:opacity-50 ${candidateCopied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}>
-                {candidateCopied ? 'Copied!' : 'Copy Link'}
+              <input type="text" value={candidateName} onChange={e => setCandidateName(e.target.value)} placeholder="Candidate name" className="flex-1 px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" onKeyDown={e => e.key === 'Enter' && createCandidateLink()} />
+              <button onClick={createCandidateLink} disabled={!candidateName.trim()} className={`px-5 py-2.5 text-xs font-medium rounded-[8px] disabled:opacity-50 ${candidateCopied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}>
+                {candidateCopied ? 'Saved & Copied!' : 'Save & Copy Link'}
               </button>
             </div>
           </div>
@@ -165,7 +174,11 @@ export default function AICallsPage() {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <div className="bg-white rounded-[8px] border border-surface-border p-4">
-              <div className="text-[28px] font-bold text-grey-15">{totalCalls}</div>
+              <div className="text-[28px] font-bold text-grey-15">{candidates.length}</div>
+              <div className="text-xs text-grey-40">Candidates</div>
+            </div>
+            <div className="bg-white rounded-[8px] border border-surface-border p-4">
+              <div className="text-[28px] font-bold text-grey-15">{conversations.length}</div>
               <div className="text-xs text-grey-40">Total Calls</div>
             </div>
             <div className="bg-white rounded-[8px] border border-surface-border p-4">
@@ -176,140 +189,168 @@ export default function AICallsPage() {
               <div className="text-[28px] font-bold text-red-500">{failed}</div>
               <div className="text-xs text-grey-40">Failed</div>
             </div>
-            <div className="bg-white rounded-[8px] border border-surface-border p-4">
-              <div className="text-[28px] font-bold text-grey-15">{formatDuration(avgDuration)}</div>
-              <div className="text-xs text-grey-40">Avg Duration</div>
-            </div>
           </div>
 
-          {/* Filters */}
-          <div className="flex items-center gap-4 mb-4">
-            <div className="flex gap-1 bg-surface rounded-[8px] p-1 border border-surface-border">
-              {RESULT_FILTERS.map(f => (
-                <button key={f.value} onClick={() => setResultFilter(f.value)} className={`px-4 py-1.5 text-xs rounded-[6px] font-medium transition-colors ${resultFilter === f.value ? 'bg-white text-grey-15 shadow-sm' : 'text-grey-40 hover:text-grey-20'}`}>
-                  {f.label}
-                  {f.value !== 'all' && (
-                    <span className="ml-1.5 text-[10px]">
-                      {f.value === 'success' ? passed : f.value === 'failure' ? failed : totalCalls - passed - failed}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search conversations..." className="flex-1 max-w-xs px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
-            <button onClick={fetchConversations} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Refresh</button>
-          </div>
-
-          {/* Conversations table + detail */}
-          {callError ? (
-            <div className="bg-red-50 border border-red-200 rounded-[8px] p-4"><p className="text-sm text-red-700">{callError}</p></div>
-          ) : loadingCalls ? (
-            <div className="text-center py-12 text-grey-40">Loading conversations...</div>
-          ) : filtered.length === 0 ? (
-            <div className="section-card text-center py-16">
-              <h2 className="text-xl font-semibold text-grey-15 mb-2">{conversations.length === 0 ? 'No conversations yet' : 'No matching conversations'}</h2>
-              <p className="text-grey-35">{conversations.length === 0 ? 'Share the candidate link to get started.' : 'Try adjusting your filters.'}</p>
-            </div>
-          ) : (
-            <div className="flex gap-6">
-              {/* Table */}
-              <div className="flex-1 bg-white rounded-[12px] border border-surface-border overflow-hidden">
-                <table className="min-w-full">
-                  <thead>
-                    <tr className="border-b border-surface-border bg-surface">
-                      <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Conversation</th>
-                      <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Date</th>
-                      <th className="px-5 py-3 text-right text-xs font-medium text-grey-40 uppercase">Duration</th>
-                      <th className="px-5 py-3 text-right text-xs font-medium text-grey-40 uppercase">Messages</th>
-                      <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Result</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-surface-border">
-                    {filtered.map(c => (
-                      <tr key={c.conversation_id} onClick={() => viewDetail(c.conversation_id)} className={`cursor-pointer hover:bg-surface-light transition-colors ${selectedConv?.conversation_id === c.conversation_id ? 'bg-brand-50' : ''}`}>
-                        <td className="px-5 py-4">
-                          <div className="text-sm font-medium text-grey-15">{c.conversation_id.slice(0, 16)}...</div>
-                          {c.transcript_summary && <p className="text-xs text-grey-50 mt-0.5 line-clamp-1 max-w-xs">{c.transcript_summary}</p>}
-                        </td>
-                        <td className="px-5 py-4 text-xs text-grey-40">{formatDate(c.start_time_unix_secs)}</td>
-                        <td className="px-5 py-4 text-sm text-grey-15 text-right font-medium">{formatDuration(c.call_duration_secs)}</td>
-                        <td className="px-5 py-4 text-sm text-grey-35 text-right">{c.message_count}</td>
-                        <td className="px-5 py-4">
-                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                            c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                            c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                            'bg-gray-100 text-grey-40'
-                          }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : c.status === 'done' ? 'Pending' : c.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <div className="flex gap-6">
+            {/* Candidates list */}
+            <div className="w-80 flex-shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-grey-15">Candidates ({candidates.length})</h3>
+                <button onClick={fetchConversations} className="text-xs text-brand-500 hover:text-brand-600">Refresh</button>
               </div>
 
-              {/* Detail panel */}
-              {selectedConv && (
-                <div className="w-[420px] flex-shrink-0 space-y-4">
-                  {loadingDetail ? (
-                    <div className="text-center py-12 text-grey-40">Loading...</div>
-                  ) : (
-                    <>
-                      {selectedConv.analysis && (
-                        <div className="bg-white rounded-[12px] border border-surface-border p-5">
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-sm font-semibold text-grey-15">Evaluation</h3>
-                            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                              selectedConv.analysis.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                              selectedConv.analysis.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                              'bg-gray-100 text-grey-40'
-                            }`}>{selectedConv.analysis.call_successful === 'success' ? 'Passed' : selectedConv.analysis.call_successful === 'failure' ? 'Failed' : 'Unknown'}</span>
-                          </div>
-                          <p className="text-xs text-grey-40 mb-3">{formatDuration(selectedConv.call_duration_secs)}</p>
-                          {selectedConv.analysis.transcript_summary && (
-                            <p className="text-sm text-grey-35 mb-3">{selectedConv.analysis.transcript_summary}</p>
-                          )}
-                          {selectedConv.analysis.evaluation_criteria_results && Object.keys(selectedConv.analysis.evaluation_criteria_results).length > 0 && (
-                            <div className="space-y-2 mb-3">
-                              {Object.entries(selectedConv.analysis.evaluation_criteria_results).map(([key, val]) => (
-                                <div key={key} className="bg-surface rounded-[6px] p-2.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`w-2 h-2 rounded-full ${val.result === 'success' ? 'bg-green-500' : val.result === 'failure' ? 'bg-red-500' : 'bg-gray-400'}`} />
-                                    <span className="text-xs font-medium text-grey-15">{val.criteria_id || key}</span>
-                                  </div>
-                                  {val.rationale && <p className="text-[11px] text-grey-40 mt-1 ml-4">{val.rationale}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {selectedConv.analysis.data_collection_results && Object.keys(selectedConv.analysis.data_collection_results).length > 0 && (
-                            <div className="grid grid-cols-2 gap-2">
-                              {Object.entries(selectedConv.analysis.data_collection_results).map(([key, val]) => (
-                                <div key={key} className="bg-surface rounded-[6px] p-2.5">
-                                  <div className="text-[10px] text-grey-40">{key}</div>
-                                  <div className="text-xs text-grey-15 font-medium">{val.value || '—'}</div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+              {candidates.length === 0 ? (
+                <div className="bg-white rounded-[12px] border border-surface-border p-6 text-center text-grey-40 text-sm">
+                  Create a candidate link above to get started
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {candidates.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => viewCandidateConvs(c)}
+                      className={`w-full text-left bg-white rounded-[8px] border p-4 transition-colors ${selectedCandidate?.id === c.id ? 'border-brand-500 bg-brand-50' : 'border-surface-border hover:border-brand-300'}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-grey-15">{c.name}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-grey-40 font-medium">
+                            {c.conversationIds.length} call{c.conversationIds.length !== 1 ? 's' : ''}
+                          </span>
+                          <button onClick={(e) => { e.stopPropagation(); deleteCandidate(c.id) }} className="text-xs text-grey-50 hover:text-red-500 ml-1">&times;</button>
                         </div>
-                      )}
-                      {selectedConv.transcript && selectedConv.transcript.length > 0 && (
-                        <div className="bg-white rounded-[12px] border border-surface-border p-5">
-                          <h3 className="text-xs font-semibold text-grey-15 mb-3">Transcript</h3>
-                          <div className="space-y-2 max-h-[350px] overflow-y-auto">
-                            {selectedConv.transcript.map((turn, i) => (
-                              <div key={i} className={`flex gap-2 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold ${turn.role === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-brand-100 text-brand-600'}`}>{turn.role === 'user' ? 'U' : 'AI'}</div>
-                                <p className={`text-xs px-2.5 py-1.5 rounded-[6px] inline-block max-w-[80%] ${turn.role === 'user' ? 'bg-blue-50 text-grey-15' : 'bg-surface text-grey-15'}`}>{turn.message}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
+                      </div>
+                      <div className="text-xs text-grey-50 mt-1">Created {formatDateStr(c.createdAt)}</div>
+                    </button>
+                  ))}
                 </div>
               )}
+
+              {/* Unassigned conversations */}
+              {conversations.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-medium text-grey-40">Unassigned Conversations</h4>
+                    <button onClick={() => setShowAssign(true)} className="text-[10px] text-brand-500 hover:text-brand-600">Assign</button>
+                  </div>
+                  <div className="space-y-1">
+                    {conversations.filter(c => !candidates.some(cand => cand.conversationIds.includes(c.conversation_id))).slice(0, 5).map(c => (
+                      <div key={c.conversation_id} className="text-xs bg-surface rounded-[6px] px-3 py-2 flex items-center justify-between">
+                        <div>
+                          <span className="text-grey-35">{formatDate(c.start_time_unix_secs)}</span>
+                          <span className="text-grey-50 ml-2">{formatDuration(c.call_duration_secs)}</span>
+                        </div>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.call_successful === 'success' ? 'bg-green-100 text-green-700' : c.call_successful === 'failure' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-grey-40'}`}>
+                          {c.call_successful === 'success' ? 'Pass' : c.call_successful === 'failure' ? 'Fail' : '?'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Detail panel */}
+            <div className="flex-1">
+              {selectedCandidate ? (
+                <div>
+                  <h3 className="text-lg font-semibold text-grey-15 mb-4">{selectedCandidate.name}</h3>
+
+                  {loadingCandidateConvs ? (
+                    <div className="text-center py-12 text-grey-40">Loading conversations...</div>
+                  ) : candidateConvs.length === 0 ? (
+                    <div className="bg-white rounded-[12px] border border-surface-border p-8 text-center">
+                      <p className="text-grey-40 mb-3">No conversations linked yet.</p>
+                      <p className="text-xs text-grey-50">Assign unassigned conversations from the left panel, or the candidate needs to make a call.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {candidateConvs.map(conv => (
+                        <div key={conv.conversation_id} className="bg-white rounded-[12px] border border-surface-border p-5">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                                conv.analysis?.call_successful === 'success' ? 'bg-green-100 text-green-700' :
+                                conv.analysis?.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
+                                'bg-gray-100 text-grey-40'
+                              }`}>{conv.analysis?.call_successful === 'success' ? 'Passed' : conv.analysis?.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                              <span className="text-xs text-grey-40">{formatDuration(conv.call_duration_secs)}</span>
+                            </div>
+                            <span className="text-xs text-grey-50">{conv.conversation_id.slice(0, 12)}...</span>
+                          </div>
+
+                          {conv.analysis?.transcript_summary && (
+                            <p className="text-sm text-grey-35 mb-3">{conv.analysis.transcript_summary}</p>
+                          )}
+
+                          {conv.analysis?.evaluation_criteria_results && Object.keys(conv.analysis.evaluation_criteria_results).length > 0 && (
+                            <div className="space-y-1.5 mb-3">
+                              {Object.entries(conv.analysis.evaluation_criteria_results).map(([key, val]) => (
+                                <div key={key} className="flex items-start gap-2">
+                                  <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${val.result === 'success' ? 'bg-green-500' : val.result === 'failure' ? 'bg-red-500' : 'bg-gray-400'}`} />
+                                  <div>
+                                    <span className="text-xs font-medium text-grey-15">{val.criteria_id || key}</span>
+                                    {val.rationale && <p className="text-[11px] text-grey-40">{val.rationale}</p>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {conv.transcript && conv.transcript.length > 0 && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-brand-500 hover:text-brand-600 cursor-pointer font-medium">Show transcript ({conv.transcript.length} messages)</summary>
+                              <div className="mt-2 space-y-1.5 max-h-[250px] overflow-y-auto">
+                                {conv.transcript.map((turn, i) => (
+                                  <div key={i} className={`flex gap-2 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold ${turn.role === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-brand-100 text-brand-600'}`}>{turn.role === 'user' ? 'U' : 'AI'}</div>
+                                    <p className={`text-xs px-2 py-1.5 rounded-[6px] max-w-[80%] ${turn.role === 'user' ? 'bg-blue-50' : 'bg-surface'} text-grey-15`}>{turn.message}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white rounded-[12px] border border-surface-border p-12 text-center text-grey-40">
+                  Select a candidate to view their conversations and evaluations
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Assign modal */}
+          {showAssign && (
+            <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowAssign(false)}>
+              <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[400px]" onClick={e => e.stopPropagation()}>
+                <h2 className="text-lg font-semibold text-grey-15 mb-4">Assign Conversation</h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-grey-20 mb-1">Conversation</label>
+                    <select value={assignConvId} onChange={e => setAssignConvId(e.target.value)} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-sm">
+                      <option value="">Select...</option>
+                      {conversations.filter(c => !candidates.some(cand => cand.conversationIds.includes(c.conversation_id))).map(c => (
+                        <option key={c.conversation_id} value={c.conversation_id}>{formatDate(c.start_time_unix_secs)} — {formatDuration(c.call_duration_secs)} — {c.call_successful || 'pending'}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-grey-20 mb-1">Candidate</label>
+                    <select value={assignCandidateId} onChange={e => setAssignCandidateId(e.target.value)} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-sm">
+                      <option value="">Select...</option>
+                      {candidates.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-4">
+                  <button onClick={() => setShowAssign(false)} className="btn-secondary flex-1">Cancel</button>
+                  <button onClick={assignConversation} disabled={!assignConvId || !assignCandidateId} className="btn-primary flex-1 disabled:opacity-50">Assign</button>
+                </div>
+              </div>
             </div>
           )}
         </>

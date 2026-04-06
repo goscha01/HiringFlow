@@ -49,6 +49,7 @@ model Workspace {
   schedulingConfigs SchedulingConfig[]
   adTemplates       AdTemplate[]
   aiCallConfigs     AICallConfig[]
+  aiCallCandidates  AICallCandidate[]
 
   @@map("workspaces")
 }
@@ -402,6 +403,18 @@ model AICall {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("ai_calls")
+}
+
+model AICallCandidate {
+  id               String   @id @default(uuid())
+  workspaceId      String   @map("workspace_id")
+  workspace        Workspace @relation(fields: [workspaceId], references: [id])
+  name             String
+  agentId          String   @map("agent_id")
+  conversationIds  String[] @default([]) @map("conversation_ids") // ElevenLabs conversation IDs
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("ai_call_candidates")
 }
 
 // ============ AD TEMPLATES ============
