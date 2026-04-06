@@ -537,10 +537,8 @@ export default function FlowBuilderPage() {
   const renderButtonConfig = (step: Step) => {
     const btnCfg = (step as any).buttonConfig as { enabled?: boolean; text?: string; nextStepId?: string | null } | null | undefined
     const isEnabled = btnCfg?.enabled ?? false
-    console.log('[ButtonConfig] render', step.id, 'btnCfg:', JSON.stringify(btnCfg), 'isEnabled:', isEnabled)
     const updateBtnConfig = (updates: Record<string, unknown>) => {
       const newCfg = { ...(btnCfg || {}), enabled: true, text: btnCfg?.text || 'Continue', ...updates }
-      console.log('[ButtonConfig] updating', step.id, newCfg)
       updateStep(step.id, { buttonConfig: newCfg } as any)
     }
     return (
@@ -548,11 +546,7 @@ export default function FlowBuilderPage() {
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-grey-20">Action Button</label>
           <button
-            onClick={() => {
-              const newCfg = { ...(btnCfg || {}), enabled: !isEnabled, text: btnCfg?.text || 'Continue' }
-              console.log('[ButtonConfig] toggle', step.id, 'enabled:', !isEnabled, newCfg)
-              updateStep(step.id, { buttonConfig: newCfg } as any)
-            }}
+            onClick={() => updateStep(step.id, { buttonConfig: { ...(btnCfg || {}), enabled: !isEnabled, text: btnCfg?.text || 'Continue' } } as any)}
             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isEnabled ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
           >
             <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
@@ -894,14 +888,11 @@ export default function FlowBuilderPage() {
               if (stepId === '__start__' && flow.startMessage === '') return
               if (stepId === '__end__' && flow.endMessage === '') return
 
-              if (selectedStepId === stepId && !popupStepId) {
-                setPopupStepId(stepId)
-                setModalPos({ x: 0, y: 0 })
-                setCombineEnabled(false)
-              } else {
-                setSelectedStepId(stepId)
-                setPopupStepId(null)
-              }
+              // Single click opens edit popup directly
+              setSelectedStepId(stepId)
+              setPopupStepId(stepId)
+              setModalPos({ x: 0, y: 0 })
+              setCombineEnabled(false)
             }}
             onStepPreview={(stepId) => {
               setPreviewStepId(stepId)

@@ -717,7 +717,6 @@ export default function FlowSchemaView({
 
     // DEBUG: log click info
     const nodeHit = hitTestNode(cx, cy)
-    console.log('[Schema] mouseDown', { cx: Math.round(cx), cy: Math.round(cy), nodeHit, positionsKeys: Object.keys(positions), startPos: positions[START_ID], endPosVal: positions[END_ID] })
 
     // Check node delete button first
     const deleteTarget = hitTestDeleteButton(cx, cy)
@@ -1131,7 +1130,6 @@ export default function FlowSchemaView({
       // Check if it was a click (minimal movement) using screen coords
       const dx = Math.abs(e.clientX - mode.startScreenX)
       const dy = Math.abs(e.clientY - mode.startScreenY)
-      console.log('[Schema] mouseUp dragging', { stepId: mode.stepId, dx, dy, willClick: dx < 5 && dy < 5 })
       if (dx < 5 && dy < 5) {
         // It was a click, not a drag
         onStepClick?.(mode.stepId)
