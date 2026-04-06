@@ -1,42 +1,121 @@
 'use client'
 
 import { useParams, useSearchParams } from 'next/navigation'
-import { useEffect } from 'react'
 import Script from 'next/script'
+import { useEffect, useRef } from 'react'
 
 export default function CandidateCallPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const agentId = params.slug as string
   const candidateName = searchParams.get('name') || ''
+  const widgetContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    // Create widget element after script loads
+    const createWidget = () => {
+      if (!widgetContainerRef.current) return
+      // Remove existing widget if any
+      const existing = widgetContainerRef.current.querySelector('elevenlabs-convai')
+      if (existing) existing.remove()
+
+      const widget = document.createElement('elevenlabs-convai')
+      widget.setAttribute('agent-id', agentId)
+      widget.setAttribute('variant', 'expanded')
+      widget.setAttribute('avatar-orb-color-1', '#FF9500')
+      widget.setAttribute('avatar-orb-color-2', '#EA8500')
+      widget.setAttribute('action-text', 'Start Call')
+      widget.setAttribute('start-call-text', 'Start Call')
+      widget.setAttribute('end-call-text', 'End Call')
+      widget.setAttribute('listening-text', 'Listening...')
+      widget.setAttribute('speaking-text', 'Speaking...')
+      if (candidateName) {
+        widget.setAttribute('dynamic-variables', JSON.stringify({ candidate_name: candidateName }))
+        widget.setAttribute('override-first-message', `Hi ${candidateName}! Welcome to your training call. How are you doing today?`)
+      }
+      // Make it fill the container
+      widget.style.width = '100%'
+      widget.style.height = '100%'
+      widget.style.maxWidth = '100%'
+      widget.style.position = 'absolute'
+      widget.style.inset = '0'
+
+      widgetContainerRef.current.appendChild(widget)
+    }
+
+    // Check if script already loaded
+    if ((window as any).ElevenLabsConvai || document.querySelector('elevenlabs-convai')) {
+      createWidget()
+    } else {
+      // Wait for script
+      const interval = setInterval(() => {
+        if (customElements.get('elevenlabs-convai')) {
+          clearInterval(interval)
+          createWidget()
+        }
+      }, 100)
+      return () => clearInterval(interval)
+    }
+  }, [agentId, candidateName])
 
   return (
-    <div className="min-h-screen bg-[#F7F7F8] flex flex-col" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
-      {/* Header */}
-      <div className="bg-white border-b border-[#F1F1F3] px-6 py-4">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="text-lg font-semibold text-[#262626]">{candidateName ? `AI Call — ${candidateName}` : 'AI Voice Call'}</h1>
-          <p className="text-xs text-[#59595A]">Click the call button below to start your voice session</p>
-        </div>
-      </div>
+    <div className="min-h-screen bg-[#1a1a1a] flex flex-col" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
+      <Script src="https://elevenlabs.io/convai-widget/index.js" strategy="afterInteractive" />
 
-      {/* Widget area */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center">
-          <div className="mb-6">
-            <div className="w-20 h-20 rounded-full bg-[#FFF7ED] flex items-center justify-center mx-auto mb-4">
-              <svg className="w-10 h-10 text-[#FF9500]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-            </div>
-            <h2 className="text-xl font-semibold text-[#262626] mb-2">Ready to start</h2>
-            <p className="text-sm text-[#59595A] max-w-md mx-auto">Use the call button in the bottom-right corner to start your voice conversation with the AI agent.</p>
+      {/* Header */}
+      <div className="bg-[#262626] border-b border-[#333] px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-[#FF9500] rounded-[6px] flex items-center justify-center">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+          </div>
+          <div>
+            <h1 className="text-sm font-semibold text-white">{candidateName ? `${candidateName} — AI Call` : 'AI Voice Call'}</h1>
+            <p className="text-[11px] text-[#888]">Powered by HireFunnel</p>
           </div>
         </div>
       </div>
 
-      {/* ElevenLabs Convai Widget */}
-      <Script src="https://elevenlabs.io/convai-widget/index.js" strategy="afterInteractive" />
-      {/* @ts-ignore */}
-      <elevenlabs-convai agent-id={agentId}></elevenlabs-convai>
+      {/* Widget embedded full page */}
+      <div className="flex-1 relative" ref={widgetContainerRef}>
+        {/* Widget will be inserted here */}
+      </div>
+
+      {/* Override widget styles to make it embedded, not floating */}
+      <style jsx global>{`
+        /* Remove floating positioning from the widget */
+        elevenlabs-convai {
+          position: absolute !important;
+          inset: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          bottom: auto !important;
+          right: auto !important;
+          z-index: 1 !important;
+        }
+
+        /* Make the widget's internal container fill the space */
+        elevenlabs-convai::part(widget) {
+          width: 100% !important;
+          height: 100% !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          border-radius: 0 !important;
+          position: absolute !important;
+          inset: 0 !important;
+        }
+
+        /* Target shadow DOM elements via general styles */
+        elevenlabs-convai div[class*="widget"],
+        elevenlabs-convai > div {
+          width: 100% !important;
+          height: 100% !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          border-radius: 0 !important;
+        }
+      `}</style>
     </div>
   )
 }
