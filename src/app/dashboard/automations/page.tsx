@@ -224,11 +224,21 @@ export default function AutomationsPage() {
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Next Step Type</label>
                 <div className="flex gap-2">
-                  {[{ v: '', l: 'None' }, { v: 'training', l: 'Training' }, { v: 'scheduling', l: 'Scheduling' }].map(({ v, l }) => (
+                  {[{ v: '', l: 'None' }, { v: 'email', l: 'Send Email' }, { v: 'training', l: 'Training' }, { v: 'scheduling', l: 'Scheduling' }].map(({ v, l }) => (
                     <button key={v} onClick={() => setNextStepType(v)} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${nextStepType === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
                   ))}
                 </div>
               </div>
+              {nextStepType === 'email' && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Follow-up Email Template</label>
+                  <select value={nextStepUrl || ''} onChange={(e) => setNextStepUrl(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select template...</option>
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <p className="text-xs text-grey-40 mt-1">A follow-up email will be sent to the candidate as the next step.</p>
+                </div>
+              )}
               {nextStepType === 'training' && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Training</label>
@@ -254,7 +264,7 @@ export default function AutomationsPage() {
               {/* Delay */}
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Delay</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {[
                     { value: 0, label: 'Immediately' },
                     { value: 15, label: '15 min' },
@@ -268,7 +278,36 @@ export default function AutomationsPage() {
                       {d.label}
                     </button>
                   ))}
+                  <button onClick={() => setDelayMinutes(delayMinutes > 0 && ![0,15,60,360,1440,4320,10080].includes(delayMinutes) ? delayMinutes : -1)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${![0,15,60,360,1440,4320,10080].includes(delayMinutes) && delayMinutes !== 0 ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                    Custom
+                  </button>
                 </div>
+                {/* Custom delay input */}
+                {![0,15,60,360,1440,4320,10080].includes(delayMinutes) && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="number"
+                      min={1}
+                      value={delayMinutes > 0 ? delayMinutes : ''}
+                      onChange={(e) => setDelayMinutes(parseInt(e.target.value) || 0)}
+                      placeholder="Enter minutes"
+                      className="w-24 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <span className="text-xs text-grey-40">minutes</span>
+                    <div className="flex gap-1 ml-2">
+                      {[
+                        { m: 30, l: '30m' },
+                        { m: 120, l: '2h' },
+                        { m: 720, l: '12h' },
+                        { m: 2880, l: '2d' },
+                        { m: 7200, l: '5d' },
+                        { m: 20160, l: '14d' },
+                      ].map(q => (
+                        <button key={q.m} onClick={() => setDelayMinutes(q.m)} className="text-[10px] px-2 py-1 rounded border border-surface-border text-grey-40 hover:bg-surface">{q.l}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Email will be sent {delayMinutes >= 1440 ? `${Math.round(delayMinutes / 1440)} day${delayMinutes >= 2880 ? 's' : ''}` : delayMinutes >= 60 ? `${Math.round(delayMinutes / 60)} hour${delayMinutes >= 120 ? 's' : ''}` : `${delayMinutes} minutes`} after trigger.</p>}
               </div>
             </div>
