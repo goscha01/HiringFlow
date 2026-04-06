@@ -553,35 +553,17 @@ export default function FlowSchemaView({
       }
     }
 
-    // End connections — draw from any step that has terminal options (nextStepId === null)
+    // End connection — only from the last step by order
     const endPos = positions[END_ID]
-    if (endPos && endMessage !== '') {
-      const toX = endPos.x
-      const toY = endPos.y + SPECIAL_H / 2
-      const terminalStepIds = new Set<string>()
-
-      // Find steps with options that have no nextStepId (terminal = goes to End)
-      for (const step of steps) {
-        const hasTerminalOption = step.options.some(o => !o.nextStepId)
-        const isLastStep = step.id === endStepId
-        if (hasTerminalOption || isLastStep) {
-          terminalStepIds.add(step.id)
-        }
+    if (endPos && endStepId && endMessage !== '') {
+      const eStepPos = positions[endStepId]
+      if (eStepPos) {
+        const fromX = eStepPos.x + NODE_W
+        const fromY = eStepPos.y + NODE_H / 2
+        const toX = endPos.x
+        const toY = endPos.y + SPECIAL_H / 2
+        drawConnection(ctx, fromX, fromY, toX, toY, '', false, '#FF9500')
       }
-      // Also add last step if it has no options at all (submission steps)
-      if (endStepId && !terminalStepIds.has(endStepId)) {
-        const lastStep = steps.find(s => s.id === endStepId)
-        if (lastStep && lastStep.options.length === 0) terminalStepIds.add(endStepId)
-      }
-
-      terminalStepIds.forEach(stepId => {
-        const eStepPos = positions[stepId]
-        if (eStepPos) {
-          const fromX = eStepPos.x + NODE_W
-          const fromY = eStepPos.y + NODE_H / 2
-          drawConnection(ctx, fromX, fromY, toX, toY, '', false, '#FF9500')
-        }
-      })
     }
 
     // Draw in-progress connection or reconnection
