@@ -33,6 +33,8 @@ export default function CandidateCallPage() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [selectedConv, setSelectedConv] = useState<ConversationDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [callCards, setCallCards] = useState<Conversation[]>([])
+  const [loadingCards, setLoadingCards] = useState(false)
   const [agentName, setAgentName] = useState('')
   const [criteria, setCriteria] = useState<AgentCriteria[]>([])
 
@@ -73,19 +75,34 @@ export default function CandidateCallPage() {
     return () => clearInterval(interval)
   }, [agentId, candidateName])
 
-  const fetchHistory = async () => {
-    setLoadingHistory(true)
-    // Fetch only this candidate's conversations if name is provided
+  const fetchConversationsList = async () => {
     const url = candidateName
       ? `/api/public/ai-calls/${agentId}/link?name=${encodeURIComponent(candidateName)}`
       : `/api/public/ai-calls/${agentId}`
     const r = await fetch(url)
     if (r.ok) {
       const data = await r.json()
-      setConversations(data.conversations || [])
+      return data.conversations || []
     }
+    return []
+  }
+
+  const fetchHistory = async () => {
+    setLoadingHistory(true)
+    const convs = await fetchConversationsList()
+    setConversations(convs)
     setLoadingHistory(false)
   }
+
+  const refreshCallCards = async () => {
+    setLoadingCards(true)
+    const convs = await fetchConversationsList()
+    setCallCards(convs)
+    setLoadingCards(false)
+  }
+
+  // Load call cards on mount
+  useEffect(() => { refreshCallCards() }, [agentId, candidateName])
 
   const viewDetail = async (convId: string) => {
     setLoadingDetail(true)
@@ -212,6 +229,55 @@ export default function CandidateCallPage() {
               </div>
             )
           })()}
+
+          {/* Completed call cards */}
+          {callCards.length > 0 && (
+            <div className="max-w-3xl mx-auto px-6 py-5 border-t border-[#F1F1F3]">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-[#262626]">Your Calls</h3>
+                <button onClick={refreshCallCards} className="text-xs text-[#FF9500] hover:text-[#EA8500]">Refresh</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {callCards.map((c, i) => {
+                  const scoreMatch = c.transcript_summary?.match(/(\d+)\/100/) || null
+                  return (
+                    <button
+                      key={c.conversation_id}
+                      onClick={() => { setTab('history'); fetchHistory(); setTimeout(() => viewDetail(c.conversation_id), 500) }}
+                      className="bg-white rounded-[10px] border border-[#F1F1F3] p-4 text-left hover:border-[#FF9500] hover:shadow-sm transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-[#8A8A8C]">Call {callCards.length - i}</span>
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                          c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
+                          c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
+                          'bg-gray-100 text-[#8A8A8C]'
+                        }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {scoreMatch && (
+                          <span className={`text-2xl font-bold ${
+                            parseInt(scoreMatch[1]) >= 90 ? 'text-green-600' :
+                            parseInt(scoreMatch[1]) >= 80 ? 'text-blue-600' :
+                            parseInt(scoreMatch[1]) >= 70 ? 'text-yellow-600' : 'text-red-600'
+                          }`}>{scoreMatch[1]}</span>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          {c.transcript_summary && <p className="text-xs text-[#59595A] line-clamp-2">{c.transcript_summary}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 text-[10px] text-[#8A8A8C]">
+                        <span>{formatDuration(c.call_duration_secs)}</span>
+                        <span>&middot;</span>
+                        <span>{formatDate(c.start_time_unix_secs)}</span>
+                        <span className="ml-auto text-[#FF9500] font-medium">View details →</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
         </div>
       )}
