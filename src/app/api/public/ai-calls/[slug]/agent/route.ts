@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// GET — fetch agent details including evaluation criteria
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
   const agentId = params.slug
 
@@ -20,15 +19,15 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
 
   const agent = await res.json()
 
-  // Extract evaluation criteria
-  const criteria = agent.evaluation?.criteria || agent.evaluation_settings?.criteria || []
+  // Extract evaluation criteria from platform_settings.evaluation.criteria
+  const criteria = agent.platform_settings?.evaluation?.criteria || []
 
   return NextResponse.json({
     name: agent.name,
     criteria: criteria.map((c: any) => ({
       id: c.id,
       name: c.name,
-      prompt: c.conversation_goal_prompt || c.prompt || '',
+      prompt: c.conversation_goal_prompt || '',
     })),
   })
 }
