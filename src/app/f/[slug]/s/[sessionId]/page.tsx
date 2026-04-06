@@ -527,11 +527,27 @@ export default function SessionPlayerPage() {
         {/* Right: Questions — from main step or combined step */}
         <div className="w-[400px] bg-white flex flex-col justify-center p-8 overflow-y-auto">
           {(() => {
-            // If combined: show combined step's question/options
             const cs = step.combinedStep
             const questionStep = cs && (cs.stepType === 'question' || cs.options.length > 0) ? cs : null
             const displayTitle = questionStep ? cs!.title : step.title
             const displayQuestion = questionStep ? cs!.questionText : step.questionText
+
+            const submitCombinedOption = async (opt: StepOption) => {
+              if (!step) return
+              setSubmitting(true)
+              const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stepId: cs!.stepId, optionId: opt.optionId }),
+              })
+              if (res.ok) {
+                const data = await res.json()
+                if (data.finished) router.push(`/f/${slug}/s/${sessionId}/done`)
+                else fetchStep()
+              }
+              setSubmitting(false)
+            }
+
             return (
               <>
                 {displayTitle && <h3 className="text-sm font-medium text-gray-400 mb-4 uppercase tracking-wide">{displayTitle}</h3>}
@@ -541,16 +557,34 @@ export default function SessionPlayerPage() {
                     {questionStep.options.map(opt => (
                       <button
                         key={opt.optionId}
-                        onClick={() => selectOption(opt)}
-                        disabled={submitting || (!showOptions && !!step.videoUrl)}
-                        className={`w-full py-3 px-5 rounded-xl border-2 text-left transition-all border-gray-200 hover:border-brand-500 hover:bg-brand-50 text-gray-900 ${submitting ? 'opacity-50' : ''} ${!showOptions && step.videoUrl ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        onClick={() => submitCombinedOption(opt)}
+                        disabled={submitting || (!videoEnded && !!(step.videoUrl || cs?.videoUrl))}
+                        className={`w-full py-3 px-5 rounded-xl border-2 text-left transition-all border-gray-200 hover:border-brand-500 hover:bg-brand-50 text-gray-900 ${submitting ? 'opacity-50' : ''} ${!videoEnded && (step.videoUrl || cs?.videoUrl) ? 'opacity-40 cursor-not-allowed' : ''}`}
                       >
                         <span className="font-medium text-sm">{opt.text}</span>
                       </button>
                     ))}
+                    {!videoEnded && (step.videoUrl || cs?.videoUrl) && (
+                      <p className="text-center text-sm text-gray-500 mt-2">Watch the video to unlock options</p>
+                    )}
                   </div>
                 ) : (
                   renderQuestionContent(false)
+                )}
+                {/* Progress bar */}
+                {step.progress && (
+                  <div className="mt-6">
+                    <div className="flex gap-1">
+                      {Array.from({ length: step.progress.total }).map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => { if (step.stepIds?.[i] && step.stepIds[i] !== step.stepId) navigateToStep(step.stepIds[i]) }}
+                          className={`flex-1 h-2 rounded-full transition-colors cursor-pointer hover:opacity-80 ${i < step.progress!.current ? 'bg-brand-500' : 'bg-gray-200 hover:bg-gray-300'}`}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-center text-xs mt-1 text-gray-400">Step {step.progress.current} of {step.progress.total}</p>
+                  </div>
                 )}
               </>
             )
