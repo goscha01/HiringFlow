@@ -300,53 +300,125 @@ export default function AICallsPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {candidateConvs.map(conv => (
-                        <div key={conv.conversation_id} className="bg-white rounded-[12px] border border-surface-border p-5">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                                conv.analysis?.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                                conv.analysis?.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                                'bg-gray-100 text-grey-40'
-                              }`}>{conv.analysis?.call_successful === 'success' ? 'Passed' : conv.analysis?.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
-                              <span className="text-xs text-grey-40">{formatDuration(conv.call_duration_secs)}</span>
+                      {candidateConvs.map(conv => {
+                        // Parse evaluation rationale into sections
+                        const rationale = Object.values(conv.analysis?.evaluation_criteria_results || {})[0]?.rationale || ''
+                        const parseEvaluation = (text: string) => {
+                          const scoreMatch = text.match(/Score:\s*(\d+)\/(\d+)\s*\(([^)]+)\)/)
+                          const score = scoreMatch ? { value: parseInt(scoreMatch[1]), total: parseInt(scoreMatch[2]), label: scoreMatch[3] } : null
+
+                          const doneWell: string[] = []
+                          const needsImprovement: string[] = []
+                          let section: 'none' | 'well' | 'improve' = 'none'
+
+                          for (const line of text.split('\n')) {
+                            const t = line.trim()
+                            if (t.toLowerCase().includes('areas done well') || t.toLowerCase().includes('done well')) { section = 'well'; continue }
+                            if (t.toLowerCase().includes('areas needing improvement') || t.toLowerCase().includes('needing improvement')) { section = 'improve'; continue }
+                            if (t.startsWith('- ') && section === 'well') doneWell.push(t.slice(2))
+                            if (t.startsWith('- ') && section === 'improve') needsImprovement.push(t.slice(2))
+                          }
+
+                          return { score, doneWell, needsImprovement }
+                        }
+
+                        const evalData = parseEvaluation(rationale)
+                        const criteriaName = Object.values(conv.analysis?.evaluation_criteria_results || {})[0]?.criteria_id || 'Call Evaluation'
+
+                        return (
+                        <div key={conv.conversation_id} className="space-y-4">
+                          {/* 1. CALL EVALUATION */}
+                          <div className="bg-white rounded-[12px] border border-surface-border p-5">
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-sm font-semibold text-grey-15">{criteriaName.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</h3>
+                              <span className="text-xs text-grey-50">{formatDuration(conv.call_duration_secs)}</span>
                             </div>
-                            <span className="text-xs text-grey-50">{conv.conversation_id.slice(0, 12)}...</span>
+
+                            {/* Score */}
+                            {evalData.score && (
+                              <div className="flex items-center gap-4 mb-4">
+                                <div className={`text-3xl font-bold ${evalData.score.value >= 90 ? 'text-green-600' : evalData.score.value >= 80 ? 'text-blue-600' : evalData.score.value >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                  {evalData.score.value}/{evalData.score.total}
+                                </div>
+                                <div>
+                                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                                    evalData.score.value >= 90 ? 'bg-green-100 text-green-700' :
+                                    evalData.score.value >= 80 ? 'bg-blue-100 text-blue-700' :
+                                    evalData.score.value >= 70 ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>{evalData.score.label}</span>
+                                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ml-2 ${
+                                    conv.analysis?.call_successful === 'success' ? 'bg-green-100 text-green-700' :
+                                    conv.analysis?.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
+                                    'bg-gray-100 text-grey-40'
+                                  }`}>{conv.analysis?.call_successful === 'success' ? 'Passed' : conv.analysis?.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Done well */}
+                            {evalData.doneWell.length > 0 && (
+                              <div className="mb-3">
+                                <h4 className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1.5">Areas Done Well</h4>
+                                <ul className="space-y-1">
+                                  {evalData.doneWell.map((item, j) => (
+                                    <li key={j} className="flex items-start gap-2">
+                                      <svg className="w-3.5 h-3.5 text-green-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                      <span className="text-xs text-grey-15">{item}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Needs improvement */}
+                            {evalData.needsImprovement.length > 0 && (
+                              <div>
+                                <h4 className="text-xs font-semibold text-yellow-700 uppercase tracking-wide mb-1.5">Needs Improvement</h4>
+                                <ul className="space-y-1">
+                                  {evalData.needsImprovement.map((item, j) => (
+                                    <li key={j} className="flex items-start gap-2">
+                                      <svg className="w-3.5 h-3.5 text-yellow-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                      <span className="text-xs text-grey-15">{item}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Fallback: show raw rationale if parsing found nothing */}
+                            {!evalData.score && !evalData.doneWell.length && !evalData.needsImprovement.length && rationale && (
+                              <p className="text-xs text-grey-35 whitespace-pre-wrap">{rationale}</p>
+                            )}
                           </div>
 
+                          {/* 2. CALL SUMMARY */}
                           {conv.analysis?.transcript_summary && (
-                            <p className="text-sm text-grey-35 mb-3">{conv.analysis.transcript_summary}</p>
-                          )}
-
-                          {conv.analysis?.evaluation_criteria_results && Object.keys(conv.analysis.evaluation_criteria_results).length > 0 && (
-                            <div className="space-y-1.5 mb-3">
-                              {Object.entries(conv.analysis.evaluation_criteria_results).map(([key, val]) => (
-                                <div key={key} className="flex items-start gap-2">
-                                  <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${val.result === 'success' ? 'bg-green-500' : val.result === 'failure' ? 'bg-red-500' : 'bg-gray-400'}`} />
-                                  <div>
-                                    <span className="text-xs font-medium text-grey-15">{val.criteria_id || key}</span>
-                                    {val.rationale && <p className="text-[11px] text-grey-40">{val.rationale}</p>}
-                                  </div>
-                                </div>
-                              ))}
+                            <div className="bg-white rounded-[12px] border border-surface-border p-5">
+                              <h3 className="text-sm font-semibold text-grey-15 mb-2">Call Summary</h3>
+                              <p className="text-sm text-grey-35 leading-relaxed">{conv.analysis.transcript_summary}</p>
                             </div>
                           )}
 
+                          {/* 3. TRANSCRIPT */}
                           {conv.transcript && conv.transcript.length > 0 && (
-                            <details className="mt-2">
-                              <summary className="text-xs text-brand-500 hover:text-brand-600 cursor-pointer font-medium">Show transcript ({conv.transcript.length} messages)</summary>
-                              <div className="mt-2 space-y-1.5 max-h-[250px] overflow-y-auto">
-                                {conv.transcript.map((turn, i) => (
-                                  <div key={i} className={`flex gap-2 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold ${turn.role === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-brand-100 text-brand-600'}`}>{turn.role === 'user' ? 'U' : 'AI'}</div>
-                                    <p className={`text-xs px-2 py-1.5 rounded-[6px] max-w-[80%] ${turn.role === 'user' ? 'bg-blue-50' : 'bg-surface'} text-grey-15`}>{turn.message}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
+                            <div className="bg-white rounded-[12px] border border-surface-border p-5">
+                              <details>
+                                <summary className="text-sm font-semibold text-grey-15 cursor-pointer hover:text-brand-500">Transcript ({conv.transcript.length} messages)</summary>
+                                <div className="mt-3 space-y-1.5 max-h-[350px] overflow-y-auto">
+                                  {conv.transcript.map((turn, i) => (
+                                    <div key={i} className={`flex gap-2 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold ${turn.role === 'user' ? 'bg-blue-100 text-blue-600' : 'bg-brand-100 text-brand-600'}`}>{turn.role === 'user' ? 'U' : 'AI'}</div>
+                                      <p className={`text-xs px-2 py-1.5 rounded-[6px] max-w-[80%] ${turn.role === 'user' ? 'bg-blue-50' : 'bg-surface'} text-grey-15`}>{turn.message}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            </div>
                           )}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
