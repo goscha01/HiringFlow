@@ -1151,28 +1151,80 @@ export default function FlowBuilderPage() {
                             <label className="block text-sm font-medium text-grey-20 mb-2">Fields</label>
                             <div className="space-y-2">
                               {formConfig.fields.map((field, i) => (
-                                <div key={field.id} className="flex items-center gap-3 p-3 rounded-[8px] border border-surface-border">
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], enabled: !n[i].enabled }; updateFormFields(n) }} className="rounded accent-[#FF9500]" />
-                                  </label>
-                                  {field.isBuiltIn ? (
-                                    <span className="text-sm text-grey-15 flex-1">{field.label}</span>
-                                  ) : (
-                                    <input
-                                      key={`field-label-${field.id}-${popupStep.id}`}
-                                      type="text"
-                                      defaultValue={field.label}
-                                      onBlur={(e) => { if (e.target.value !== field.label) { const n = [...formConfig.fields]; n[i] = { ...n[i], label: e.target.value }; updateFormFields(n) } }}
-                                      placeholder="Field name"
-                                      className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
-                                    />
-                                  )}
-                                  <label className="flex items-center gap-1.5 text-xs text-grey-40">
-                                    <input type="checkbox" checked={field.required} onChange={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], required: !n[i].required }; updateFormFields(n) }} className="rounded accent-[#FF9500]" />
-                                    Required
-                                  </label>
+                                <div key={field.id} className="p-3 rounded-[8px] border border-surface-border space-y-2">
+                                  <div className="flex items-center gap-3">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                      <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], enabled: !n[i].enabled }; updateFormFields(n) }} className="rounded accent-[#FF9500]" />
+                                    </label>
+                                    {field.isBuiltIn ? (
+                                      <span className="text-sm text-grey-15 flex-1">{field.label}</span>
+                                    ) : (
+                                      <input
+                                        key={`field-label-${field.id}-${popupStep.id}`}
+                                        type="text"
+                                        defaultValue={field.label}
+                                        onBlur={(e) => { if (e.target.value !== field.label) { const n = [...formConfig.fields]; n[i] = { ...n[i], label: e.target.value }; updateFormFields(n) } }}
+                                        placeholder="Field name"
+                                        className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    )}
+                                    <label className="flex items-center gap-1.5 text-xs text-grey-40">
+                                      <input type="checkbox" checked={field.required} onChange={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], required: !n[i].required }; updateFormFields(n) }} className="rounded accent-[#FF9500]" />
+                                      Required
+                                    </label>
+                                    {!field.isBuiltIn && (
+                                      <button onClick={() => updateFormFields(formConfig.fields.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-lg">&times;</button>
+                                    )}
+                                  </div>
                                   {!field.isBuiltIn && (
-                                    <button onClick={() => updateFormFields(formConfig.fields.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-lg">&times;</button>
+                                    <div className="flex gap-1 ml-7">
+                                      {[
+                                        { value: 'text', label: 'Text' },
+                                        { value: 'radio', label: 'Radio' },
+                                        { value: 'multiselect', label: 'Multi' },
+                                        { value: 'button', label: 'Button' },
+                                      ].map(t => (
+                                        <button key={t.value} onClick={() => { const n = [...formConfig.fields]; n[i] = { ...n[i], type: t.value }; updateFormFields(n) }} className={`px-2.5 py-1 text-[10px] rounded-[6px] border font-medium ${field.type === t.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-40'}`}>
+                                          {t.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {!field.isBuiltIn && (field.type === 'radio' || field.type === 'multiselect' || field.type === 'button') && (
+                                    <div className="ml-7 space-y-1">
+                                      {((field as any).options || ['Option 1', 'Option 2']).map((opt: string, j: number) => (
+                                        <div key={j} className="flex gap-1">
+                                          <input
+                                            key={`opt-${field.id}-${j}`}
+                                            type="text"
+                                            defaultValue={opt}
+                                            onBlur={(e) => {
+                                              const n = [...formConfig.fields]
+                                              const opts = [...((n[i] as any).options || ['Option 1', 'Option 2'])]
+                                              opts[j] = e.target.value
+                                              n[i] = { ...n[i], options: opts } as any
+                                              updateFormFields(n)
+                                            }}
+                                            placeholder={`Option ${j + 1}`}
+                                            className="flex-1 px-2 py-1 text-xs border border-surface-border rounded-[6px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                          />
+                                          {((field as any).options || []).length > 2 && (
+                                            <button onClick={() => {
+                                              const n = [...formConfig.fields]
+                                              const opts = [...((n[i] as any).options || [])].filter((_: any, k: number) => k !== j)
+                                              n[i] = { ...n[i], options: opts } as any
+                                              updateFormFields(n)
+                                            }} className="text-grey-50 hover:text-red-500 text-xs">&times;</button>
+                                          )}
+                                        </div>
+                                      ))}
+                                      <button onClick={() => {
+                                        const n = [...formConfig.fields]
+                                        const opts = [...((n[i] as any).options || ['Option 1', 'Option 2']), '']
+                                        n[i] = { ...n[i], options: opts } as any
+                                        updateFormFields(n)
+                                      }} className="text-[10px] text-brand-500 hover:text-brand-600">+ Add option</button>
+                                    </div>
                                   )}
                                 </div>
                               ))}
@@ -1624,27 +1676,78 @@ export default function FlowBuilderPage() {
                     <label className="block text-sm font-medium text-grey-20 mb-2">Fields</label>
                     <div className="space-y-2">
                       {addStepFormFields.map((field, i) => (
-                        <div key={field.id} className="flex items-center gap-3 p-3 rounded-[8px] border border-surface-border">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], enabled: !n[i].enabled }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
-                          </label>
-                          {field.isBuiltIn ? (
-                            <span className="text-sm text-grey-15 flex-1">{field.label}</span>
-                          ) : (
-                            <input
-                              type="text"
-                              value={field.label}
-                              onChange={(e) => { const n = [...addStepFormFields]; n[i] = { ...n[i], label: e.target.value }; setAddStepFormFields(n) }}
-                              placeholder="Field name"
-                              className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
-                            />
-                          )}
-                          <label className="flex items-center gap-1.5 text-xs text-grey-40">
-                            <input type="checkbox" checked={field.required} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], required: !n[i].required }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
-                            Required
-                          </label>
+                        <div key={field.id} className="p-3 rounded-[8px] border border-surface-border space-y-2">
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], enabled: !n[i].enabled }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
+                            </label>
+                            {field.isBuiltIn ? (
+                              <span className="text-sm text-grey-15 flex-1">{field.label}</span>
+                            ) : (
+                              <input
+                                type="text"
+                                value={field.label}
+                                onChange={(e) => { const n = [...addStepFormFields]; n[i] = { ...n[i], label: e.target.value }; setAddStepFormFields(n) }}
+                                placeholder="Field name"
+                                className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                              />
+                            )}
+                            <label className="flex items-center gap-1.5 text-xs text-grey-40">
+                              <input type="checkbox" checked={field.required} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], required: !n[i].required }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
+                              Required
+                            </label>
+                            {!field.isBuiltIn && (
+                              <button onClick={() => setAddStepFormFields(addStepFormFields.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm">&times;</button>
+                            )}
+                          </div>
                           {!field.isBuiltIn && (
-                            <button onClick={() => setAddStepFormFields(addStepFormFields.filter((_, j) => j !== i))} className="text-brand-400 hover:text-brand-600 text-sm">&times;</button>
+                            <div className="flex gap-1 ml-7">
+                              {[
+                                { value: 'text', label: 'Text' },
+                                { value: 'radio', label: 'Radio' },
+                                { value: 'multiselect', label: 'Multi' },
+                                { value: 'button', label: 'Button' },
+                              ].map(t => (
+                                <button key={t.value} onClick={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], type: t.value }; setAddStepFormFields(n) }} className={`px-2.5 py-1 text-[10px] rounded-[6px] border font-medium ${field.type === t.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-40'}`}>
+                                  {t.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {!field.isBuiltIn && (field.type === 'radio' || field.type === 'multiselect' || field.type === 'button') && (
+                            <div className="ml-7 space-y-1">
+                              {((field as any).options || ['Option 1', 'Option 2']).map((opt: string, j: number) => (
+                                <div key={j} className="flex gap-1">
+                                  <input
+                                    type="text"
+                                    value={opt}
+                                    onChange={(e) => {
+                                      const n = [...addStepFormFields]
+                                      const opts = [...((n[i] as any).options || ['Option 1', 'Option 2'])]
+                                      opts[j] = e.target.value
+                                      n[i] = { ...n[i], options: opts } as any
+                                      setAddStepFormFields(n)
+                                    }}
+                                    placeholder={`Option ${j + 1}`}
+                                    className="flex-1 px-2 py-1 text-xs border border-surface-border rounded-[6px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                  />
+                                  {((field as any).options || []).length > 2 && (
+                                    <button onClick={() => {
+                                      const n = [...addStepFormFields]
+                                      const opts = [...((n[i] as any).options || [])].filter((_: any, k: number) => k !== j)
+                                      n[i] = { ...n[i], options: opts } as any
+                                      setAddStepFormFields(n)
+                                    }} className="text-grey-50 hover:text-red-500 text-xs">&times;</button>
+                                  )}
+                                </div>
+                              ))}
+                              <button onClick={() => {
+                                const n = [...addStepFormFields]
+                                const opts = [...((n[i] as any).options || ['Option 1', 'Option 2']), '']
+                                n[i] = { ...n[i], options: opts } as any
+                                setAddStepFormFields(n)
+                              }} className="text-[10px] text-brand-500 hover:text-brand-600">+ Add option</button>
+                            </div>
                           )}
                         </div>
                       ))}
