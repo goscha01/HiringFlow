@@ -274,10 +274,26 @@ export default function FlowBuilderPage() {
       setTitleWarning(true)
       return
     }
-    setTitleWarning(false)
+    // Check for duplicate title
     const config: Record<string, unknown> = {}
+    let finalTitle = ''
     if (addStepType === 'submission') {
-      config.title = addStepTitle.trim() || addStepButtonText || 'Video'
+      finalTitle = addStepTitle.trim() || addStepButtonText || 'Video'
+    } else if (addStepType === 'question') {
+      finalTitle = addStepTitle.trim() || addStepQuestion || 'Question'
+    } else if (addStepType === 'form') {
+      finalTitle = addStepTitle.trim() || 'Application Form'
+    } else if (addStepType === 'info') {
+      finalTitle = addStepTitle.trim() || 'Welcome'
+    }
+    if (flow?.steps.some(s => s.title.toLowerCase() === finalTitle.toLowerCase())) {
+      setTitleWarning(true)
+      alert(`A step named "${finalTitle}" already exists. Please use a different name.`)
+      return
+    }
+    setTitleWarning(false)
+    if (addStepType === 'submission') {
+      config.title = finalTitle
       config.videoId = addStepVideoId || undefined
       if (addStepButtonEnabled) config.buttonConfig = { enabled: true, text: addStepButtonText || 'Continue' }
     } else if (addStepType === 'question') {
