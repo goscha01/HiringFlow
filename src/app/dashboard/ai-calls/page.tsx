@@ -42,6 +42,21 @@ export default function AICallsPage() {
   const [assignConvId, setAssignConvId] = useState('')
   const [assignCandidateId, setAssignCandidateId] = useState('')
 
+  // Criteria editor
+  const [tab, setTab] = useState<'candidates' | 'criteria'>('candidates')
+  const [criteriaLoading, setCriteriaLoading] = useState(false)
+  const [criteriaSaving, setCriteriaSaving] = useState(false)
+  const [criteriaSaved, setCriteriaSaved] = useState(false)
+  const [criteriaId, setCriteriaId] = useState('')
+  const [criteriaName, setCriteriaName] = useState('')
+  // Parsed sections
+  const [mandatoryItems, setMandatoryItems] = useState<string[]>([])
+  const [pricingItems, setPricingItems] = useState<string[]>([])
+  const [profItems, setProfItems] = useState<string[]>([])
+  const [criticalItems, setCriticalItems] = useState<string[]>([])
+  const [scoringItems, setScoringItems] = useState<string[]>([])
+  const [feedbackText, setFeedbackText] = useState('')
+
   useEffect(() => {
     Promise.all([
       fetch('/api/workspace/settings').then(r => r.json()),
@@ -160,6 +175,62 @@ export default function AICallsPage() {
     if (selectedCandidate?.id === id) { setSelectedCandidate(null); setCandidateConvs([]) }
   }
 
+  const fetchCriteria = async () => {
+    setCriteriaLoading(true)
+    const r = await fetch('/api/ai-calls/agent/criteria')
+    if (r.ok) {
+      const data = await r.json()
+      setCriteriaId(data.criteriaId)
+      setCriteriaName(data.criteriaName)
+      // Parse the prompt into sections
+      const prompt = data.prompt || ''
+      const sections: Record<string, string[]> = {}
+      let current = ''
+      for (const line of prompt.split('\n')) {
+        const t = line.trim()
+        if (!t) continue
+        const hm = t.match(/^\*\*(.+?)\*\*/)
+        if (hm && !t.startsWith('- ')) { current = hm[1]; sections[current] = []; continue }
+        if (t.startsWith('- ') && current) sections[current].push(t.slice(2))
+      }
+      const keys = Object.keys(sections)
+      setMandatoryItems(sections[keys.find(k => k.toUpperCase().includes('MANDATORY')) || ''] || [''])
+      setPricingItems(sections[keys.find(k => k.toUpperCase().includes('PRICING')) || ''] || [''])
+      setProfItems(sections[keys.find(k => k.toUpperCase().includes('PROFESSIONAL')) || ''] || [''])
+      setCriticalItems(sections[keys.find(k => k.toUpperCase().includes('CRITICAL')) || ''] || [''])
+      setScoringItems(sections[keys.find(k => k.toUpperCase().includes('SCORING')) || ''] || [''])
+      const fb = keys.find(k => k.toUpperCase().includes('FEEDBACK'))
+      setFeedbackText(fb ? sections[fb].join(' ') : '')
+    }
+    setCriteriaLoading(false)
+  }
+
+  const buildPrompt = () => {
+    let p = ''
+    const addSection = (title: string, items: string[]) => {
+      const filtered = items.filter(i => i.trim())
+      if (filtered.length === 0) return
+      p += `\n\n**${title}:**\n` + filtered.map(i => `- ${i}`).join('\n')
+    }
+    addSection('MANDATORY QUESTIONS (Must ask ALL)', mandatoryItems)
+    addSection('PRICING & SCHEDULING', pricingItems)
+    addSection('PROFESSIONALISM', profItems)
+    addSection('CRITICAL ERRORS (-5 points each)', criticalItems)
+    addSection('SCORING', scoringItems)
+    if (feedbackText.trim()) p += `\n\n**FEEDBACK:**\n${feedbackText}`
+    return p.trim()
+  }
+
+  const saveCriteria = async () => {
+    setCriteriaSaving(true)
+    await fetch('/api/ai-calls/agent/criteria', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ criteriaId, criteriaName, prompt: buildPrompt() }),
+    })
+    setCriteriaSaving(false); setCriteriaSaved(true); setTimeout(() => setCriteriaSaved(false), 2000)
+  }
+
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const formatDate = (unix: number) => new Date(unix * 1000).toLocaleString()
   const formatDateStr = (s: string) => new Date(s).toLocaleDateString()
@@ -226,6 +297,97 @@ export default function AICallsPage() {
             </div>
           </div>
 
+          {/* Tabs */}
+          <div className="flex gap-1 mb-5 border-b border-surface-border">
+            <button onClick={() => setTab('candidates')} className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === 'candidates' ? 'border-brand-500 text-brand-600' : 'border-transparent text-grey-40 hover:text-grey-20'}`}>
+              Candidates
+            </button>
+            <button onClick={() => { setTab('criteria'); if (!mandatoryItems[0]) fetchCriteria() }} className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === 'criteria' ? 'border-brand-500 text-brand-600' : 'border-transparent text-grey-40 hover:text-grey-20'}`}>
+              Evaluation Criteria
+            </button>
+          </div>
+
+          {/* Criteria editor tab */}
+          {tab === 'criteria' && (
+            <div className="max-w-3xl">
+              {criteriaLoading ? (
+                <div className="text-center py-12 text-grey-40">Loading criteria from ElevenLabs...</div>
+              ) : (
+                <div className="space-y-5">
+                  {/* Helper to render editable list */}
+                  {(() => {
+                    const EditableList = ({ title, items, setItems, color }: { title: string; items: string[]; setItems: (v: string[]) => void; color: string }) => (
+                      <div className={`bg-white rounded-[12px] border border-surface-border p-5`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className={`text-xs font-semibold uppercase tracking-wide ${color}`}>{title}</h4>
+                          <button onClick={() => setItems([...items, ''])} className="text-xs text-brand-500 hover:text-brand-600">+ Add</button>
+                        </div>
+                        <div className="space-y-2">
+                          {items.map((item, i) => (
+                            <div key={i} className="flex gap-2">
+                              <input
+                                type="text"
+                                value={item}
+                                onChange={e => { const n = [...items]; n[i] = e.target.value; setItems(n) }}
+                                placeholder="Enter item..."
+                                className="flex-1 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                              />
+                              {items.length > 1 && (
+                                <button onClick={() => setItems(items.filter((_, j) => j !== i))} className="text-grey-50 hover:text-red-500 text-lg px-1">&times;</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+
+                    return (
+                      <>
+                        <EditableList title="Mandatory Questions (Must ask ALL)" items={mandatoryItems} setItems={setMandatoryItems} color="text-[#FF9500]" />
+                        <EditableList title="Pricing & Scheduling" items={pricingItems} setItems={setPricingItems} color="text-[#FF9500]" />
+                        <EditableList title="Professionalism" items={profItems} setItems={setProfItems} color="text-[#FF9500]" />
+                        <EditableList title="Critical Errors (-5 points each)" items={criticalItems} setItems={setCriticalItems} color="text-red-600" />
+
+                        <div className="bg-white rounded-[12px] border border-surface-border p-5">
+                          <h4 className="text-xs font-semibold text-grey-40 uppercase tracking-wide mb-3">Scoring</h4>
+                          <div className="space-y-2">
+                            {scoringItems.map((item, i) => (
+                              <div key={i} className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={item}
+                                  onChange={e => { const n = [...scoringItems]; n[i] = e.target.value; setScoringItems(n) }}
+                                  placeholder="e.g. 90-100: Excellent"
+                                  className="flex-1 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-[12px] border border-surface-border p-5">
+                          <h4 className="text-xs font-semibold text-grey-40 uppercase tracking-wide mb-3">Feedback Instructions</h4>
+                          <textarea
+                            value={feedbackText}
+                            onChange={e => setFeedbackText(e.target.value)}
+                            rows={2}
+                            placeholder="e.g. Provide Score of the call. Provide specific areas done well and areas needing improvement."
+                            className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          />
+                        </div>
+
+                        <button onClick={saveCriteria} disabled={criteriaSaving} className={`btn-primary px-8 disabled:opacity-50 ${criteriaSaved ? 'bg-green-600 hover:bg-green-600' : ''}`}>
+                          {criteriaSaving ? 'Saving to ElevenLabs...' : criteriaSaved ? 'Saved!' : 'Save Evaluation Criteria'}
+                        </button>
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'candidates' && (
           <div className="flex gap-6">
             {/* Candidates list */}
             <div className="w-80 flex-shrink-0">
@@ -429,6 +591,8 @@ export default function AICallsPage() {
               )}
             </div>
           </div>
+
+          )}
 
           {/* Assign modal */}
           {showAssign && (
