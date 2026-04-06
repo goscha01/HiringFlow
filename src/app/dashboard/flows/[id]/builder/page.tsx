@@ -1159,10 +1159,11 @@ export default function FlowBuilderPage() {
                                     <span className="text-sm text-grey-15 flex-1">{field.label}</span>
                                   ) : (
                                     <input
-                                      key={`field-${field.id}`}
+                                      key={`field-label-${field.id}-${popupStep.id}`}
                                       type="text"
                                       defaultValue={field.label}
-                                      onBlur={(e) => { const n = [...formConfig.fields]; n[i] = { ...n[i], label: e.target.value }; updateFormFields(n) }}
+                                      onBlur={(e) => { if (e.target.value !== field.label) { const n = [...formConfig.fields]; n[i] = { ...n[i], label: e.target.value }; updateFormFields(n) } }}
+                                      placeholder="Field name"
                                       className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
                                     />
                                   )}
@@ -1627,7 +1628,17 @@ export default function FlowBuilderPage() {
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input type="checkbox" checked={field.enabled} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], enabled: !n[i].enabled }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
                           </label>
-                          <span className="text-sm text-grey-15 flex-1">{field.label}</span>
+                          {field.isBuiltIn ? (
+                            <span className="text-sm text-grey-15 flex-1">{field.label}</span>
+                          ) : (
+                            <input
+                              type="text"
+                              value={field.label}
+                              onChange={(e) => { const n = [...addStepFormFields]; n[i] = { ...n[i], label: e.target.value }; setAddStepFormFields(n) }}
+                              placeholder="Field name"
+                              className="flex-1 px-2 py-1 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            />
+                          )}
                           <label className="flex items-center gap-1.5 text-xs text-grey-40">
                             <input type="checkbox" checked={field.required} onChange={() => { const n = [...addStepFormFields]; n[i] = { ...n[i], required: !n[i].required }; setAddStepFormFields(n) }} className="rounded accent-[#FF9500]" />
                             Required
