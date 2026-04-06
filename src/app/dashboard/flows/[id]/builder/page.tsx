@@ -602,14 +602,36 @@ export default function FlowBuilderPage() {
             <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${(isCombined || combineEnabled) ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </button>
         </div>
-        {(combineEnabled && !isCombined) && otherSteps.length > 0 && (
+        {(combineEnabled && !isCombined) && (
           <select
             value=""
-            onChange={(e) => { if (e.target.value) { updateStep(step.id, { combinedWithId: e.target.value } as any); setCombineEnabled(false) } }}
+            onChange={(e) => {
+              if (e.target.value === '__create__') { setCombineEnabled(false); addStep(); return }
+              if (e.target.value) { updateStep(step.id, { combinedWithId: e.target.value } as any); setCombineEnabled(false) }
+            }}
             className="w-full px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500"
           >
             <option value="">Select step to combine with...</option>
-            {otherSteps.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+            {(() => {
+              const groups = [
+                { type: 'submission', label: 'Video' },
+                { type: 'question', label: 'Question' },
+                { type: 'form', label: 'Form' },
+                { type: 'info', label: 'Screen' },
+              ]
+              return groups.map(g => {
+                const groupSteps = otherSteps.filter(s => s.stepType === g.type)
+                if (groupSteps.length === 0) return null
+                return (
+                  <optgroup key={g.type} label={g.label}>
+                    {groupSteps.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                  </optgroup>
+                )
+              })
+            })()}
+            <optgroup label="—">
+              <option value="__create__">+ Create new step...</option>
+            </optgroup>
           </select>
         )}
         {isCombined && (() => {
