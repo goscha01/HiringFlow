@@ -262,10 +262,31 @@ export default function AutomationsPage() {
               {nextStepType && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
-                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2">
-                    <option value="">Select template...</option>
-                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
+                  {templates.length > 0 ? (
+                    <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2">
+                      <option value="">Select template...</option>
+                      {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  ) : (
+                    <div className="mb-2">
+                      <p className="text-xs text-grey-40 mb-2">No templates yet. Quick create:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { name: 'Form Confirmation', subject: 'We received your application, {{candidate_name}}!', body: '<p>Hi {{candidate_name}},</p><p>Thank you for completing your application for {{flow_name}}. We\'ll review and get back to you shortly.</p>' },
+                          { name: 'Training Invitation', subject: 'Your training is ready, {{candidate_name}}!', body: '<p>Hi {{candidate_name}},</p><p>You\'ve passed the screening for {{flow_name}}.</p><p><a href="{{training_link}}">Start Training</a></p>' },
+                          { name: 'Scheduling Invite', subject: 'Book your interview, {{candidate_name}}', body: '<p>Hi {{candidate_name}},</p><p>Please choose a time for your interview:</p><p><a href="{{schedule_link}}">Book Interview</a></p>' },
+                          { name: 'Next Step', subject: 'Next steps — {{flow_name}}', body: '<p>Hi {{candidate_name}},</p><p>Here\'s what comes next for {{flow_name}}.</p><p><a href="{{training_link}}">Continue</a></p>' },
+                        ].map((tpl, i) => (
+                          <button key={i} onClick={async () => {
+                            const r = await fetch('/api/email-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: tpl.name, subject: tpl.subject, bodyHtml: tpl.body }) })
+                            if (r.ok) { const newTpl = await r.json(); const tplRes = await fetch('/api/email-templates'); if (tplRes.ok) setTemplates(await tplRes.json()); setTemplateId(newTpl.id) }
+                          }} className="px-3 py-1.5 text-xs border border-surface-border rounded-[6px] text-grey-35 hover:border-brand-400 hover:bg-brand-50">
+                            {tpl.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <button onClick={() => setShowNewTemplate(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Create new template</button>
                   {showNewTemplate && (
                     <div className="mt-3 p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
