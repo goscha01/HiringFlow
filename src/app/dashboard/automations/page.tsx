@@ -47,6 +47,12 @@ export default function AutomationsPage() {
   const [schedulingConfigId, setSchedulingConfigId] = useState('')
   const [delayMinutes, setDelayMinutes] = useState(0)
   const [saving, setSaving] = useState(false)
+  // Inline template creator
+  const [showNewTemplate, setShowNewTemplate] = useState(false)
+  const [newTplName, setNewTplName] = useState('')
+  const [newTplSubject, setNewTplSubject] = useState('')
+  const [newTplBody, setNewTplBody] = useState('<p>Hi {{candidate_name}},</p>\n<p></p>')
+  const [savingTpl, setSavingTpl] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -93,6 +99,26 @@ export default function AutomationsPage() {
       await fetch('/api/automations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     }
     setSaving(false); setShowModal(false); refresh()
+  }
+
+  const createTemplate = async () => {
+    if (!newTplName.trim() || !newTplSubject.trim() || !newTplBody.trim()) return
+    setSavingTpl(true)
+    const r = await fetch('/api/email-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newTplName, subject: newTplSubject, bodyHtml: newTplBody }),
+    })
+    if (r.ok) {
+      const newTpl = await r.json()
+      // Refresh templates list and pre-select the new one
+      const tplRes = await fetch('/api/email-templates')
+      if (tplRes.ok) setTemplates(await tplRes.json())
+      setTemplateId(newTpl.id)
+      setShowNewTemplate(false)
+      setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
+    }
+    setSavingTpl(false)
   }
 
   const toggle = async (r: Rule) => {
@@ -214,20 +240,43 @@ export default function AutomationsPage() {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
-                <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                  <option value="">Select template...</option>
-                  {templates.map(t => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
-                </select>
-                <p className="text-xs text-grey-40 mt-1">{templates.length} template{templates.length !== 1 ? 's' : ''} available. <Link href="/dashboard/content" className="text-brand-500 hover:text-brand-600">Create new →</Link></p>
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Next Step Type</label>
                 <div className="flex gap-2">
                   {[{ v: '', l: 'None' }, { v: 'email', l: 'Send Email' }, { v: 'training', l: 'Training' }, { v: 'scheduling', l: 'Scheduling' }].map(({ v, l }) => (
                     <button key={v} onClick={() => setNextStepType(v)} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${nextStepType === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
                   ))}
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
+                <div className="flex gap-2">
+                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="flex-1 px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select template...</option>
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
+                  </select>
+                  <button onClick={() => setShowNewTemplate(true)} className="px-4 py-3 text-xs font-medium bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 whitespace-nowrap">+ New</button>
+                </div>
+                {/* Inline template creator */}
+                {showNewTemplate && (
+                  <div className="mt-3 p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Template Name</label>
+                      <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Subject</label>
+                      <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
+                      <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={4} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setShowNewTemplate(false)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
+                      <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="text-xs px-3 py-1.5 bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50">{savingTpl ? 'Creating...' : 'Create & Select'}</button>
+                    </div>
+                  </div>
+                )}
               </div>
               {nextStepType === 'training' && (
                 <div>
