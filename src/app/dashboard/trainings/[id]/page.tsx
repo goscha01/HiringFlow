@@ -164,13 +164,32 @@ export default function TrainingEditorPage() {
             </div>
           </div>
         ) : (
-          <label className="block w-full h-[160px] border-2 border-dashed border-surface-divider rounded-[12px] cursor-pointer hover:border-brand-400 transition-colors flex items-center justify-center">
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
+            onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
+            onDrop={async (e) => {
+              e.preventDefault()
+              e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
+              const file = e.dataTransfer.files[0]
+              if (file && file.type.startsWith('image/')) {
+                setUploadingCover(true)
+                try {
+                  const formData = new FormData(); formData.append('file', file)
+                  const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
+                  if (res.ok) { const { url } = await res.json(); updateTraining({ coverImage: url } as Partial<Training>) }
+                } catch {}
+                setUploadingCover(false)
+              }
+            }}
+            onClick={() => coverRef.current?.click()}
+            className="w-full h-[160px] border-2 border-dashed border-surface-divider rounded-[12px] cursor-pointer hover:border-brand-400 transition-colors flex items-center justify-center"
+          >
             <div className="text-center">
               <svg className="w-10 h-10 mx-auto text-grey-60 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              <span className="text-sm text-grey-40">{uploadingCover ? 'Uploading...' : 'Add cover image'}</span>
+              <span className="text-sm text-grey-40">{uploadingCover ? 'Uploading...' : 'Drag & drop image or click to browse'}</span>
             </div>
             <input ref={coverRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" disabled={uploadingCover} />
-          </label>
+          </div>
         )}
       </div>
 
@@ -337,10 +356,31 @@ export default function TrainingEditorPage() {
 
                       {content.type === 'video' ? (
                         <div className="space-y-3">
-                          {/* Video preview */}
-                          {content.video?.url && (
+                          {/* Video preview or drop zone */}
+                          {content.video?.url ? (
                             <div className="rounded-[8px] overflow-hidden mb-2">
                               <video src={content.video.url} controls className="w-full rounded-[8px]" />
+                            </div>
+                          ) : (
+                            <div
+                              onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
+                              onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
+                              onDrop={async (e) => {
+                                e.preventDefault()
+                                e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
+                                const file = e.dataTransfer.files[0]
+                                if (file && file.type.startsWith('video/')) {
+                                  const result = await uploadVideoFile(file)
+                                  if (result.id) {
+                                    setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+                                    updateContent(currentSection.id, content.id, { videoId: result.id })
+                                  }
+                                }
+                              }}
+                              className="border-2 border-dashed border-surface-border rounded-[8px] p-6 text-center cursor-pointer hover:border-brand-400 transition-colors"
+                            >
+                              <svg className="w-8 h-8 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                              <p className="text-xs text-grey-40">Drag & drop video here</p>
                             </div>
                           )}
                           <div className="flex gap-2">
