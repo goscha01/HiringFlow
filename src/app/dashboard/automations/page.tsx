@@ -20,12 +20,14 @@ const TRIGGERS = [
   { value: 'flow_completed', label: 'Flow Completed' },
   { value: 'flow_passed', label: 'Flow Passed' },
   { value: 'training_completed', label: 'Training Done' },
+  { value: 'automation_completed', label: 'After Automation' },
 ]
 
 const TRIGGER_LABELS: Record<string, string> = {
   flow_completed: 'Flow Completed',
   flow_passed: 'Flow Passed',
   training_completed: 'Training Done',
+  automation_completed: 'After Automation',
 }
 
 export default function AutomationsPage() {
@@ -230,13 +232,23 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              {triggerType !== 'training_completed' && (
+              {triggerType !== 'training_completed' && triggerType !== 'automation_completed' && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Flow (optional — leave empty for all flows)</label>
                   <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
                     <option value="">Any flow</option>
                     {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
+                </div>
+              )}
+              {triggerType === 'automation_completed' && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">After which automation?</label>
+                  <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Select automation...</option>
+                    {rules.filter(r => !editing || r.id !== editing.id).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                  <p className="text-xs text-grey-40 mt-1">This automation will fire after the selected automation completes.</p>
                 </div>
               )}
               <div>
