@@ -88,12 +88,22 @@ export default function TrainingEditorPage() {
   const quizAction = async (sectionId: string, data: Record<string, unknown>) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); refresh() }
   const deleteQuiz = async (sectionId: string) => { if (!confirm('Delete this quiz?')) return; await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'DELETE' }); refresh() }
 
+  // Prevent browser from opening dropped files in a new tab
+  useEffect(() => {
+    const prevent = (e: DragEvent) => { e.preventDefault() }
+    document.addEventListener('dragover', prevent)
+    document.addEventListener('drop', prevent)
+    return () => {
+      document.removeEventListener('dragover', prevent)
+      document.removeEventListener('drop', prevent)
+    }
+  }, [])
+
   if (loading || !training) return <div className="flex items-center justify-center py-20"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
 
   const currentSection = training.sections.find(s => s.id === activeSection)
 
   return (
-    <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
@@ -551,7 +561,6 @@ export default function TrainingEditorPage() {
         </div>
       </div>
 
-    </div>
     </div>
   )
 }
