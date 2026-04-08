@@ -247,37 +247,38 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
-                <div className="flex gap-2">
-                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="flex-1 px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Select template...</option>
-                    {templates.map(t => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
-                  </select>
-                  <button onClick={() => setShowNewTemplate(true)} className="px-4 py-3 text-xs font-medium bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 whitespace-nowrap">+ New</button>
-                </div>
-                {/* Inline template creator */}
-                {showNewTemplate && (
-                  <div className="mt-3 p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Template Name</label>
-                      <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Subject</label>
-                      <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
-                      <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={4} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => setShowNewTemplate(false)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
-                      <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="text-xs px-3 py-1.5 bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50">{savingTpl ? 'Creating...' : 'Create & Select'}</button>
-                    </div>
+              {nextStepType === 'email' && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
+                  <div className="flex gap-2">
+                    <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="flex-1 px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                      <option value="">Select template...</option>
+                      {templates.map(t => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
+                    </select>
+                    <button onClick={() => setShowNewTemplate(true)} className="px-4 py-3 text-xs font-medium bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 whitespace-nowrap">+ New</button>
                   </div>
-                )}
-              </div>
+                  {showNewTemplate && (
+                    <div className="mt-3 p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
+                      <div>
+                        <label className="block text-xs text-grey-40 mb-1">Template Name</label>
+                        <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-grey-40 mb-1">Subject</label>
+                        <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
+                        <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={4} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowNewTemplate(false)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
+                        <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="text-xs px-3 py-1.5 bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50">{savingTpl ? 'Creating...' : 'Create & Select'}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {nextStepType === 'training' && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Training</label>
@@ -300,7 +301,8 @@ export default function AutomationsPage() {
                   <p className="text-xs text-grey-40 mt-1">Link clicks are tracked. Candidate status updates to &quot;invited to schedule&quot;.</p>
                 </div>
               )}
-              {/* Delay */}
+              {/* Delay — only show when a next step is selected */}
+              {nextStepType && (
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Delay</label>
                 <div className="flex flex-wrap gap-1.5">
@@ -349,6 +351,7 @@ export default function AutomationsPage() {
                 )}
                 {delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Email will be sent {delayMinutes >= 1440 ? `${Math.round(delayMinutes / 1440)} day${delayMinutes >= 2880 ? 's' : ''}` : delayMinutes >= 60 ? `${Math.round(delayMinutes / 60)} hour${delayMinutes >= 120 ? 's' : ''}` : `${delayMinutes} minutes`} after trigger.</p>}
               </div>
+              )}
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
