@@ -596,7 +596,7 @@ export default function AICallsPage() {
 
           {/* Assign modal */}
           {showAssign && (
-            <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowAssign(false)}>
+            <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
               <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[400px]" onClick={e => e.stopPropagation()}>
                 <h2 className="text-lg font-semibold text-grey-15 mb-4">Assign Conversation</h2>
                 <div className="space-y-3">

@@ -155,7 +155,7 @@ export default function FlowsPage() {
 
       {/* Create modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-8 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-semibold text-grey-15 mb-6">Create New Flow</h2>
             <input

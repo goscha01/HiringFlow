@@ -93,6 +93,7 @@ export default function TrainingEditorPage() {
   const currentSection = training.sections.find(s => s.id === activeSection)
 
   return (
+    <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
@@ -550,6 +551,7 @@ export default function TrainingEditorPage() {
         </div>
       </div>
 
+    </div>
     </div>
   )
 }

@@ -138,7 +138,7 @@ export default function SchedulingPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
           <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[520px]" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-semibold text-grey-15 mb-6">{editing ? 'Edit Scheduling Link' : 'Add Scheduling Link'}</h2>
             <div className="space-y-4">
