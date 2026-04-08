@@ -262,13 +262,44 @@ export default function AutomationsPage() {
               {nextStepType && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
-                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2">
-                    <option value="">Select template...</option>
-                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                  <button onClick={() => setShowNewTemplate(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Create new template</button>
-                  {showNewTemplate && (
-                    <div className="mt-3 p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
+                  {!showNewTemplate ? (
+                    <>
+                      {/* Template picker — saved templates */}
+                      {templates.length > 0 && (
+                        <select value={templateId} onChange={(e) => {
+                          setTemplateId(e.target.value)
+                          const t = templates.find(t => t.id === e.target.value)
+                          if (t) { setNewTplName(t.name); setNewTplSubject(t.subject); setNewTplBody((t as any).bodyHtml || '') }
+                        }} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2">
+                          <option value="">Select saved template...</option>
+                          {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      )}
+                      {/* Default templates as clickable cards */}
+                      <p className="text-xs text-grey-40 mb-2">{templates.length > 0 ? 'Or start from a default:' : 'Choose a default template:'}</p>
+                      <div className="grid grid-cols-2 gap-1.5 mb-2">
+                        {[
+                          { name: 'Form Confirmation', subject: 'We received your application, {{candidate_name}}!', body: '<p>Hi {{candidate_name}},</p>\n<p>Thank you for completing your application for {{flow_name}}. We\'ll review and get back to you shortly.</p>\n<p>Best regards,<br/>The Hiring Team</p>' },
+                          { name: 'Training Invitation', subject: 'Your training is ready, {{candidate_name}}!', body: '<p>Hi {{candidate_name}},</p>\n<p>You\'ve passed the screening for {{flow_name}}.</p>\n<p><a href="{{training_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Start Training</a></p>' },
+                          { name: 'Scheduling Invite', subject: 'Book your interview, {{candidate_name}}', body: '<p>Hi {{candidate_name}},</p>\n<p>Please choose a time for your interview:</p>\n<p><a href="{{schedule_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Book Interview</a></p>' },
+                          { name: 'Next Step', subject: 'Next steps — {{flow_name}}', body: '<p>Hi {{candidate_name}},</p>\n<p>Here\'s what comes next for {{flow_name}}.</p>\n<p><a href="{{training_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Continue</a></p>' },
+                          { name: 'Rejection', subject: 'Update on your application', body: '<p>Hi {{candidate_name}},</p>\n<p>Thank you for your interest in {{flow_name}}. After careful review, we\'ve decided to move forward with other candidates.</p>\n<p>We wish you the best.</p>' },
+                          { name: 'Follow-up', subject: 'Following up — {{flow_name}}', body: '<p>Hi {{candidate_name}},</p>\n<p>Just checking in regarding your application for {{flow_name}}.</p>\n<p>If you have any questions, feel free to reply.</p>' },
+                        ].map((tpl, i) => (
+                          <button key={i} onClick={() => { setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.body); setShowNewTemplate(true); setTemplateId('') }} className="px-3 py-2 text-xs text-left border border-surface-border rounded-[6px] text-grey-35 hover:border-brand-400 hover:bg-brand-50 transition-colors">
+                            <span className="font-medium text-grey-15 block">{tpl.name}</span>
+                            <span className="text-[10px] text-grey-50 truncate block">{tpl.subject}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={() => { setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>'); setShowNewTemplate(true) }} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Start from scratch</button>
+                    </>
+                  ) : (
+                    /* Inline template editor */
+                    <div className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
+                      <div className="flex items-center justify-between">
+                        <button onClick={() => setShowNewTemplate(false)} className="text-xs text-grey-40 hover:text-grey-15 flex items-center gap-1">&larr; Back to templates</button>
+                      </div>
                       <div>
                         <label className="block text-xs text-grey-40 mb-1">Template Name</label>
                         <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
@@ -279,12 +310,13 @@ export default function AutomationsPage() {
                       </div>
                       <div>
                         <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
-                        <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={4} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => setShowNewTemplate(false)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
-                        <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="text-xs px-3 py-1.5 bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50">{savingTpl ? 'Creating...' : 'Create & Select'}</button>
+                      <div className="bg-white rounded-[6px] p-2">
+                        <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
+                        <div className="flex flex-wrap gap-1">{['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{source}}', '{{ad_name}}'].map(v => <button key={v} onClick={() => navigator.clipboard.writeText(v)} className="text-[10px] px-2 py-0.5 bg-surface border border-surface-border rounded text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div>
                       </div>
+                      <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Use'}</button>
                     </div>
                   )}
                 </div>
