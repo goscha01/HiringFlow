@@ -259,7 +259,7 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              {nextStepType === 'email' && (
+              {nextStepType && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
                   <div className="flex gap-2">
