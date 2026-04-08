@@ -24,7 +24,7 @@ function VideoUploadButton({ onUploaded }: { onUploaded: (video: Video) => void 
     try {
       const result = await uploadVideoFile(file, (p) => setProgress(p))
       if (result.id) onUploaded({ id: result.id!, filename: result.filename, url: result.url, displayName: null })
-    } catch {}
+    } catch (err) { console.error('Video upload failed:', err); alert('Upload failed. Please try again.') }
     setUploading(false)
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -88,14 +88,21 @@ export default function TrainingEditorPage() {
   const quizAction = async (sectionId: string, data: Record<string, unknown>) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); refresh() }
   const deleteQuiz = async (sectionId: string) => { if (!confirm('Delete this quiz?')) return; await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'DELETE' }); refresh() }
 
-  // Prevent browser from opening dropped files in a new tab
+  // Prevent browser from opening dropped files in a new tab — capture phase
   useEffect(() => {
-    const prevent = (e: DragEvent) => { e.preventDefault() }
-    document.addEventListener('dragover', prevent)
-    document.addEventListener('drop', prevent)
+    const preventDragOver = (e: DragEvent) => e.preventDefault()
+    const preventDrop = (e: DragEvent) => {
+      // Only prevent default if not dropping on a valid drop zone
+      const target = e.target as HTMLElement
+      if (!target.closest('[data-dropzone]')) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('dragover', preventDragOver, true)
+    window.addEventListener('drop', preventDragOver, true)
     return () => {
-      document.removeEventListener('dragover', prevent)
-      document.removeEventListener('drop', prevent)
+      window.removeEventListener('dragover', preventDragOver, true)
+      window.removeEventListener('drop', preventDragOver, true)
     }
   }, [])
 
@@ -176,10 +183,11 @@ export default function TrainingEditorPage() {
           </div>
         ) : (
           <div
-            onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
-            onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
+            data-dropzone
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
             onDrop={async (e) => {
-              e.preventDefault()
+              e.preventDefault(); e.stopPropagation()
               e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
               const file = e.dataTransfer.files[0]
               if (file && file.type.startsWith('image/')) {
@@ -373,11 +381,12 @@ export default function TrainingEditorPage() {
                               <video src={content.video.url} controls className="w-full rounded-[8px]" />
                             </div>
                           ) : (
-                            <div
-                              onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
-                              onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
+                            <label
+                              data-dropzone
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
+                              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
                               onDrop={async (e) => {
-                                e.preventDefault()
+                                e.preventDefault(); e.stopPropagation()
                                 e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
                                 const file = e.dataTransfer.files[0]
                                 if (file && file.type.startsWith('video/')) {
@@ -388,11 +397,19 @@ export default function TrainingEditorPage() {
                                   }
                                 }
                               }}
-                              className="border-2 border-dashed border-surface-border rounded-[8px] p-6 text-center cursor-pointer hover:border-brand-400 transition-colors"
+                              className="block border-2 border-dashed border-surface-border rounded-[8px] p-6 text-center cursor-pointer hover:border-brand-400 transition-colors"
                             >
                               <svg className="w-8 h-8 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                              <p className="text-xs text-grey-40">Drag & drop video here</p>
-                            </div>
+                              <p className="text-xs text-grey-40">Drag & drop video or click to browse</p>
+                              <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file || !file.type.startsWith('video/')) return
+                                try {
+                                  const result = await uploadVideoFile(file)
+                                  if (result.id) { setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev]); updateContent(currentSection.id, content.id, { videoId: result.id }) }
+                                } catch (err) { console.error(err); alert('Upload failed') }
+                              }} />
+                            </label>
                           )}
                           <div className="flex gap-2">
                             <select
