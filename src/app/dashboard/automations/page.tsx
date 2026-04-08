@@ -262,13 +262,11 @@ export default function AutomationsPage() {
               {nextStepType && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
-                  <div className="flex gap-2">
-                    <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="flex-1 px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                      <option value="">Select template...</option>
-                      {templates.map(t => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
-                    </select>
-                    <button onClick={() => setShowNewTemplate(true)} className="px-4 py-3 text-xs font-medium bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 whitespace-nowrap">+ New</button>
-                  </div>
+                  <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2">
+                    <option value="">Select template...</option>
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <button onClick={() => setShowNewTemplate(true)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Create new template</button>
                   {showNewTemplate && (
                     <div className="mt-3 p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
                       <div>
