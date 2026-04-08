@@ -48,6 +48,7 @@ export default function TrainingEditorPage() {
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [activeStep, setActiveStep] = useState<number | null>(null)
+  const [uploadingVideo, setUploadingVideo] = useState<Record<string, number>>({}) // contentId -> progress %
   const coverRef = useRef<HTMLInputElement>(null)
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -105,6 +106,22 @@ export default function TrainingEditorPage() {
       window.removeEventListener('drop', preventDragOver, true)
     }
   }, [])
+
+  const handleVideoUploadForContent = async (file: File, sectionId: string, contentId: string) => {
+    if (!file.type.startsWith('video/')) {
+      alert(`"${file.name}" is not a video file. Please upload a video (MP4, MOV, WebM, etc.)`)
+      return
+    }
+    setUploadingVideo(prev => ({ ...prev, [contentId]: 0 }))
+    try {
+      const result = await uploadVideoFile(file, (p) => setUploadingVideo(prev => ({ ...prev, [contentId]: p })))
+      if (result.id) {
+        setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+        updateContent(sectionId, contentId, { videoId: result.id })
+      }
+    } catch (err) { console.error(err); alert('Upload failed. Please try again.') }
+    setUploadingVideo(prev => { const n = { ...prev }; delete n[contentId]; return n })
+  }
 
   if (loading || !training) return <div className="flex items-center justify-center py-20"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
 
@@ -380,6 +397,14 @@ export default function TrainingEditorPage() {
                             <div className="rounded-[8px] overflow-hidden mb-2">
                               <video src={content.video.url} controls className="w-full rounded-[8px]" />
                             </div>
+                          ) : uploadingVideo[content.id] !== undefined ? (
+                            <div className="border-2 border-brand-300 bg-brand-50 rounded-[8px] p-6 text-center">
+                              <div className="w-10 h-10 mx-auto mb-3 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                              <span className="text-sm font-medium text-brand-700">Uploading... {uploadingVideo[content.id]}%</span>
+                              <div className="w-full bg-brand-200 rounded-full h-2 mt-3">
+                                <div className="bg-brand-500 h-2 rounded-full transition-all duration-300" style={{ width: `${uploadingVideo[content.id]}%` }} />
+                              </div>
+                            </div>
                           ) : (
                             <label
                               data-dropzone
@@ -389,25 +414,17 @@ export default function TrainingEditorPage() {
                                 e.preventDefault(); e.stopPropagation()
                                 e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
                                 const file = e.dataTransfer.files[0]
-                                if (file && file.type.startsWith('video/')) {
-                                  const result = await uploadVideoFile(file)
-                                  if (result.id) {
-                                    setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
-                                    updateContent(currentSection.id, content.id, { videoId: result.id })
-                                  }
-                                }
+                                if (file) handleVideoUploadForContent(file, currentSection.id, content.id)
                               }}
                               className="block border-2 border-dashed border-surface-border rounded-[8px] p-6 text-center cursor-pointer hover:border-brand-400 transition-colors"
                             >
                               <svg className="w-8 h-8 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                               <p className="text-xs text-grey-40">Drag & drop video or click to browse</p>
+                              <p className="text-[10px] text-grey-50 mt-1">MP4, MOV, WebM supported</p>
                               <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
                                 const file = e.target.files?.[0]
-                                if (!file || !file.type.startsWith('video/')) return
-                                try {
-                                  const result = await uploadVideoFile(file)
-                                  if (result.id) { setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev]); updateContent(currentSection.id, content.id, { videoId: result.id }) }
-                                } catch (err) { console.error(err); alert('Upload failed') }
+                                if (file) handleVideoUploadForContent(file, currentSection.id, content.id)
+                                if (e.target) e.target.value = ''
                               }} />
                             </label>
                           )}
