@@ -434,7 +434,7 @@ export default function AutomationsPage() {
                     />
                   )}
                   {emailDestination === 'company' && companyEmail && (
-                    <p className="text-xs text-grey-40 mt-1">Will send to <span className="font-medium text-grey-20">{companyEmail}</span> (set in <Link href="/dashboard/settings" className="text-brand-500 hover:text-brand-600">Settings</Link>).</p>
+                    <p className="text-xs text-grey-40 mt-1">Will send to <span className="font-medium text-grey-20">{companyEmail}</span> (set in <Link href="/dashboard/settings?tab=email" className="text-brand-500 hover:text-brand-600">Settings</Link>).</p>
                   )}
                 </div>
               )}
@@ -461,7 +461,7 @@ export default function AutomationsPage() {
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowCompanyEmailWarning(false)} className="btn-secondary flex-1">Cancel</button>
-              <Link href="/dashboard/settings" className="btn-primary flex-1 text-center">Go to Settings</Link>
+              <Link href="/dashboard/settings?tab=email" className="btn-primary flex-1 text-center">Go to Settings</Link>
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 interface Member { id: string; userId: string; email: string; name: string | null; role: string; joinedAt: string }
 interface WorkspaceData {
@@ -23,7 +24,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'business' | 'team' | 'email' | 'providers'>('business')
+  const searchParams = useSearchParams()
+  const initialTab = (searchParams.get('tab') as 'business' | 'team' | 'email' | 'providers' | null) || 'business'
+  const [tab, setTab] = useState<'business' | 'team' | 'email' | 'providers'>(initialTab)
 
   // Form state
   const [name, setName] = useState('')
