@@ -43,6 +43,8 @@ export default withAuth(
         if (path.startsWith('/api/')) {
           if (path.startsWith('/api/auth/')) return true
           if (path.startsWith('/api/uploads/')) return true
+          // QStash webhook — signature verification happens inside the handler
+          if (path.startsWith('/api/automations/run')) return true
           return !!token
         }
 
