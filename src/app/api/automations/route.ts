@@ -22,7 +22,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
-  const { name, triggerType, flowId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes } = await request.json()
+  const { name, triggerType, flowId, triggerAutomationId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes } = await request.json()
   if (!name || !triggerType || !emailTemplateId) return NextResponse.json({ error: 'name, triggerType, emailTemplateId required' }, { status: 400 })
 
   // If training is selected, set the training to invitation_only
@@ -41,7 +41,9 @@ export async function POST(request: NextRequest) {
   const rule = await prisma.automationRule.create({
     data: {
       workspaceId: ws.workspaceId, createdById: ws.userId, name, triggerType,
-      flowId: flowId || null, emailTemplateId,
+      flowId: flowId || null,
+      triggerAutomationId: triggerAutomationId || null,
+      emailTemplateId,
       nextStepType: nextStepType || null,
       nextStepUrl: nextStepUrl || null,
       trainingId: trainingId || null,

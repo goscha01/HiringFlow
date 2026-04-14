@@ -76,7 +76,7 @@ export default function AutomationsPage() {
     setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0); setShowModal(true)
   }
   const openEdit = (r: Rule) => {
-    setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || '')
+    setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || (r as any).triggerAutomationId || '')
     setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
     setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
     setDelayMinutes((r as any).delayMinutes || 0); setShowModal(true)
@@ -87,7 +87,8 @@ export default function AutomationsPage() {
     setSaving(true)
     const body = {
       name, triggerType,
-      flowId: triggerType !== 'training_completed' ? (flowId || null) : null,
+      flowId: (triggerType !== 'training_completed' && triggerType !== 'automation_completed') ? (flowId || null) : null,
+      triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
       emailTemplateId: templateId,
       nextStepType: nextStepType || null,
       nextStepUrl: null as string | null,

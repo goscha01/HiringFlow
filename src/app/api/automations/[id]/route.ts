@@ -23,6 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(body.name !== undefined && { name: body.name }),
       ...(body.triggerType !== undefined && { triggerType: body.triggerType }),
       ...(body.flowId !== undefined && { flowId: body.flowId || null }),
+      ...(body.triggerAutomationId !== undefined && { triggerAutomationId: body.triggerAutomationId || null }),
       ...(body.emailTemplateId !== undefined && { emailTemplateId: body.emailTemplateId }),
       ...(body.nextStepType !== undefined && { nextStepType: body.nextStepType || null }),
       ...(body.nextStepUrl !== undefined && { nextStepUrl: body.nextStepUrl || null }),
