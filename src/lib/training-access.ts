@@ -49,7 +49,9 @@ export async function createAccessToken(opts: {
  * Build a full training link with token.
  */
 export function buildTrainingLink(trainingSlug: string, token: string): string {
-  const appUrl = process.env.NEXTAUTH_URL
+  const appUrl = process.env.APP_URL
+    || process.env.NEXT_PUBLIC_APP_URL
+    || process.env.NEXTAUTH_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
     || 'http://localhost:3000'
   return `${appUrl}/t/${trainingSlug}?token=${token}`

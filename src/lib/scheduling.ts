@@ -33,7 +33,9 @@ export async function resolveSchedulingUrl(schedulingConfigId: string | null, wo
  * Build a tracking redirect URL for click tracking.
  */
 export function buildScheduleRedirectUrl(sessionId: string, configId: string): string {
-  const appUrl = process.env.NEXTAUTH_URL
+  const appUrl = process.env.APP_URL
+    || process.env.NEXT_PUBLIC_APP_URL
+    || process.env.NEXTAUTH_URL
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
     || 'http://localhost:3000'
   return `${appUrl}/schedule/redirect/${sessionId}/${configId}`
