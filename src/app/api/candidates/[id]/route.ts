@@ -34,7 +34,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json(session)
+  const automationExecutions = await prisma.automationExecution.findMany({
+    where: { sessionId: params.id },
+    include: { automationRule: { select: { name: true, triggerType: true, nextStepType: true, emailDestination: true } } },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  return NextResponse.json({ ...session, automationExecutions })
 }
 
 // Update pipeline status

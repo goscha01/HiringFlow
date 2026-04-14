@@ -18,6 +18,10 @@ interface TrainingEnrollment {
   training: { id: string; title: string }
 }
 interface SchedulingEvent { id: string; eventType: string; eventAt: string }
+interface AutomationExec {
+  id: string; status: string; errorMessage: string | null; sentAt: string | null; createdAt: string
+  automationRule: { name: string; triggerType: string; nextStepType: string | null; emailDestination: string }
+}
 interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
   formData: Record<string, string> | null; outcome: string | null; pipelineStatus: string | null
@@ -26,6 +30,7 @@ interface CandidateDetail {
   ad: { id: string; name: string; source: string } | null
   answers: Answer[]; submissions: Submission[]
   trainingEnrollments: TrainingEnrollment[]; schedulingEvents: SchedulingEvent[]
+  automationExecutions?: AutomationExec[]
 }
 
 const PIPELINE_STEPS = [
@@ -83,6 +88,17 @@ export default function CandidateDetailPage() {
   candidate.schedulingEvents.forEach(e => {
     const labels: Record<string, string> = { invite_sent: 'Scheduling invite sent', link_clicked: 'Scheduling link clicked', marked_scheduled: 'Marked as scheduled' }
     timeline.push({ label: labels[e.eventType] || e.eventType, time: e.eventAt, type: e.eventType === 'marked_scheduled' ? 'success' : 'info' })
+  })
+  ;(candidate.automationExecutions || []).forEach(e => {
+    const destLabel = e.automationRule.emailDestination === 'company' ? ' → Company' : e.automationRule.emailDestination === 'specific' ? ' → Specific' : ''
+    const base = `Automation: ${e.automationRule.name}${destLabel}`
+    if (e.status === 'sent') {
+      timeline.push({ label: `${base} — email sent`, time: e.sentAt || e.createdAt, type: 'success' })
+    } else if (e.status === 'failed') {
+      timeline.push({ label: `${base} — failed${e.errorMessage ? `: ${e.errorMessage}` : ''}`, time: e.createdAt, type: 'error' })
+    } else {
+      timeline.push({ label: `${base} — queued`, time: e.createdAt, type: 'info' })
+    }
   })
   timeline.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
 
