@@ -2,306 +2,220 @@ import { prisma } from './prisma'
 import { sendEmail, renderTemplate } from './email'
 import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
+import { Client } from '@upstash/qstash'
 
-/**
- * Fire automations for a session outcome change.
- * Called when session.outcome is set to 'completed' or 'passed'.
- *
- * This runs async — errors are caught and logged, never break flow completion.
- */
+const qstashToken = process.env.QSTASH_TOKEN
+const qstash = qstashToken ? new Client({ token: qstashToken }) : null
+const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://www.hirefunnel.app'
+
+type SessionCtx = {
+  id: string
+  workspaceId: string
+  flowId: string
+  candidateName: string | null
+  candidateEmail: string | null
+  flow: { name: string }
+  ad: { name: string } | null
+  source: string | null
+}
+
 export async function fireAutomations(sessionId: string, outcome: string) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
-      include: {
-        flow: true,
-        ad: true,
-      },
+      include: { flow: true, ad: true },
     })
-
     if (!session) return
 
-    // Map outcome to trigger type
     const triggerType = outcome === 'passed' ? 'flow_passed' : outcome === 'completed' ? 'flow_completed' : null
     if (!triggerType) return
 
-    // Update pipeline status
     const pipelineStatus = outcome === 'passed' ? 'passed' : 'completed_flow'
     await updatePipelineStatus(sessionId, pipelineStatus).catch(() => {})
 
-    await executeRulesForTrigger(sessionId, triggerType, session)
+    await dispatchRulesForTrigger(sessionId, triggerType, session)
   } catch (error) {
     console.error('[Automation] Error firing automations for session', sessionId, ':', error)
   }
 }
 
-/**
- * Fire automations when training is completed.
- * Called from the training progress completion endpoint.
- */
 export async function fireTrainingCompletedAutomations(sessionId: string) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
-      include: {
-        flow: true,
-        ad: true,
-      },
+      include: { flow: true, ad: true },
     })
-
     if (!session) return
-    if (!session.candidateEmail) {
-      console.log('[Automation] No candidate email — skipping training_completed for session', sessionId)
-      return
-    }
-
-    // Update pipeline status
     await updatePipelineStatus(sessionId, 'training_completed').catch(() => {})
-
-    await executeRulesForTrigger(sessionId, 'training_completed', session)
+    await dispatchRulesForTrigger(sessionId, 'training_completed', session)
   } catch (error) {
     console.error('[Automation] Error firing training_completed automations for session', sessionId, ':', error)
   }
 }
 
-/**
- * Core automation execution for any trigger type.
- */
-async function executeRulesForTrigger(
-  sessionId: string,
-  triggerType: string,
-  session: { id: string; workspaceId: string; flowId: string; candidateName: string | null; candidateEmail: string | null; flow: { name: string }; ad: { name: string } | null; source: string | null }
-) {
-  // Find matching active automation rules — scoped to candidate's workspace
+async function dispatchRulesForTrigger(sessionId: string, triggerType: string, session: SessionCtx) {
   const rules = await prisma.automationRule.findMany({
     where: {
       isActive: true,
       triggerType,
       workspaceId: session.workspaceId,
-      OR: [
-        { flowId: session.flowId },
-        { flowId: null }, // Workspace-wide rules (any flow)
-      ],
+      OR: [{ flowId: session.flowId }, { flowId: null }],
     },
-    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true } } },
+    select: { id: true, delayMinutes: true },
   })
-
   if (rules.length === 0) return
-
-  console.log(`[Automation] Found ${rules.length} rules for session ${sessionId} (${triggerType})`)
-
+  console.log(`[Automation] Dispatching ${rules.length} rules for session ${sessionId} (${triggerType})`)
   for (const rule of rules) {
-    // Check for duplicate execution
-    const existing = await prisma.automationExecution.findUnique({
-      where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
-    })
-
-    if (existing && existing.status === 'sent') {
-      console.log(`[Automation] Already sent rule ${rule.id} for session ${sessionId} — skipping`)
-      continue
-    }
-
-    // Create or reset execution record (pending)
-    const execution = existing
-      ? await prisma.automationExecution.update({
-          where: { id: existing.id },
-          data: { status: 'pending', errorMessage: null },
-        })
-      : await prisma.automationExecution.create({
-          data: { automationRuleId: rule.id, sessionId, status: 'pending' },
-        })
-
-    // Build training link with token if this rule links to a training
-    let trainingLink = ''
-    if (rule.nextStepType === 'training' && rule.trainingId && rule.training) {
-      try {
-        const { token } = await createAccessToken({
-          sessionId,
-          trainingId: rule.trainingId,
-          sourceRefId: rule.id,
-        })
-        trainingLink = buildTrainingLink(rule.training.slug, token)
-        console.log(`[Automation] Generated training token for session ${sessionId}, training ${rule.training.slug}`)
-      } catch (err) {
-        console.error('[Automation] Failed to generate training token:', err)
-        trainingLink = rule.nextStepUrl || ''
-      }
-    } else if (rule.nextStepType === 'training' && rule.nextStepUrl) {
-      trainingLink = rule.nextStepUrl
-    }
-
-    // Build scheduling link from config
-    let scheduleLink = ''
-    if (rule.nextStepType === 'scheduling') {
-      try {
-        const resolved = await resolveSchedulingUrl(rule.schedulingConfigId, session.workspaceId)
-        if (resolved) {
-          // Use click-tracking redirect URL
-          scheduleLink = buildScheduleRedirectUrl(sessionId, resolved.configId)
-        }
-      } catch (err) {
-        console.error('[Automation] Failed to resolve scheduling URL:', err)
-      }
-      // Fallback to manual URL
-      if (!scheduleLink && rule.nextStepUrl) {
-        scheduleLink = rule.nextStepUrl
-      }
-    }
-
-    // Build template variables
-    const variables: Record<string, string> = {
-      candidate_name: session.candidateName || 'Candidate',
-      flow_name: session.flow.name,
-      training_link: trainingLink,
-      schedule_link: scheduleLink,
-      source: session.source || '',
-      ad_name: session.ad?.name || '',
-    }
-
-    // Render template
-    const subject = renderTemplate(rule.emailTemplate.subject, variables)
-    const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
-    const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
-
-    // Resolve recipient based on rule.emailDestination
-    let recipient: string | null = null
-    if (rule.emailDestination === 'company') {
-      recipient = rule.workspace?.senderEmail || null
-    } else if (rule.emailDestination === 'specific') {
-      recipient = rule.emailDestinationAddress || null
-    } else {
-      recipient = session.candidateEmail
-    }
-
-    if (!recipient) {
-      console.log(`[Automation] No recipient for rule ${rule.id} (destination=${rule.emailDestination}) — skipping`)
-      await prisma.automationExecution.update({
-        where: { id: execution.id },
-        data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured` },
-      })
-      continue
-    }
-
-    // Send email
-    const result = await sendEmail({
-      to: recipient,
-      subject,
-      html,
-      text,
-    })
-
-    // Update execution record
-    await prisma.automationExecution.update({
-      where: { id: execution.id },
-      data: {
-        status: result.success ? 'sent' : 'failed',
-        errorMessage: result.error || null,
-        providerMessageId: result.messageId || null,
-        sentAt: result.success ? new Date() : null,
-      },
-    })
-
-    // Log scheduling event and update pipeline if scheduling email sent
-    if (result.success && rule.nextStepType === 'scheduling') {
-      const resolved = await resolveSchedulingUrl(rule.schedulingConfigId).catch(() => null)
-      await logSchedulingEvent({
-        sessionId,
-        schedulingConfigId: resolved?.configId || null,
-        eventType: 'invite_sent',
-        metadata: { automationRuleId: rule.id, executionId: execution.id },
-      }).catch(() => {})
-      await updatePipelineStatus(sessionId, 'invited_to_schedule').catch(() => {})
-    }
-
-    // Chain: fire any automations triggered by this one completing
-    if (result.success) {
-      await executeChainedRules(sessionId, rule.id, session)
-    }
+    await dispatchRule(rule.id, sessionId, rule.delayMinutes || 0)
   }
 }
 
-async function executeChainedRules(
-  sessionId: string,
-  parentRuleId: string,
-  session: { id: string; workspaceId: string; flowId: string; candidateName: string | null; candidateEmail: string | null; flow: { name: string }; ad: { name: string } | null; source: string | null }
-) {
-  const rules = await prisma.automationRule.findMany({
-    where: {
-      isActive: true,
-      triggerType: 'automation_completed',
-      triggerAutomationId: parentRuleId,
-      workspaceId: session.workspaceId,
-    },
+/**
+ * Queue a rule for execution — either via QStash (delay > 0 and QStash configured)
+ * or inline. Inline path is used for immediate sends and as a fallback in local dev.
+ */
+async function dispatchRule(ruleId: string, sessionId: string, delayMinutes: number) {
+  if (delayMinutes > 0 && qstash) {
+    try {
+      await qstash.publishJSON({
+        url: `${APP_URL}/api/automations/run`,
+        body: { ruleId, sessionId },
+        delay: delayMinutes * 60,
+      })
+      console.log(`[Automation] Queued rule ${ruleId} for session ${sessionId} (delay ${delayMinutes}m)`)
+      return
+    } catch (err) {
+      console.error(`[Automation] QStash publish failed, running inline:`, err)
+    }
+  }
+  await executeRule(ruleId, sessionId)
+}
+
+/**
+ * Execute a single rule for a session: render template, send email, chain.
+ * Called inline for immediate rules, or from the QStash callback for delayed ones.
+ */
+export async function executeRule(ruleId: string, sessionId: string) {
+  const rule = await prisma.automationRule.findUnique({
+    where: { id: ruleId },
     include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true } } },
   })
-  for (const rule of rules) {
-    const existing = await prisma.automationExecution.findUnique({
-      where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
-    })
-    if (existing && existing.status === 'sent') continue
+  if (!rule || !rule.isActive) {
+    console.log(`[Automation] Rule ${ruleId} missing or inactive — skipping`)
+    return
+  }
 
-    const execution = existing
-      ? await prisma.automationExecution.update({ where: { id: existing.id }, data: { status: 'pending', errorMessage: null } })
-      : await prisma.automationExecution.create({ data: { automationRuleId: rule.id, sessionId, status: 'pending' } })
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    include: { flow: true, ad: true },
+  })
+  if (!session) return
 
-    let trainingLink = ''
-    if (rule.nextStepType === 'training' && rule.trainingId && rule.training) {
-      try {
-        const { token } = await createAccessToken({ sessionId, trainingId: rule.trainingId, sourceRefId: rule.id })
-        trainingLink = buildTrainingLink(rule.training.slug, token)
-      } catch { trainingLink = rule.nextStepUrl || '' }
-    } else if (rule.nextStepType === 'training' && rule.nextStepUrl) {
-      trainingLink = rule.nextStepUrl
-    }
+  const existing = await prisma.automationExecution.findUnique({
+    where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
+  })
+  if (existing && existing.status === 'sent') {
+    console.log(`[Automation] Rule ${rule.id} already sent for session ${sessionId}`)
+    return
+  }
 
-    let scheduleLink = ''
-    if (rule.nextStepType === 'scheduling') {
-      try {
-        const resolved = await resolveSchedulingUrl(rule.schedulingConfigId, session.workspaceId)
-        if (resolved) scheduleLink = buildScheduleRedirectUrl(sessionId, resolved.configId)
-      } catch {}
-      if (!scheduleLink && rule.nextStepUrl) scheduleLink = rule.nextStepUrl
-    }
-
-    const variables: Record<string, string> = {
-      candidate_name: session.candidateName || 'Candidate',
-      flow_name: session.flow.name,
-      training_link: trainingLink,
-      schedule_link: scheduleLink,
-      source: session.source || '',
-      ad_name: session.ad?.name || '',
-    }
-
-    const subject = renderTemplate(rule.emailTemplate.subject, variables)
-    const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
-    const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
-
-    let recipient: string | null = null
-    if (rule.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
-    else if (rule.emailDestination === 'specific') recipient = rule.emailDestinationAddress || null
-    else recipient = session.candidateEmail
-
-    if (!recipient) {
-      await prisma.automationExecution.update({
-        where: { id: execution.id },
-        data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured` },
+  const execution = existing
+    ? await prisma.automationExecution.update({
+        where: { id: existing.id },
+        data: { status: 'pending', errorMessage: null },
       })
-      continue
-    }
+    : await prisma.automationExecution.create({
+        data: { automationRuleId: rule.id, sessionId, status: 'pending' },
+      })
 
-    const result = await sendEmail({ to: recipient, subject, html, text })
+  // Training link
+  let trainingLink = ''
+  if (rule.nextStepType === 'training' && rule.trainingId && rule.training) {
+    try {
+      const { token } = await createAccessToken({ sessionId, trainingId: rule.trainingId, sourceRefId: rule.id })
+      trainingLink = buildTrainingLink(rule.training.slug, token)
+    } catch (err) {
+      console.error('[Automation] Failed to generate training token:', err)
+      trainingLink = rule.nextStepUrl || ''
+    }
+  } else if (rule.nextStepType === 'training' && rule.nextStepUrl) {
+    trainingLink = rule.nextStepUrl
+  }
+
+  // Scheduling link
+  let scheduleLink = ''
+  if (rule.nextStepType === 'scheduling') {
+    try {
+      const resolved = await resolveSchedulingUrl(rule.schedulingConfigId, session.workspaceId)
+      if (resolved) scheduleLink = buildScheduleRedirectUrl(sessionId, resolved.configId)
+    } catch (err) {
+      console.error('[Automation] Failed to resolve scheduling URL:', err)
+    }
+    if (!scheduleLink && rule.nextStepUrl) scheduleLink = rule.nextStepUrl
+  }
+
+  const variables: Record<string, string> = {
+    candidate_name: session.candidateName || 'Candidate',
+    flow_name: session.flow.name,
+    training_link: trainingLink,
+    schedule_link: scheduleLink,
+    source: session.source || '',
+    ad_name: session.ad?.name || '',
+  }
+
+  const subject = renderTemplate(rule.emailTemplate.subject, variables)
+  const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
+  const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
+
+  let recipient: string | null = null
+  if (rule.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
+  else if (rule.emailDestination === 'specific') recipient = rule.emailDestinationAddress || null
+  else recipient = session.candidateEmail
+
+  if (!recipient) {
     await prisma.automationExecution.update({
       where: { id: execution.id },
-      data: {
-        status: result.success ? 'sent' : 'failed',
-        errorMessage: result.error || null,
-        providerMessageId: result.messageId || null,
-        sentAt: result.success ? new Date() : null,
-      },
+      data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured` },
     })
+    return
+  }
 
-    if (result.success) {
-      await executeChainedRules(sessionId, rule.id, session)
+  const result = await sendEmail({ to: recipient, subject, html, text })
+
+  await prisma.automationExecution.update({
+    where: { id: execution.id },
+    data: {
+      status: result.success ? 'sent' : 'failed',
+      errorMessage: result.error || null,
+      providerMessageId: result.messageId || null,
+      sentAt: result.success ? new Date() : null,
+    },
+  })
+
+  if (result.success && rule.nextStepType === 'scheduling') {
+    const resolved = await resolveSchedulingUrl(rule.schedulingConfigId).catch(() => null)
+    await logSchedulingEvent({
+      sessionId,
+      schedulingConfigId: resolved?.configId || null,
+      eventType: 'invite_sent',
+      metadata: { automationRuleId: rule.id, executionId: execution.id },
+    }).catch(() => {})
+    await updatePipelineStatus(sessionId, 'invited_to_schedule').catch(() => {})
+  }
+
+  // Chain: dispatch rules triggered by this one completing
+  if (result.success) {
+    const chained = await prisma.automationRule.findMany({
+      where: {
+        isActive: true,
+        triggerType: 'automation_completed',
+        triggerAutomationId: rule.id,
+        workspaceId: session.workspaceId,
+      },
+      select: { id: true, delayMinutes: true },
+    })
+    for (const c of chained) {
+      await dispatchRule(c.id, sessionId, c.delayMinutes || 0)
     }
   }
 }
