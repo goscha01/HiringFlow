@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
-interface Flow { id: string; name: string; slug: string }
+interface Flow { id: string; name: string; slug: string; isPublished?: boolean }
 interface AdTemplateItem { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null }
 interface Ad {
   id: string; name: string; source: string; campaign: string | null
@@ -209,7 +209,14 @@ export default function CampaignsPage() {
                       <td className="px-5 py-4">
                         <span className="text-xs px-2.5 py-1 rounded-full bg-brand-50 text-brand-600 font-medium capitalize">{ad.source}</span>
                       </td>
-                      <td className="px-5 py-4 text-sm text-grey-35">{ad.flow.name}</td>
+                      <td className="px-5 py-4 text-sm text-grey-35">
+                        <div className="flex items-center gap-2">
+                          <span>{ad.flow.name}</span>
+                          {!ad.flow.isPublished && (
+                            <Link href={`/dashboard/flows/${ad.flow.id}/builder`} title="Flow is not published — link will 404" className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium hover:bg-amber-200">Unpublished</Link>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-5 py-4 text-sm text-grey-40">{ad.campaign || '—'}</td>
                       <td className="px-5 py-4 text-sm font-semibold text-grey-15 text-right">{ad._count.sessions}</td>
                       <td className="px-5 py-4">
@@ -284,6 +291,7 @@ export default function CampaignsPage() {
                   <span className="text-sm font-medium text-grey-15">{ad.name}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 capitalize">{ad.source}</span>
                   {!ad.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-grey-40">Paused</span>}
+                  {!ad.flow.isPublished && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Flow not published — link will 404">Flow unpublished</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   <code className="text-xs text-grey-35 bg-surface px-2 py-1 rounded truncate">{baseUrl}/a/{ad.slug}</code>

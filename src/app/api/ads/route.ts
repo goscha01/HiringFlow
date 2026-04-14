@@ -11,7 +11,7 @@ export async function GET() {
     where: { workspaceId: ws.workspaceId },
     orderBy: { createdAt: 'desc' },
     include: {
-      flow: { select: { id: true, name: true, slug: true } },
+      flow: { select: { id: true, name: true, slug: true, isPublished: true } },
       _count: { select: { sessions: true } },
     },
   })

@@ -33,8 +33,14 @@ export default function AdEntryPage() {
 
   useEffect(() => {
     fetch(`/api/public/ads/${slug}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setAd(d); else setError('Ad not found or inactive'); setLoading(false) })
+      .then(async r => {
+        if (r.ok) { setAd(await r.json()) }
+        else {
+          const d = await r.json().catch(() => ({}))
+          setError(d.error || 'Ad not found or inactive')
+        }
+        setLoading(false)
+      })
       .catch(() => { setError('Failed to load'); setLoading(false) })
   }, [slug])
 

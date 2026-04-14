@@ -13,12 +13,14 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     },
   })
 
-  if (!ad || !ad.isActive) {
-    return NextResponse.json({ error: 'Ad not found or inactive' }, { status: 404 })
+  if (!ad) {
+    return NextResponse.json({ error: 'Ad not found', reason: 'not_found' }, { status: 404 })
   }
-
+  if (!ad.isActive) {
+    return NextResponse.json({ error: 'This campaign link is currently paused', reason: 'ad_inactive' }, { status: 404 })
+  }
   if (!ad.flow.isPublished) {
-    return NextResponse.json({ error: 'Flow not published' }, { status: 404 })
+    return NextResponse.json({ error: 'The flow for this campaign is not published yet', reason: 'flow_not_published' }, { status: 404 })
   }
 
   return NextResponse.json({
