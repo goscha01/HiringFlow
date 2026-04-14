@@ -98,20 +98,19 @@ async function dispatchRule(ruleId: string, sessionId: string, delayMinutes: num
  * Called inline for immediate rules, or from the QStash callback for delayed ones.
  */
 export async function executeRule(ruleId: string, sessionId: string) {
+  console.log(`[Automation] executeRule start ruleId=${ruleId} sessionId=${sessionId}`)
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
     include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true } } },
   })
-  if (!rule || !rule.isActive) {
-    console.log(`[Automation] Rule ${ruleId} missing or inactive — skipping`)
-    return
-  }
+  if (!rule) { console.log(`[Automation] Rule ${ruleId} NOT FOUND`); return }
+  if (!rule.isActive) { console.log(`[Automation] Rule ${ruleId} INACTIVE`); return }
 
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
     include: { flow: true, ad: true },
   })
-  if (!session) return
+  if (!session) { console.log(`[Automation] Session ${sessionId} NOT FOUND`); return }
 
   const existing = await prisma.automationExecution.findUnique({
     where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },

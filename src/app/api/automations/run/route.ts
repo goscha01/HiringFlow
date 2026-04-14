@@ -5,16 +5,22 @@ import { executeRule } from '@/lib/automation'
 export const maxDuration = 60
 
 async function handler(request: NextRequest) {
+  const trace: string[] = []
   try {
-    const { ruleId, sessionId } = await request.json()
+    const body = await request.text()
+    trace.push(`body=${body.slice(0, 300)}`)
+    const { ruleId, sessionId } = JSON.parse(body || '{}')
+    trace.push(`parsed ruleId=${ruleId} sessionId=${sessionId}`)
     if (!ruleId || !sessionId) {
-      return NextResponse.json({ error: 'ruleId and sessionId required' }, { status: 400 })
+      return NextResponse.json({ error: 'ruleId and sessionId required', trace }, { status: 400 })
     }
     await executeRule(ruleId, sessionId)
-    return NextResponse.json({ ok: true })
-  } catch (err) {
+    trace.push('executeRule returned')
+    return NextResponse.json({ ok: true, trace })
+  } catch (err: any) {
     console.error('[Automation /run] Error:', err)
-    return NextResponse.json({ error: 'Execution failed' }, { status: 500 })
+    trace.push(`error=${err?.message || String(err)}`)
+    return NextResponse.json({ error: 'Execution failed', trace }, { status: 500 })
   }
 }
 
