@@ -98,12 +98,12 @@ export default function CampaignsPage() {
     await fetch(`/api/ads/${id}`, { method: 'DELETE' }); refresh()
   }
 
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+
   const copyLink = (slug: string, id: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/a/${slug}`)
+    navigator.clipboard.writeText(`${baseUrl}/a/${slug}`)
     setCopiedId(id); setTimeout(() => setCopiedId(null), 2000)
   }
-
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
   // Compute stats
   const totalSessions = ads.reduce((sum, a) => sum + a._count.sessions, 0)

@@ -48,7 +48,7 @@ export default function AdPreviewPage() {
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
   if (!ad) return <div className="text-center py-12 text-grey-40">Ad not found</div>
 
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
   const trackedLink = `${baseUrl}/a/${ad.slug}`
   const style = SOURCE_STYLES[ad.source] || SOURCE_STYLES._default
 

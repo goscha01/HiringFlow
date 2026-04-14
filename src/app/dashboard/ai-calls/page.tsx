@@ -97,7 +97,8 @@ export default function AICallsPage() {
       setCandidates(prev => [c, ...prev])
     }
     // Copy link
-    const link = `${window.location.origin}/call/${agentId}?name=${encodeURIComponent(candidateName.trim())}`
+    const origin = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+    const link = `${origin}/call/${agentId}?name=${encodeURIComponent(candidateName.trim())}`
     navigator.clipboard.writeText(link)
     setCandidateCopied(true); setTimeout(() => setCandidateCopied(false), 2000)
     setCandidateName('')
