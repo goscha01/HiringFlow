@@ -20,10 +20,6 @@ export async function fireAutomations(sessionId: string, outcome: string) {
     })
 
     if (!session) return
-    if (!session.candidateEmail) {
-      console.log('[Automation] No candidate email — skipping for session', sessionId)
-      return
-    }
 
     // Map outcome to trigger type
     const triggerType = outcome === 'passed' ? 'flow_passed' : outcome === 'completed' ? 'flow_completed' : null
@@ -87,7 +83,7 @@ async function executeRulesForTrigger(
         { flowId: null }, // Workspace-wide rules (any flow)
       ],
     },
-    include: { emailTemplate: true, training: true, schedulingConfig: true },
+    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true } } },
   })
 
   if (rules.length === 0) return
@@ -166,9 +162,28 @@ async function executeRulesForTrigger(
     const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
     const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
 
+    // Resolve recipient based on rule.emailDestination
+    let recipient: string | null = null
+    if (rule.emailDestination === 'company') {
+      recipient = rule.workspace?.senderEmail || null
+    } else if (rule.emailDestination === 'specific') {
+      recipient = rule.emailDestinationAddress || null
+    } else {
+      recipient = session.candidateEmail
+    }
+
+    if (!recipient) {
+      console.log(`[Automation] No recipient for rule ${rule.id} (destination=${rule.emailDestination}) — skipping`)
+      await prisma.automationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured` },
+      })
+      continue
+    }
+
     // Send email
     const result = await sendEmail({
-      to: session.candidateEmail!,
+      to: recipient,
       subject,
       html,
       text,

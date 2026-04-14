@@ -472,6 +472,8 @@ model AutomationRule {
   actionType      String              @default("send_email") @map("action_type")
   emailTemplateId String              @map("email_template_id")
   emailTemplate   EmailTemplate       @relation(fields: [emailTemplateId], references: [id])
+  emailDestination        String  @default("applicant") @map("email_destination") // 'applicant' | 'company' | 'specific'
+  emailDestinationAddress String? @map("email_destination_address")
   nextStepType    String?             @map("next_step_type")
   nextStepUrl     String?             @map("next_step_url")
   trainingId      String?             @map("training_id")

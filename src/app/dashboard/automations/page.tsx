@@ -48,6 +48,8 @@ export default function AutomationsPage() {
   const [trainingId, setTrainingId] = useState('')
   const [schedulingConfigId, setSchedulingConfigId] = useState('')
   const [delayMinutes, setDelayMinutes] = useState(0)
+  const [emailDestination, setEmailDestination] = useState<'applicant' | 'company' | 'specific'>('applicant')
+  const [emailDestinationAddress, setEmailDestinationAddress] = useState('')
   const [saving, setSaving] = useState(false)
   // Inline template creator
   const [showNewTemplate, setShowNewTemplate] = useState(false)
@@ -73,13 +75,18 @@ export default function AutomationsPage() {
   const openCreate = () => {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
     setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
-    setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0); setShowModal(true)
+    setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0)
+    setEmailDestination('applicant'); setEmailDestinationAddress('')
+    setShowModal(true)
   }
   const openEdit = (r: Rule) => {
     setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || (r as any).triggerAutomationId || '')
     setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
     setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
-    setDelayMinutes((r as any).delayMinutes || 0); setShowModal(true)
+    setDelayMinutes((r as any).delayMinutes || 0)
+    setEmailDestination(((r as any).emailDestination as 'applicant' | 'company' | 'specific') || 'applicant')
+    setEmailDestinationAddress((r as any).emailDestinationAddress || '')
+    setShowModal(true)
   }
 
   const save = async () => {
@@ -95,6 +102,8 @@ export default function AutomationsPage() {
       trainingId: nextStepType === 'training' ? (trainingId || null) : null,
       schedulingConfigId: nextStepType === 'scheduling' ? (schedulingConfigId || null) : null,
       delayMinutes,
+      emailDestination,
+      emailDestinationAddress: emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
     }
     if (editing) {
       await fetch(`/api/automations/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -394,6 +403,32 @@ export default function AutomationsPage() {
                 )}
                 {delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Email will be sent {delayMinutes >= 1440 ? `${Math.round(delayMinutes / 1440)} day${delayMinutes >= 2880 ? 's' : ''}` : delayMinutes >= 60 ? `${Math.round(delayMinutes / 60)} hour${delayMinutes >= 120 ? 's' : ''}` : `${delayMinutes} minutes`} after trigger.</p>}
               </div>
+              )}
+              {nextStepType && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Destination</label>
+                  <div className="flex gap-2">
+                    {[
+                      { v: 'applicant', l: 'Applicant' },
+                      { v: 'company', l: 'Company' },
+                      { v: 'specific', l: 'Specific email' },
+                    ].map(({ v, l }) => (
+                      <button key={v} onClick={() => setEmailDestination(v as 'applicant' | 'company' | 'specific')} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${emailDestination === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
+                    ))}
+                  </div>
+                  {emailDestination === 'specific' && (
+                    <input
+                      type="email"
+                      value={emailDestinationAddress}
+                      onChange={(e) => setEmailDestinationAddress(e.target.value)}
+                      placeholder="recipient@example.com"
+                      className="mt-2 w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  )}
+                  {emailDestination === 'company' && (
+                    <p className="text-xs text-grey-40 mt-1">Uses the workspace sender email from <Link href="/dashboard/settings" className="text-brand-500 hover:text-brand-600">Settings</Link>.</p>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex gap-3 mt-6">
