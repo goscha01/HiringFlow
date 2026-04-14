@@ -78,13 +78,30 @@ async function dispatchRulesForTrigger(sessionId: string, triggerType: string, s
  */
 async function dispatchRule(ruleId: string, sessionId: string, delayMinutes: number) {
   if (delayMinutes > 0 && qstash) {
+    // Record the queued execution so the candidate timeline shows the planned action.
+    const scheduledFor = new Date(Date.now() + delayMinutes * 60_000)
+    const existing = await prisma.automationExecution.findUnique({
+      where: { automationRuleId_sessionId: { automationRuleId: ruleId, sessionId } },
+    })
+    if (!existing || existing.status !== 'sent') {
+      if (existing) {
+        await prisma.automationExecution.update({
+          where: { id: existing.id },
+          data: { status: 'queued', scheduledFor, errorMessage: null },
+        })
+      } else {
+        await prisma.automationExecution.create({
+          data: { automationRuleId: ruleId, sessionId, status: 'queued', scheduledFor },
+        })
+      }
+    }
     try {
       await qstash.publishJSON({
         url: `${APP_URL}/api/automations/run`,
         body: { ruleId, sessionId },
         delay: delayMinutes * 60,
       })
-      console.log(`[Automation] Queued rule ${ruleId} for session ${sessionId} (delay ${delayMinutes}m)`)
+      console.log(`[Automation] Queued rule ${ruleId} for session ${sessionId} (delay ${delayMinutes}m, fires ${scheduledFor.toISOString()})`)
       return
     } catch (err) {
       console.error(`[Automation] QStash publish failed, running inline:`, err)
@@ -123,7 +140,7 @@ export async function executeRule(ruleId: string, sessionId: string) {
   const execution = existing
     ? await prisma.automationExecution.update({
         where: { id: existing.id },
-        data: { status: 'pending', errorMessage: null },
+        data: { status: 'pending', errorMessage: null, scheduledFor: null },
       })
     : await prisma.automationExecution.create({
         data: { automationRuleId: rule.id, sessionId, status: 'pending' },

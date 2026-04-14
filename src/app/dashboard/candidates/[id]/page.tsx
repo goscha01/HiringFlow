@@ -19,7 +19,7 @@ interface TrainingEnrollment {
 }
 interface SchedulingEvent { id: string; eventType: string; eventAt: string }
 interface AutomationExec {
-  id: string; status: string; errorMessage: string | null; sentAt: string | null; createdAt: string
+  id: string; status: string; errorMessage: string | null; sentAt: string | null; scheduledFor: string | null; createdAt: string
   automationRule: {
     id: string; name: string; triggerType: string; nextStepType: string | null
     emailDestination: string; emailDestinationAddress: string | null; delayMinutes: number
@@ -116,8 +116,10 @@ export default function CandidateDetailPage() {
       timeline.push({ label: `${base} — email sent`, detail: bits, time: e.sentAt || e.createdAt, type: 'success' })
     } else if (e.status === 'failed') {
       timeline.push({ label: `${base} — failed${e.errorMessage ? `: ${e.errorMessage}` : ''}`, detail: bits, time: e.createdAt, type: 'error' })
+    } else if (e.status === 'queued' && e.scheduledFor) {
+      timeline.push({ label: `${base} — scheduled`, detail: `${bits} · Fires at ${new Date(e.scheduledFor).toLocaleString()}`, time: e.scheduledFor, type: 'scheduled' })
     } else {
-      timeline.push({ label: `${base} — queued`, detail: bits, time: e.createdAt, type: 'info' })
+      timeline.push({ label: `${base} — pending`, detail: bits, time: e.createdAt, type: 'info' })
     }
   })
   timeline.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
@@ -288,6 +290,7 @@ export default function CandidateDetailPage() {
                     event.type === 'success' ? 'bg-green-500' :
                     event.type === 'error' ? 'bg-red-500' :
                     event.type === 'start' ? 'bg-brand-500' :
+                    event.type === 'scheduled' ? 'bg-amber-400 ring-2 ring-amber-200' :
                     'bg-gray-300'
                   }`} />
                   {i < timeline.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" />}
