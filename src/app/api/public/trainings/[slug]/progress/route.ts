@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
 
   // Fire training_completed automations (e.g., send scheduling email)
   if (enrollment.sessionId) {
-    fireTrainingCompletedAutomations(enrollment.sessionId).catch(() => {})
+    await fireTrainingCompletedAutomations(enrollment.sessionId)
   }
 
   return NextResponse.json({ success: true, status: 'completed' })

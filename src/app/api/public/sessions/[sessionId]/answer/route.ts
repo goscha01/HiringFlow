@@ -68,7 +68,7 @@ export async function POST(
         return NextResponse.json({ nextStepId: nextStep.id })
       } else {
         await prisma.session.update({ where: { id: params.sessionId }, data: { finishedAt: new Date(), outcome: 'completed' } })
-        fireAutomations(params.sessionId, 'completed').catch(() => {}) // fire-and-forget
+        await fireAutomations(params.sessionId, 'completed')
         return NextResponse.json({ finished: true })
       }
     }
@@ -131,7 +131,7 @@ export async function POST(
       where: { id: params.sessionId },
       data: { finishedAt: new Date(), outcome: 'completed' },
     })
-    fireAutomations(params.sessionId, 'completed').catch(() => {})
+    await fireAutomations(params.sessionId, 'completed')
     return NextResponse.json({ finished: true })
   } catch (error) {
     console.error('Submit answer error:', error)

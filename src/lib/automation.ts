@@ -96,19 +96,20 @@ async function executeRulesForTrigger(
       where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
     })
 
-    if (existing) {
-      console.log(`[Automation] Already executed rule ${rule.id} for session ${sessionId} — skipping`)
+    if (existing && existing.status === 'sent') {
+      console.log(`[Automation] Already sent rule ${rule.id} for session ${sessionId} — skipping`)
       continue
     }
 
-    // Create execution record (pending)
-    const execution = await prisma.automationExecution.create({
-      data: {
-        automationRuleId: rule.id,
-        sessionId,
-        status: 'pending',
-      },
-    })
+    // Create or reset execution record (pending)
+    const execution = existing
+      ? await prisma.automationExecution.update({
+          where: { id: existing.id },
+          data: { status: 'pending', errorMessage: null },
+        })
+      : await prisma.automationExecution.create({
+          data: { automationRuleId: rule.id, sessionId, status: 'pending' },
+        })
 
     // Build training link with token if this rule links to a training
     let trainingLink = ''
