@@ -28,10 +28,6 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
       subject: payload.subject,
       html: payload.html,
       text: payload.text || undefined,
-      trackingSettings: {
-        clickTracking: { enable: false, enableText: false },
-        openTracking: { enable: false },
-      },
     })
 
     const messageId = response.headers['x-message-id'] as string || undefined
