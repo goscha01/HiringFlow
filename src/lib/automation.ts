@@ -5,7 +5,9 @@ import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, upd
 import { Client } from '@upstash/qstash'
 
 const qstashToken = process.env.QSTASH_TOKEN
-const qstash = qstashToken ? new Client({ token: qstashToken }) : null
+const qstash = qstashToken
+  ? new Client({ token: qstashToken, baseUrl: process.env.QSTASH_URL })
+  : null
 const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://www.hirefunnel.app'
 
 type SessionCtx = {
