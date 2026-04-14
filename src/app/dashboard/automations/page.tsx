@@ -50,6 +50,8 @@ export default function AutomationsPage() {
   const [delayMinutes, setDelayMinutes] = useState(0)
   const [emailDestination, setEmailDestination] = useState<'applicant' | 'company' | 'specific'>('applicant')
   const [emailDestinationAddress, setEmailDestinationAddress] = useState('')
+  const [companyEmail, setCompanyEmail] = useState<string | null>(null)
+  const [showCompanyEmailWarning, setShowCompanyEmailWarning] = useState(false)
   const [saving, setSaving] = useState(false)
   // Inline template creator
   const [showNewTemplate, setShowNewTemplate] = useState(false)
@@ -65,8 +67,11 @@ export default function AutomationsPage() {
       fetch('/api/email-templates').then(r => r.json()),
       fetch('/api/trainings').then(r => r.json()),
       fetch('/api/scheduling').then(r => r.json()),
-    ]).then(([r, f, t, tr, sc]) => {
-      setRules(r); setFlows(f); setTemplates(t); setTrainings(tr); setSchedulingConfigs(sc); setLoading(false)
+      fetch('/api/workspace/settings').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([r, f, t, tr, sc, ws]) => {
+      setRules(r); setFlows(f); setTemplates(t); setTrainings(tr); setSchedulingConfigs(sc)
+      setCompanyEmail(ws?.senderEmail || null)
+      setLoading(false)
     })
   }, [])
 
@@ -413,7 +418,10 @@ export default function AutomationsPage() {
                       { v: 'company', l: 'Company' },
                       { v: 'specific', l: 'Specific email' },
                     ].map(({ v, l }) => (
-                      <button key={v} onClick={() => setEmailDestination(v as 'applicant' | 'company' | 'specific')} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${emailDestination === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
+                      <button key={v} onClick={() => {
+                        if (v === 'company' && !companyEmail) { setShowCompanyEmailWarning(true); return }
+                        setEmailDestination(v as 'applicant' | 'company' | 'specific')
+                      }} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${emailDestination === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
                     ))}
                   </div>
                   {emailDestination === 'specific' && (
@@ -425,8 +433,8 @@ export default function AutomationsPage() {
                       className="mt-2 w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
                   )}
-                  {emailDestination === 'company' && (
-                    <p className="text-xs text-grey-40 mt-1">Uses the workspace sender email from <Link href="/dashboard/settings" className="text-brand-500 hover:text-brand-600">Settings</Link>.</p>
+                  {emailDestination === 'company' && companyEmail && (
+                    <p className="text-xs text-grey-40 mt-1">Will send to <span className="font-medium text-grey-20">{companyEmail}</span> (set in <Link href="/dashboard/settings" className="text-brand-500 hover:text-brand-600">Settings</Link>).</p>
                   )}
                 </div>
               )}
@@ -434,6 +442,26 @@ export default function AutomationsPage() {
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={save} disabled={saving || !name.trim() || !templateId} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCompanyEmailWarning && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[420px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-grey-15 mb-1">Company email not set up</h3>
+                <p className="text-sm text-grey-35">You need to configure a company sender email before automations can send to it.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowCompanyEmailWarning(false)} className="btn-secondary flex-1">Cancel</button>
+              <Link href="/dashboard/settings" className="btn-primary flex-1 text-center">Go to Settings</Link>
             </div>
           </div>
         </div>
