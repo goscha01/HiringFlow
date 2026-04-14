@@ -20,7 +20,13 @@ interface TrainingEnrollment {
 interface SchedulingEvent { id: string; eventType: string; eventAt: string }
 interface AutomationExec {
   id: string; status: string; errorMessage: string | null; sentAt: string | null; createdAt: string
-  automationRule: { name: string; triggerType: string; nextStepType: string | null; emailDestination: string }
+  automationRule: {
+    name: string; triggerType: string; nextStepType: string | null
+    emailDestination: string; emailDestinationAddress: string | null; delayMinutes: number
+    training: { title: string; slug: string } | null
+    schedulingConfig: { name: string; schedulingUrl: string } | null
+    emailTemplate: { name: string; subject: string } | null
+  }
 }
 interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
@@ -78,7 +84,7 @@ export default function CandidateDetailPage() {
   const currentStepIdx = PIPELINE_STEPS.findIndex(s => s.value === candidate.pipelineStatus)
 
   // Build timeline events
-  const timeline: { label: string; time: string; type: string }[] = []
+  const timeline: { label: string; time: string; type: string; detail?: string }[] = []
   timeline.push({ label: 'Applied / Flow started', time: candidate.startedAt, type: 'start' })
   if (candidate.finishedAt) timeline.push({ label: `Flow ${candidate.outcome || 'completed'}`, time: candidate.finishedAt, type: candidate.outcome === 'passed' ? 'success' : candidate.outcome === 'failed' ? 'error' : 'info' })
   candidate.trainingEnrollments.forEach(e => {
@@ -90,14 +96,25 @@ export default function CandidateDetailPage() {
     timeline.push({ label: labels[e.eventType] || e.eventType, time: e.eventAt, type: e.eventType === 'marked_scheduled' ? 'success' : 'info' })
   })
   ;(candidate.automationExecutions || []).forEach(e => {
-    const destLabel = e.automationRule.emailDestination === 'company' ? ' → Company' : e.automationRule.emailDestination === 'specific' ? ' → Specific' : ''
-    const base = `Automation: ${e.automationRule.name}${destLabel}`
+    const r = e.automationRule
+    const destLabel = r.emailDestination === 'company' ? 'Company' : r.emailDestination === 'specific' ? (r.emailDestinationAddress || 'Specific') : 'Applicant'
+    const nextStep = r.nextStepType === 'training' && r.training ? `Training: ${r.training.title}`
+      : r.nextStepType === 'scheduling' && r.schedulingConfig ? `Scheduling: ${r.schedulingConfig.name}`
+      : r.nextStepType === 'email' ? 'Send email'
+      : null
+    const bits = [
+      `To: ${destLabel}`,
+      r.emailTemplate ? `Template: ${r.emailTemplate.name}` : null,
+      nextStep ? `Next step: ${nextStep}` : null,
+      r.delayMinutes > 0 ? `Delay: ${r.delayMinutes >= 1440 ? `${Math.round(r.delayMinutes / 1440)}d` : r.delayMinutes >= 60 ? `${Math.round(r.delayMinutes / 60)}h` : `${r.delayMinutes}m`}` : null,
+    ].filter(Boolean).join(' · ')
+    const base = `Automation: ${r.name}`
     if (e.status === 'sent') {
-      timeline.push({ label: `${base} — email sent`, time: e.sentAt || e.createdAt, type: 'success' })
+      timeline.push({ label: `${base} — email sent`, detail: bits, time: e.sentAt || e.createdAt, type: 'success' })
     } else if (e.status === 'failed') {
-      timeline.push({ label: `${base} — failed${e.errorMessage ? `: ${e.errorMessage}` : ''}`, time: e.createdAt, type: 'error' })
+      timeline.push({ label: `${base} — failed${e.errorMessage ? `: ${e.errorMessage}` : ''}`, detail: bits, time: e.createdAt, type: 'error' })
     } else {
-      timeline.push({ label: `${base} — queued`, time: e.createdAt, type: 'info' })
+      timeline.push({ label: `${base} — queued`, detail: bits, time: e.createdAt, type: 'info' })
     }
   })
   timeline.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
@@ -274,7 +291,8 @@ export default function CandidateDetailPage() {
                 </div>
                 <div className="pb-2">
                   <div className="text-sm text-grey-15 font-medium">{event.label}</div>
-                  <div className="text-xs text-grey-40">{new Date(event.time).toLocaleString()}</div>
+                  {event.detail && <div className="text-xs text-grey-35 mt-0.5">{event.detail}</div>}
+                  <div className="text-xs text-grey-40 mt-0.5">{new Date(event.time).toLocaleString()}</div>
                 </div>
               </div>
             ))}

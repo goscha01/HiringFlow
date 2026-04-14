@@ -36,7 +36,17 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
   const automationExecutions = await prisma.automationExecution.findMany({
     where: { sessionId: params.id },
-    include: { automationRule: { select: { name: true, triggerType: true, nextStepType: true, emailDestination: true } } },
+    include: {
+      automationRule: {
+        select: {
+          name: true, triggerType: true, nextStepType: true, emailDestination: true,
+          emailDestinationAddress: true, delayMinutes: true,
+          training: { select: { title: true, slug: true } },
+          schedulingConfig: { select: { name: true, schedulingUrl: true } },
+          emailTemplate: { select: { name: true, subject: true } },
+        },
+      },
+    },
     orderBy: { createdAt: 'asc' },
   })
 
