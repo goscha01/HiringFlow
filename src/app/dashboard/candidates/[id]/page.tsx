@@ -21,11 +21,12 @@ interface SchedulingEvent { id: string; eventType: string; eventAt: string }
 interface AutomationExec {
   id: string; status: string; errorMessage: string | null; sentAt: string | null; createdAt: string
   automationRule: {
-    name: string; triggerType: string; nextStepType: string | null
+    id: string; name: string; triggerType: string; nextStepType: string | null
     emailDestination: string; emailDestinationAddress: string | null; delayMinutes: number
     training: { title: string; slug: string } | null
     schedulingConfig: { name: string; schedulingUrl: string } | null
     emailTemplate: { name: string; subject: string } | null
+    chainedBy: { id: string; name: string; delayMinutes: number }[]
   }
 }
 interface CandidateDetail {
@@ -98,15 +99,17 @@ export default function CandidateDetailPage() {
   ;(candidate.automationExecutions || []).forEach(e => {
     const r = e.automationRule
     const destLabel = r.emailDestination === 'company' ? 'Company' : r.emailDestination === 'specific' ? (r.emailDestinationAddress || 'Specific') : 'Applicant'
-    const nextStep = r.nextStepType === 'training' && r.training ? `Training: ${r.training.title}`
-      : r.nextStepType === 'scheduling' && r.schedulingConfig ? `Scheduling: ${r.schedulingConfig.name}`
-      : r.nextStepType === 'email' ? 'Send email'
-      : null
+    const nextStep = r.nextStepType === 'training' && r.training ? `Training — ${r.training.title}`
+      : r.nextStepType === 'scheduling' && r.schedulingConfig ? `Scheduling — ${r.schedulingConfig.name}`
+      : r.chainedBy.length > 0 ? `Chains to → ${r.chainedBy.map(c => c.name + (c.delayMinutes ? ` (+${c.delayMinutes}m)` : '')).join(', ')}`
+      : r.nextStepType === 'email' ? 'Send email only'
+      : 'No follow-up'
+    const delayStr = r.delayMinutes > 0 ? (r.delayMinutes >= 1440 ? `${Math.round(r.delayMinutes / 1440)}d` : r.delayMinutes >= 60 ? `${Math.round(r.delayMinutes / 60)}h` : `${r.delayMinutes}m`) : null
     const bits = [
       `To: ${destLabel}`,
       r.emailTemplate ? `Template: ${r.emailTemplate.name}` : null,
-      nextStep ? `Next step: ${nextStep}` : null,
-      r.delayMinutes > 0 ? `Delay: ${r.delayMinutes >= 1440 ? `${Math.round(r.delayMinutes / 1440)}d` : r.delayMinutes >= 60 ? `${Math.round(r.delayMinutes / 60)}h` : `${r.delayMinutes}m`}` : null,
+      `Next step: ${nextStep}`,
+      delayStr ? `Delay: ${delayStr}` : null,
     ].filter(Boolean).join(' · ')
     const base = `Automation: ${r.name}`
     if (e.status === 'sent') {
