@@ -2,6 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { uploadVideoFile } from '@/lib/upload-client'
+import { SubNav } from '../_components/SubNav'
+
+const ASSETS_NAV = [
+  { href: '/dashboard/content', label: 'Templates' },
+  { href: '/dashboard/videos', label: 'Media' },
+]
 
 interface Video {
   id: string
@@ -116,8 +122,14 @@ export default function VideosPage() {
 
   return (
     <div>
+      <h1 className="text-[36px] font-semibold text-grey-15 mb-1">Assets</h1>
+      <p className="text-grey-35 mb-6">Reusable templates and media for your flows and campaigns</p>
+      <SubNav items={ASSETS_NAV} />
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Videos</h1>
+        <div>
+          <h2 className="text-xl font-semibold text-grey-15">Media</h2>
+          <p className="text-grey-35 text-sm mt-1">Short videos for screening flows and long videos for trainings</p>
+        </div>
         <label className="bg-brand-500 text-white px-4 py-2 rounded-md hover:bg-brand-600 cursor-pointer transition-colors">
           {uploading ? 'Uploading...' : 'Upload Videos'}
           <input

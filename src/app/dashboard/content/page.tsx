@@ -1,6 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { SubNav } from '../_components/SubNav'
+
+const ASSETS_NAV = [
+  { href: '/dashboard/content', label: 'Templates' },
+  { href: '/dashboard/videos', label: 'Media' },
+]
 
 interface EmailTemplate { id: string; name: string; subject: string; bodyHtml: string; bodyText: string | null; isActive: boolean; updatedAt: string }
 interface AdTemplate { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null; isActive: boolean; updatedAt: string }
@@ -116,10 +122,13 @@ export default function ContentPage() {
 
   return (
     <div>
+      <h1 className="text-[36px] font-semibold text-grey-15 mb-1">Assets</h1>
+      <p className="text-grey-35 mb-6">Reusable templates and media for your flows and campaigns</p>
+      <SubNav items={ASSETS_NAV} />
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Content</h1>
-          <p className="text-grey-35 mt-1">Reusable templates for emails and ad copy</p>
+          <h2 className="text-xl font-semibold text-grey-15">Templates</h2>
+          <p className="text-grey-35 text-sm mt-1">Email templates (SMS templates coming soon)</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => openCreateEmail()} className="btn-secondary text-sm">+ Email Template</button>

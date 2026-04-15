@@ -17,17 +17,15 @@ export default function AdminLayout({
   const navItems = [
     { href: '/dashboard/candidates', label: 'Candidates' },
     { href: '/dashboard/campaigns', label: 'Campaigns' },
-    { href: '/dashboard/flows', label: 'Flows' },
+    { href: '/dashboard/flows', label: 'Screening' },
     { href: '/dashboard/automations', label: 'Automations' },
     { href: '/dashboard/scheduling', label: 'Scheduling' },
-    { href: '/dashboard/trainings', label: 'Trainings' },
-    { href: '/dashboard/content', label: 'Content' },
-    { href: '/dashboard/videos', label: 'Videos' },
+    { href: '/dashboard/trainings', label: 'Trainings', matches: ['/dashboard/trainings', '/dashboard/ai-calls'] },
+    { href: '/dashboard/content', label: 'Assets', matches: ['/dashboard/content', '/dashboard/videos'] },
     { href: '/dashboard/branding', label: 'Branding' },
-    { href: '/dashboard/ai-calls', label: 'AI Calls' },
     { href: '/dashboard/analytics', label: 'Analytics' },
     { href: '/dashboard/settings', label: 'Settings' },
-  ]
+  ] as Array<{ href: string; label: string; matches?: string[] }>
 
   return (
     <div className="min-h-screen bg-surface">
@@ -54,7 +52,7 @@ export default function AdminLayout({
               {/* Nav items */}
               <div className="flex items-center gap-1">
                 {navItems.map((item) => {
-                  const isActive = pathname.startsWith(item.href)
+                  const isActive = (item.matches || [item.href]).some(p => pathname.startsWith(p))
                   return (
                     <Link
                       key={item.href}

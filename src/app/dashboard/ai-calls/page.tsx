@@ -1,6 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { SubNav } from '../_components/SubNav'
+
+const TRAINING_NAV = [
+  { href: '/dashboard/trainings', label: 'Trainings' },
+  { href: '/dashboard/ai-calls', label: 'AI Calls' },
+]
 
 interface Agent { agent_id: string; name: string }
 interface Candidate { id: string; name: string; agentId: string; conversationIds: string[]; createdAt: string }
@@ -245,6 +251,7 @@ export default function AICallsPage() {
 
   return (
     <div>
+      <SubNav items={TRAINING_NAV} />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-[36px] font-semibold text-grey-15">AI Calls</h1>

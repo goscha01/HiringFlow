@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { SubNav } from '../_components/SubNav'
+
+const TRAINING_NAV = [
+  { href: '/dashboard/trainings', label: 'Trainings' },
+  { href: '/dashboard/ai-calls', label: 'AI Calls' },
+]
 
 interface Training {
   id: string
@@ -84,6 +90,7 @@ export default function TrainingsPage() {
 
   return (
     <div>
+      <SubNav items={TRAINING_NAV} />
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Trainings</h1>
         <button

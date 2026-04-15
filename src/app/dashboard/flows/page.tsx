@@ -75,8 +75,8 @@ export default function FlowsPage() {
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Flows</h1>
-          <p className="text-grey-35 mt-1">Create and manage your application flows</p>
+          <h1 className="text-[36px] font-semibold text-grey-15">Screening</h1>
+          <p className="text-grey-35 mt-1">Create and manage your candidate screening flows</p>
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary">
           + Create Flow

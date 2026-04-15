@@ -53,6 +53,7 @@ export default function AutomationsPage() {
   const [companyEmail, setCompanyEmail] = useState<string | null>(null)
   const [showCompanyEmailWarning, setShowCompanyEmailWarning] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [testingId, setTestingId] = useState<string | null>(null)
   // Inline template creator
   const [showNewTemplate, setShowNewTemplate] = useState(false)
   const [newTplName, setNewTplName] = useState('')
@@ -148,6 +149,27 @@ export default function AutomationsPage() {
     await fetch(`/api/automations/${id}`, { method: 'DELETE' }); refresh()
   }
 
+  const runTest = async (r: Rule) => {
+    const to = prompt(`Send a test email for "${r.name}" to:`, '')
+    if (!to || !to.includes('@')) return
+    setTestingId(r.id)
+    try {
+      const res = await fetch(`/api/automations/${r.id}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.success) {
+        alert(`Test email sent to ${data.sentTo}.\nCheck inbox (and spam folder). No execution record was created.`)
+      } else {
+        alert(`Test failed: ${data.error || 'Unknown error'}`)
+      }
+    } finally {
+      setTestingId(null)
+    }
+  }
+
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
 
   return (
@@ -219,6 +241,9 @@ export default function AutomationsPage() {
                     </button>
                   </td>
                   <td className="px-5 py-4 text-right space-x-3">
+                    <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                      {testingId === r.id ? 'Sending…' : 'Test'}
+                    </button>
                     <button onClick={() => openEdit(r)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
                     <button onClick={() => remove(r.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
                   </td>
