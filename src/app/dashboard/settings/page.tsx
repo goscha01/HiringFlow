@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { GoogleIntegrationCard } from './_GoogleIntegrationCard'
+import { SenderVerificationCard } from './_SenderVerificationCard'
 
 interface Member { id: string; userId: string; email: string; name: string | null; role: string; joinedAt: string }
 interface WorkspaceData {
@@ -248,14 +249,14 @@ export default function SettingsPage() {
               <input type="email" value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} placeholder="hiring@yourcompany.com" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
               <p className="text-xs text-grey-50 mt-1">Candidate replies will go to this address</p>
             </div>
-            <div className="bg-surface rounded-[8px] p-4">
-              <p className="text-xs text-grey-40">Emails are sent via HireFunnel&apos;s email infrastructure. Custom sender domains are available on Pro and Enterprise plans.</p>
-            </div>
           </div>
           <div className="mt-6">
             <button onClick={saveSettings} disabled={saving} className="btn-primary disabled:opacity-50">
               {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
             </button>
+          </div>
+          <div className="mt-8 pt-6 border-t border-surface-border">
+            <SenderVerificationCard />
           </div>
         </div>
       )}

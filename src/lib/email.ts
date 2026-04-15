@@ -13,6 +13,7 @@ export interface EmailPayload {
   subject: string
   html: string
   text?: string
+  from?: { email: string; name?: string } | null
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
@@ -21,10 +22,14 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     return { success: false, error: 'SendGrid not configured' }
   }
 
+  const from = payload.from?.email
+    ? { email: payload.from.email, name: payload.from.name || FROM_NAME }
+    : { email: FROM_EMAIL, name: FROM_NAME }
+
   try {
     const [response] = await sgMail.send({
       to: payload.to,
-      from: { email: FROM_EMAIL, name: FROM_NAME },
+      from,
       subject: payload.subject,
       html: payload.html,
       text: payload.text || undefined,

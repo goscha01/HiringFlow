@@ -118,7 +118,7 @@ export async function executeRule(ruleId: string, sessionId: string) {
   console.log(`[Automation] executeRule start ruleId=${ruleId} sessionId=${sessionId}`)
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
-    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true } } },
+    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true } } },
   })
   if (!rule) { console.log(`[Automation] Rule ${ruleId} NOT FOUND`); return }
   if (!rule.isActive) { console.log(`[Automation] Rule ${ruleId} INACTIVE`); return }
@@ -198,7 +198,12 @@ export async function executeRule(ruleId: string, sessionId: string) {
     return
   }
 
-  const result = await sendEmail({ to: recipient, subject, html, text })
+  // Use workspace's verified sender if set, else fall back to the default.
+  const from = rule.workspace?.senderVerifiedAt && rule.workspace.senderEmail
+    ? { email: rule.workspace.senderEmail, name: rule.workspace.senderName || undefined }
+    : null
+
+  const result = await sendEmail({ to: recipient, subject, html, text, from })
 
   await prisma.automationExecution.update({
     where: { id: execution.id },
