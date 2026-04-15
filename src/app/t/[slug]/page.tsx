@@ -9,7 +9,7 @@ interface QuizOption { index: number; text: string }
 interface QuizQuestion { id: string; questionText: string; questionType: string; options: QuizOption[] }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: QuizQuestion[] }
 interface Section { id: string; title: string; contents: ContentItem[]; quiz: Quiz | null }
-interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; sections: Section[] }
+interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; candidateName: string | null; candidateEmail: string | null; sections: Section[] }
 interface QuizResult { questionId: string; isCorrect: boolean; correctIndices: number[]; hints: (string | null)[] }
 
 export default function TrainingPage() {
@@ -152,32 +152,29 @@ export default function TrainingPage() {
 
   const startAtSection = (si: number) => { setSectionIdx(si); setContentIdx(0); setMode('content'); setStarted(true) }
 
-  // ===== NAVBAR (shared) =====
+  // ===== NAVBAR (candidate context, no menu, no auth) =====
+  const candidateInitial = training.candidateName?.trim().charAt(0).toUpperCase() || training.candidateEmail?.trim().charAt(0).toUpperCase() || ''
   const Navbar = () => (
-    <>
-      <div className="bg-[#FF9500] text-white text-center py-3 text-sm font-normal">
-        Free Courses · Start Learning Now
-        <span className="ml-2">→</span>
-      </div>
-      <nav className="bg-white border-b border-[#F1F1F3]">
-        <div className="max-w-[1596px] mx-auto px-6 lg:px-[80px] flex items-center justify-between h-[72px]">
-          <div className="flex items-center gap-10">
-            <div className="w-[44px] h-[44px] bg-[#FF9500] rounded-[8px] flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
-            </div>
-            <div className="hidden md:flex items-center gap-1">
-              {['Home', 'Courses', 'About Us', 'Pricing', 'Contact'].map((item, i) => (
-                <span key={i} className={`px-4 py-2 rounded-[8px] text-sm ${i === 1 ? 'bg-[#F7F7F8] font-medium text-[#262626]' : 'text-[#262626]'}`}>{item}</span>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-[#262626]">Sign Up</span>
-            <button onClick={() => setStarted(true)} className="px-6 py-3 bg-[#FF9500] text-white text-sm font-medium rounded-[8px] hover:bg-[#EA8500]">Login</button>
+    <nav className="bg-white border-b border-[#F1F1F3]">
+      <div className="max-w-[1596px] mx-auto px-6 lg:px-[80px] flex items-center justify-between h-[72px]">
+        <div className="flex items-center gap-3">
+          <div className="w-[44px] h-[44px] bg-[#FF9500] rounded-[8px] flex items-center justify-center">
+            <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
           </div>
         </div>
-      </nav>
-    </>
+        {(training.candidateName || training.candidateEmail) && (
+          <div className="flex items-center gap-3">
+            <div className="text-right hidden sm:block">
+              {training.candidateName && <div className="text-sm font-medium text-[#262626] leading-tight">{training.candidateName}</div>}
+              {training.candidateEmail && <div className="text-xs text-[#59595A] leading-tight">{training.candidateEmail}</div>}
+            </div>
+            <div className="w-10 h-10 rounded-full bg-[#F1F1F3] flex items-center justify-center text-sm font-medium text-[#262626]">
+              {candidateInitial}
+            </div>
+          </div>
+        )}
+      </div>
+    </nav>
   )
 
   // ===== FOOTER (shared) =====

@@ -26,6 +26,8 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
   let enrollmentId: string | null = null
   let enrollmentStatus: string | null = null
   let enrollmentProgress: unknown = null
+  let candidateName: string | null = null
+  let candidateEmail: string | null = null
 
   if (training.accessMode === 'invitation_only') {
     if (!token) {
@@ -49,6 +51,8 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     enrollmentId = enrollment.id
     enrollmentStatus = enrollment.status
     enrollmentProgress = enrollment.progress
+    candidateName = accessToken.candidate?.candidateName || null
+    candidateEmail = accessToken.candidate?.candidateEmail || null
   }
 
   return NextResponse.json({
@@ -62,6 +66,8 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     enrollmentId,
     enrollmentStatus,
     enrollmentProgress,
+    candidateName,
+    candidateEmail,
     sections: training.sections.map((s) => ({
       id: s.id,
       title: s.title,
