@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { SubNav } from '../_components/SubNav'
+import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
 
 const ASSETS_NAV = [
   { href: '/dashboard/content', label: 'Templates' },
@@ -14,17 +15,7 @@ interface AdTemplate { id: string; name: string; source: string; headline: strin
 const EMAIL_VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_time}}', '{{meeting_link}}', '{{source}}', '{{ad_name}}']
 const SOURCES = ['general', 'indeed', 'facebook', 'craigslist', 'google', 'linkedin', 'instagram', 'tiktok', 'other']
 
-const EMAIL_DEFAULTS = [
-  { name: 'Training Invitation', subject: 'Your training is ready, {{candidate_name}}!', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Great news! You\'ve passed the screening for {{flow_name}}.</p>\n<p><a href="{{training_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Start Training</a></p>', category: 'email' },
-  { name: 'Scheduling Invitation', subject: 'Book your interview, {{candidate_name}}', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Congratulations on completing the training!</p>\n<p><a href="{{schedule_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Book Interview</a></p>', category: 'email' },
-  { name: 'Rejection Email', subject: 'Update on your application', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Thank you for your interest in {{flow_name}}. After careful review, we\'ve decided to move forward with other candidates.</p>\n<p>We wish you the best.</p>', category: 'email' },
-  { name: 'Generic Follow-up', subject: 'Following up — {{flow_name}}', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Just checking in regarding your application for {{flow_name}}.</p>\n<p>If you have any questions, feel free to reply.</p>', category: 'email' },
-  { name: 'Form Submit Confirmation', subject: 'We received your application, {{candidate_name}}!', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Thank you for completing your application for {{flow_name}}. We\'ve received all your information successfully.</p>\n<p>Our team will review your submission and get back to you shortly.</p>\n<p>Best regards,<br/>The Hiring Team</p>', category: 'email' },
-  { name: 'Form Submit Notification', subject: 'New application received — {{flow_name}}', bodyHtml: '<p>A new candidate has submitted their application.</p>\n<p><strong>Name:</strong> {{candidate_name}}<br/><strong>Flow:</strong> {{flow_name}}<br/><strong>Source:</strong> {{source}}</p>\n<p>Log in to your dashboard to review the submission.</p>', category: 'email' },
-  { name: 'Next Step Email', subject: 'Next steps for {{flow_name}}, {{candidate_name}}', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Great progress on your application for {{flow_name}}! Here\'s what comes next:</p>\n<p>Please follow the link below to continue to the next stage of the process.</p>\n<p><a href="{{training_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Continue to Next Step</a></p>\n<p>If you have any questions, don\'t hesitate to reach out.</p>\n<p>Best,<br/>The Hiring Team</p>', category: 'email' },
-  { name: 'Interview Confirmation', subject: 'Your interview is confirmed, {{candidate_name}}', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Your interview for <strong>{{flow_name}}</strong> is confirmed.</p>\n<p><strong>When:</strong> {{meeting_time}}</p>\n<p><strong>Join link:</strong> <a href="{{meeting_link}}">{{meeting_link}}</a></p>\n<p style="margin:24px 0"><a href="{{meeting_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Join Interview</a></p>\n<p>If you need to reschedule, please let us know as soon as possible.</p>\n<p>See you then,<br/>The Hiring Team</p>', category: 'email' },
-  { name: 'Interview Reminder (24h)', subject: 'Reminder: Interview tomorrow — {{candidate_name}}', bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Quick reminder that your interview is tomorrow.</p>\n<p><strong>When:</strong> {{meeting_time}}</p>\n<p><strong>Join link:</strong> <a href="{{meeting_link}}">{{meeting_link}}</a></p>\n<p>A few tips:</p>\n<ul>\n<li>Join from a quiet space with a good internet connection</li>\n<li>Test your camera and microphone beforehand</li>\n<li>Have any questions ready</li>\n</ul>\n<p>Looking forward to speaking with you!</p>\n<p>Best,<br/>The Hiring Team</p>', category: 'email' },
-]
+const EMAIL_DEFAULTS = DEFAULT_EMAIL_TEMPLATES.map(t => ({ ...t, category: 'email' as const }))
 
 const AD_DEFAULTS = [
   { name: 'Indeed - General Hiring', source: 'indeed', headline: 'Now Hiring — Join Our Team!', bodyText: 'We are looking for motivated team members to join our growing company.\n\nGreat opportunity for career growth.', requirements: '- Authorized to work\n- Reliable transportation\n- Positive attitude', benefits: '- Competitive pay\n- Flexible schedule\n- Growth opportunities', callToAction: 'Apply now — takes less than 5 minutes!' },
@@ -133,6 +124,16 @@ export default function ContentPage() {
           <p className="text-grey-35 text-sm mt-1">Email templates (SMS templates coming soon)</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={async () => {
+            const res = await fetch('/api/email-templates/seed', { method: 'POST' })
+            const d = await res.json().catch(() => ({}))
+            if (res.ok) {
+              alert(`Added ${d.created} default template${d.created === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} already existed)` : ''}.`)
+              refreshEmails()
+            } else {
+              alert('Failed to seed defaults')
+            }
+          }} className="btn-secondary text-sm">Add all defaults</button>
           <button onClick={() => openCreateEmail()} className="btn-secondary text-sm">+ Email Template</button>
           <button onClick={() => openCreateAd()} className="btn-primary text-sm">+ Ad Template</button>
         </div>

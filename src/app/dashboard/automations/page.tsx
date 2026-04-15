@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string }
@@ -326,16 +327,9 @@ export default function AutomationsPage() {
                       )}
                       {/* Default templates as clickable cards */}
                       <p className="text-xs text-grey-40 mb-2">{templates.length > 0 ? 'Or start from a default:' : 'Choose a default template:'}</p>
-                      <div className="grid grid-cols-2 gap-1.5 mb-2">
-                        {[
-                          { name: 'Form Confirmation', subject: 'We received your application, {{candidate_name}}!', body: '<p>Hi {{candidate_name}},</p>\n<p>Thank you for completing your application for {{flow_name}}. We\'ll review and get back to you shortly.</p>\n<p>Best regards,<br/>The Hiring Team</p>' },
-                          { name: 'Training Invitation', subject: 'Your training is ready, {{candidate_name}}!', body: '<p>Hi {{candidate_name}},</p>\n<p>You\'ve passed the screening for {{flow_name}}.</p>\n<p><a href="{{training_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Start Training</a></p>' },
-                          { name: 'Scheduling Invite', subject: 'Book your interview, {{candidate_name}}', body: '<p>Hi {{candidate_name}},</p>\n<p>Please choose a time for your interview:</p>\n<p><a href="{{schedule_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Book Interview</a></p>' },
-                          { name: 'Next Step', subject: 'Next steps — {{flow_name}}', body: '<p>Hi {{candidate_name}},</p>\n<p>Here\'s what comes next for {{flow_name}}.</p>\n<p><a href="{{training_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Continue</a></p>' },
-                          { name: 'Rejection', subject: 'Update on your application', body: '<p>Hi {{candidate_name}},</p>\n<p>Thank you for your interest in {{flow_name}}. After careful review, we\'ve decided to move forward with other candidates.</p>\n<p>We wish you the best.</p>' },
-                          { name: 'Follow-up', subject: 'Following up — {{flow_name}}', body: '<p>Hi {{candidate_name}},</p>\n<p>Just checking in regarding your application for {{flow_name}}.</p>\n<p>If you have any questions, feel free to reply.</p>' },
-                        ].map((tpl, i) => (
-                          <button key={i} onClick={() => { setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.body); setShowNewTemplate(true); setTemplateId('') }} className="px-3 py-2 text-xs text-left border border-surface-border rounded-[6px] text-grey-35 hover:border-brand-400 hover:bg-brand-50 transition-colors">
+                      <div className="grid grid-cols-2 gap-1.5 mb-2 max-h-[240px] overflow-y-auto">
+                        {DEFAULT_EMAIL_TEMPLATES.map((tpl, i) => (
+                          <button key={i} onClick={() => { setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml); setShowNewTemplate(true); setTemplateId('') }} className="px-3 py-2 text-xs text-left border border-surface-border rounded-[6px] text-grey-35 hover:border-brand-400 hover:bg-brand-50 transition-colors">
                             <span className="font-medium text-grey-15 block">{tpl.name}</span>
                             <span className="text-[10px] text-grey-50 truncate block">{tpl.subject}</span>
                           </button>
