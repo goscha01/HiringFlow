@@ -151,6 +151,12 @@ export default function AutomationsPage() {
     await fetch(`/api/automations/${id}`, { method: 'DELETE' }); refresh()
   }
 
+  const duplicate = async (r: Rule) => {
+    const res = await fetch(`/api/automations/${r.id}/duplicate`, { method: 'POST' })
+    if (res.ok) refresh()
+    else alert('Failed to duplicate automation')
+  }
+
   const runTest = async (r: Rule) => {
     const to = prompt(`Send a test email for "${r.name}" to:`, '')
     if (!to || !to.includes('@')) return
@@ -246,6 +252,7 @@ export default function AutomationsPage() {
                     <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
                       {testingId === r.id ? 'Sending…' : 'Test'}
                     </button>
+                    <button onClick={() => duplicate(r)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
                     <button onClick={() => openEdit(r)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
                     <button onClick={() => remove(r.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
                   </td>
