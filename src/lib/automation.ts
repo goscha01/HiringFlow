@@ -55,6 +55,19 @@ export async function fireTrainingCompletedAutomations(sessionId: string) {
   }
 }
 
+export async function fireMeetingScheduledAutomations(sessionId: string) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { flow: true, ad: true },
+    })
+    if (!session) return
+    await dispatchRulesForTrigger(sessionId, 'meeting_scheduled', session)
+  } catch (error) {
+    console.error('[Automation] Error firing meeting_scheduled automations for session', sessionId, ':', error)
+  }
+}
+
 async function dispatchRulesForTrigger(sessionId: string, triggerType: string, session: SessionCtx) {
   const rules = await prisma.automationRule.findMany({
     where: {

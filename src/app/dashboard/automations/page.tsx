@@ -20,6 +20,7 @@ const TRIGGERS = [
   { value: 'flow_completed', label: 'Flow Completed' },
   { value: 'flow_passed', label: 'Flow Passed' },
   { value: 'training_completed', label: 'Training Done' },
+  { value: 'meeting_scheduled', label: 'Meeting Scheduled' },
   { value: 'automation_completed', label: 'After Automation' },
 ]
 
@@ -27,6 +28,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   flow_completed: 'Flow Completed',
   flow_passed: 'Flow Passed',
   training_completed: 'Training Done',
+  meeting_scheduled: 'Meeting Scheduled',
   automation_completed: 'After Automation',
 }
 

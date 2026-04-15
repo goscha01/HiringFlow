@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent, updatePipelineStatus } from '@/lib/scheduling'
+import { fireMeetingScheduledAutomations } from '@/lib/automation'
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
@@ -40,6 +41,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   })
 
   await updatePipelineStatus(params.id, 'scheduled').catch(() => {})
+
+  // Fire any meeting_scheduled automations (e.g., send candidate a confirmation)
+  await fireMeetingScheduledAutomations(params.id).catch((err) => {
+    console.error('[Schedule-meeting] fireMeetingScheduledAutomations failed:', err)
+  })
 
   return NextResponse.json({ success: true })
 }

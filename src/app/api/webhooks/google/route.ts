@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { pullChangedEvents } from '@/lib/google'
 import { logSchedulingEvent, updatePipelineStatus } from '@/lib/scheduling'
+import { fireMeetingScheduledAutomations } from '@/lib/automation'
 import type { calendar_v3 } from 'googleapis'
 
 // Google Calendar push notifications use these headers:
@@ -93,6 +94,9 @@ async function processEvent(workspaceId: string, event: calendar_v3.Schema$Event
 
   if (eventType === 'meeting_scheduled') {
     await updatePipelineStatus(sessionId, 'scheduled').catch(() => {})
+    await fireMeetingScheduledAutomations(sessionId).catch((err) => {
+      console.error('[Google webhook] fireMeetingScheduledAutomations failed:', err)
+    })
   }
 }
 
