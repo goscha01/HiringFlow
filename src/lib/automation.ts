@@ -185,11 +185,40 @@ export async function executeRule(ruleId: string, sessionId: string) {
     if (!scheduleLink && rule.nextStepUrl) scheduleLink = rule.nextStepUrl
   }
 
+  // Meeting details — pulled from the latest scheduling event for this session.
+  // Populated for meeting_scheduled triggers, and also available for any rule that
+  // fires after a booking exists (e.g. a 24h reminder chained from meeting_scheduled).
+  let meetingTime = ''
+  let meetingLink = ''
+  const latestMeeting = await prisma.schedulingEvent.findFirst({
+    where: {
+      sessionId,
+      eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] },
+    },
+    orderBy: { eventAt: 'desc' },
+    select: { metadata: true },
+  })
+  if (latestMeeting?.metadata) {
+    const meta = latestMeeting.metadata as Record<string, unknown>
+    if (typeof meta.scheduledAt === 'string') {
+      const d = new Date(meta.scheduledAt)
+      if (!isNaN(d.getTime())) {
+        meetingTime = d.toLocaleString('en-US', {
+          weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true,
+        })
+      }
+    }
+    if (typeof meta.meetingUrl === 'string') meetingLink = meta.meetingUrl
+  }
+
   const variables: Record<string, string> = {
     candidate_name: session.candidateName || 'Candidate',
     flow_name: session.flow.name,
     training_link: trainingLink,
     schedule_link: scheduleLink,
+    meeting_time: meetingTime,
+    meeting_link: meetingLink,
     source: session.source || '',
     ad_name: session.ad?.name || '',
   }

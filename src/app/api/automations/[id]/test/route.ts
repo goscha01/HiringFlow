@@ -42,6 +42,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     flow_name: rule.flow?.name || 'Sample Flow',
     training_link: trainingLink,
     schedule_link: scheduleLink,
+    meeting_time: 'Wednesday, April 16, 2026 at 3:00 PM',
+    meeting_link: 'https://meet.google.com/sample-test-link',
     source: 'test',
     ad_name: 'Test Ad',
   }
