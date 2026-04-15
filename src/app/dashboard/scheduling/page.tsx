@@ -158,6 +158,16 @@ export default function SchedulingPage() {
                 {url && !isValidCalendlyUrl(url) && (
                   <p className="text-xs text-amber-600 mt-1">URL should be a calendly.com link</p>
                 )}
+                <div className="mt-2 p-3 bg-surface rounded-[8px] border border-surface-border">
+                  <p className="text-xs font-medium text-grey-20 mb-1.5">Where to find your Calendly link</p>
+                  <ol className="text-xs text-grey-35 space-y-1 list-decimal list-inside">
+                    <li>Sign in at <a href="https://calendly.com" target="_blank" rel="noopener noreferrer" className="text-brand-500 underline">calendly.com</a> (free plan works).</li>
+                    <li>Go to <span className="font-medium">Event Types</span> and open the event you want candidates to book (e.g. &quot;Interview&quot;).</li>
+                    <li>Click <span className="font-medium">Copy link</span> — the URL looks like <code className="bg-white px-1 py-0.5 rounded border border-surface-border">https://calendly.com/your-name/interview</code>.</li>
+                    <li>Paste it above.</li>
+                  </ol>
+                  <p className="text-xs text-grey-40 mt-2">Tip: make sure the event is <span className="font-medium">active</span> in Calendly, otherwise candidates will see a &quot;not available&quot; page.</p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <button
