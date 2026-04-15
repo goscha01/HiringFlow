@@ -99,13 +99,24 @@ export async function startWatch(workspaceId: string) {
     },
   })
 
-  // Also grab an initial syncToken so we can do incremental syncs later
-  const sync = await calendar.events.list({
-    calendarId: integration.calendarId,
-    maxResults: 1,
-    showDeleted: true,
-    singleEvents: true,
-  })
+  // Do a proper initial sync — paginate through all events to get a nextSyncToken.
+  // Google only returns nextSyncToken on the last page of a full listing.
+  let pageToken: string | undefined = undefined
+  let nextSyncToken: string | null = null
+  const timeMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  for (let i = 0; i < 20; i++) {
+    const page: any = await calendar.events.list({
+      calendarId: integration.calendarId,
+      timeMin,
+      showDeleted: true,
+      singleEvents: true,
+      maxResults: 250,
+      pageToken,
+    })
+    if (page.data.nextSyncToken) { nextSyncToken = page.data.nextSyncToken; break }
+    if (!page.data.nextPageToken) break
+    pageToken = page.data.nextPageToken
+  }
 
   await prisma.googleIntegration.update({
     where: { workspaceId },
@@ -114,7 +125,8 @@ export async function startWatch(workspaceId: string) {
       watchResourceId: res.data.resourceId || null,
       watchToken,
       watchExpiresAt: res.data.expiration ? new Date(Number(res.data.expiration)) : null,
-      syncToken: sync.data.nextSyncToken || null,
+      syncToken: nextSyncToken,
+      lastSyncedAt: new Date(),
     },
   })
 }
@@ -153,39 +165,67 @@ export async function pullChangedEvents(workspaceId: string) {
 
   const calendar = google.calendar({ version: 'v3', auth: client })
 
+  // Build the list params. Prefer syncToken (incremental); fall back to
+  // timeMin (recent window) if we don't have a syncToken yet. Google
+  // disallows passing timeMin + syncToken together.
+  const listParams: any = {
+    calendarId: integration.calendarId,
+    showDeleted: true,
+    singleEvents: true,
+    maxResults: 250,
+  }
+  if (integration.syncToken) {
+    listParams.syncToken = integration.syncToken
+  } else {
+    // 7 days back is enough for bookings we care about
+    listParams.timeMin = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    listParams.updatedMin = (integration.lastSyncedAt || new Date(Date.now() - 10 * 60_000)).toISOString()
+  }
+
+  const runList = async (params: any) => {
+    const all: any[] = []
+    let pageToken: string | undefined
+    let nextSyncToken: string | null = null
+    for (let i = 0; i < 20; i++) {
+      const page: any = await calendar.events.list({ ...params, pageToken })
+      if (page.data.items) all.push(...page.data.items)
+      if (page.data.nextSyncToken) { nextSyncToken = page.data.nextSyncToken; break }
+      if (!page.data.nextPageToken) break
+      pageToken = page.data.nextPageToken
+    }
+    return { items: all, nextSyncToken }
+  }
+
+  console.log(`[Google] pullChangedEvents ws=${workspaceId} mode=${integration.syncToken ? 'incremental' : 'timeMin'}`)
+
   try {
-    const res = await calendar.events.list({
-      calendarId: integration.calendarId,
-      syncToken: integration.syncToken || undefined,
-      showDeleted: true,
-      singleEvents: true,
-      maxResults: 100,
+    const { items, nextSyncToken } = await runList(listParams)
+    await prisma.googleIntegration.update({
+      where: { workspaceId },
+      data: {
+        syncToken: nextSyncToken || integration.syncToken,
+        lastSyncedAt: new Date(),
+      },
     })
-
-    if (res.data.nextSyncToken) {
-      await prisma.googleIntegration.update({
-        where: { workspaceId },
-        data: { syncToken: res.data.nextSyncToken, lastSyncedAt: new Date() },
-      })
-    }
-
-    return { events: res.data.items || [], newSyncToken: res.data.nextSyncToken || null }
+    console.log(`[Google] Pulled ${items.length} events ws=${workspaceId}`)
+    return { events: items, newSyncToken: nextSyncToken }
   } catch (err: any) {
-    // 410 GONE — syncToken invalid, need to do a full re-sync
+    // 410 GONE — syncToken invalid, do a full re-sync
     if (err?.code === 410) {
-      const full = await calendar.events.list({
-        calendarId: integration.calendarId,
+      console.warn('[Google] syncToken invalid — falling back to timeMin re-sync')
+      const { items, nextSyncToken } = await runList({
+        ...listParams,
+        syncToken: undefined,
         timeMin: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        showDeleted: true,
-        singleEvents: true,
-        maxResults: 100,
+        updatedMin: undefined,
       })
       await prisma.googleIntegration.update({
         where: { workspaceId },
-        data: { syncToken: full.data.nextSyncToken || null, lastSyncedAt: new Date() },
+        data: { syncToken: nextSyncToken, lastSyncedAt: new Date() },
       })
-      return { events: full.data.items || [], newSyncToken: full.data.nextSyncToken || null }
+      return { events: items, newSyncToken: nextSyncToken }
     }
+    console.error('[Google] pullChangedEvents failed:', err?.message || err)
     throw err
   }
 }

@@ -15,6 +15,8 @@ export async function POST(request: NextRequest) {
   const channelToken = request.headers.get('x-goog-channel-token')
   const resourceState = request.headers.get('x-goog-resource-state')
 
+  console.log(`[Google webhook] hit channelId=${channelId} state=${resourceState}`)
+
   if (!channelId || !channelToken) {
     return NextResponse.json({ error: 'Missing channel headers' }, { status: 400 })
   }
