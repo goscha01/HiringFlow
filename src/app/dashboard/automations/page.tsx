@@ -103,7 +103,7 @@ export default function AutomationsPage() {
     setSaving(true)
     const body = {
       name, triggerType,
-      flowId: (triggerType !== 'training_completed' && triggerType !== 'automation_completed') ? (flowId || null) : null,
+      flowId: (triggerType !== 'training_completed' && triggerType !== 'automation_completed' && triggerType !== 'meeting_scheduled') ? (flowId || null) : null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
       emailTemplateId: templateId,
       nextStepType: nextStepType || null,
@@ -282,7 +282,7 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              {triggerType !== 'training_completed' && triggerType !== 'automation_completed' && (
+              {triggerType !== 'training_completed' && triggerType !== 'automation_completed' && triggerType !== 'meeting_scheduled' && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Flow (optional — leave empty for all flows)</label>
                   <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
