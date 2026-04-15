@@ -50,8 +50,30 @@ model Workspace {
   adTemplates       AdTemplate[]
   aiCallConfigs     AICallConfig[]
   aiCallCandidates  AICallCandidate[]
+  googleIntegration GoogleIntegration?
 
   @@map("workspaces")
+}
+
+model GoogleIntegration {
+  id              String    @id @default(uuid())
+  workspaceId     String    @unique @map("workspace_id")
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  googleEmail     String    @map("google_email")
+  refreshToken    String    @map("refresh_token")                  // encrypted
+  accessToken     String?   @map("access_token")                   // encrypted
+  accessExpiresAt DateTime? @map("access_expires_at")
+  calendarId      String    @default("primary") @map("calendar_id")
+  watchChannelId  String?   @unique @map("watch_channel_id")
+  watchResourceId String?   @map("watch_resource_id")
+  watchToken      String?   @map("watch_token")                    // per-workspace webhook secret
+  watchExpiresAt  DateTime? @map("watch_expires_at")
+  syncToken       String?   @map("sync_token")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("google_integrations")
 }
 
 model WorkspaceMember {

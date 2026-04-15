@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { GoogleIntegrationCard } from './_GoogleIntegrationCard'
 
 interface Member { id: string; userId: string; email: string; name: string | null; role: string; joinedAt: string }
 interface WorkspaceData {
@@ -23,7 +24,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'business' | 'team' | 'email' | 'providers'>('business')
+  const [tab, setTab] = useState<'business' | 'team' | 'email' | 'providers' | 'integrations'>('business')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -124,6 +125,7 @@ export default function SettingsPage() {
           { key: 'team' as const, label: `Team (${data.members.length})` },
           { key: 'email' as const, label: 'Email Settings' },
           { key: 'providers' as const, label: 'Providers' },
+          { key: 'integrations' as const, label: 'Integrations' },
         ].map(t => (
           <button
             key={t.key}
@@ -293,6 +295,12 @@ export default function SettingsPage() {
             </div>
             <p className="text-sm text-grey-40">Send SMS and WhatsApp notifications to candidates. Available on Enterprise plans.</p>
           </div>
+        </div>
+      )}
+
+      {tab === 'integrations' && (
+        <div className="space-y-4 max-w-2xl">
+          <GoogleIntegrationCard />
         </div>
       )}
     </div>
