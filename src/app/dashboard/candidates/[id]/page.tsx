@@ -17,7 +17,7 @@ interface TrainingEnrollment {
   id: string; status: string; startedAt: string; completedAt: string | null
   training: { id: string; title: string }
 }
-interface SchedulingEvent { id: string; eventType: string; eventAt: string }
+interface SchedulingEvent { id: string; eventType: string; eventAt: string; metadata: Record<string, any> | null }
 interface AutomationExec {
   id: string; status: string; errorMessage: string | null; sentAt: string | null; scheduledFor: string | null; createdAt: string
   automationRule: {
@@ -79,6 +79,35 @@ export default function CandidateDetailPage() {
     setCandidate(prev => prev ? { ...prev, outcome, ...(outcome === 'passed' ? { pipelineStatus: 'passed' } : outcome === 'failed' ? { pipelineStatus: 'failed' } : {}) } : null)
   }
 
+  const [showLogMeeting, setShowLogMeeting] = useState(false)
+  const [meetingAt, setMeetingAt] = useState('')
+  const [meetingUrl, setMeetingUrl] = useState('')
+  const [meetingNotes, setMeetingNotes] = useState('')
+  const [savingMeeting, setSavingMeeting] = useState(false)
+
+  const logMeeting = async () => {
+    if (!meetingAt) return
+    setSavingMeeting(true)
+    const res = await fetch(`/api/candidates/${id}/schedule-meeting`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scheduledAt: new Date(meetingAt).toISOString(),
+        meetingUrl: meetingUrl || undefined,
+        notes: meetingNotes || undefined,
+      }),
+    })
+    setSavingMeeting(false)
+    if (res.ok) {
+      setShowLogMeeting(false)
+      setMeetingAt(''); setMeetingUrl(''); setMeetingNotes('')
+      // Refresh candidate data
+      fetch(`/api/candidates/${id}`).then(r => r.json()).then(d => setCandidate(d))
+    } else {
+      alert('Failed to log meeting')
+    }
+  }
+
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
   if (!candidate) return <div className="text-center py-12 text-grey-40">Candidate not found</div>
 
@@ -93,8 +122,23 @@ export default function CandidateDetailPage() {
     if (e.completedAt) timeline.push({ label: `Training completed: ${e.training.title}`, time: e.completedAt, type: 'success' })
   })
   candidate.schedulingEvents.forEach(e => {
-    const labels: Record<string, string> = { invite_sent: 'Scheduling invite sent', link_clicked: 'Scheduling link clicked', marked_scheduled: 'Marked as scheduled' }
-    timeline.push({ label: labels[e.eventType] || e.eventType, time: e.eventAt, type: e.eventType === 'marked_scheduled' ? 'success' : 'info' })
+    const labels: Record<string, string> = {
+      invite_sent: 'Scheduling invite sent',
+      link_clicked: 'Scheduling link clicked',
+      marked_scheduled: 'Marked as scheduled',
+      meeting_scheduled: 'Meeting scheduled',
+      meeting_rescheduled: 'Meeting rescheduled',
+      meeting_cancelled: 'Meeting cancelled',
+    }
+    const successTypes = new Set(['marked_scheduled', 'meeting_scheduled', 'meeting_rescheduled'])
+    const errorTypes = new Set(['meeting_cancelled'])
+    const type = errorTypes.has(e.eventType) ? 'error' : successTypes.has(e.eventType) ? 'success' : 'info'
+    const meta = e.metadata || {}
+    const bits: string[] = []
+    if (meta.scheduledAt) bits.push(`When: ${new Date(meta.scheduledAt).toLocaleString()}`)
+    if (meta.meetingUrl) bits.push(`Link: ${meta.meetingUrl}`)
+    if (meta.notes) bits.push(`Notes: ${meta.notes}`)
+    timeline.push({ label: labels[e.eventType] || e.eventType, time: e.eventAt, type, detail: bits.join(' · ') || undefined })
   })
   ;(candidate.automationExecutions || []).forEach(e => {
     const r = e.automationRule
@@ -144,6 +188,7 @@ export default function CandidateDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-grey-15">Pipeline</h3>
           <div className="flex gap-2">
+            <button onClick={() => setShowLogMeeting(true)} className="text-xs px-3 py-1.5 rounded-[6px] bg-purple-100 text-purple-700 hover:bg-purple-200 font-medium">Log meeting</button>
             {candidate.outcome !== 'passed' && (
               <button onClick={() => updateOutcome('passed')} className="text-xs px-3 py-1.5 rounded-[6px] bg-green-100 text-green-700 hover:bg-green-200 font-medium">Pass</button>
             )}
@@ -302,6 +347,33 @@ export default function CandidateDetailPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {showLogMeeting && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
+          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[480px]" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold text-grey-15 mb-1">Log scheduled meeting</h2>
+            <p className="text-sm text-grey-40 mb-5">Record a meeting the candidate has booked. This also advances them to the &quot;Scheduled&quot; pipeline stage.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Meeting date &amp; time</label>
+                <input type="datetime-local" value={meetingAt} onChange={(e) => setMeetingAt(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Meeting link (optional)</label>
+                <input type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)} placeholder="https://meet.google.com/…" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Notes (optional)</label>
+                <textarea value={meetingNotes} onChange={(e) => setMeetingNotes(e.target.value)} rows={3} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowLogMeeting(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={logMeeting} disabled={savingMeeting || !meetingAt} className="btn-primary flex-1 disabled:opacity-50">{savingMeeting ? 'Saving…' : 'Log meeting'}</button>
+            </div>
           </div>
         </div>
       )}

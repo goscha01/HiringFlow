@@ -44,10 +44,18 @@ export function buildScheduleRedirectUrl(sessionId: string, configId: string): s
 /**
  * Log a scheduling event.
  */
+export type SchedulingEventType =
+  | 'invite_sent'
+  | 'link_clicked'
+  | 'marked_scheduled'
+  | 'meeting_scheduled'
+  | 'meeting_rescheduled'
+  | 'meeting_cancelled'
+
 export async function logSchedulingEvent(opts: {
   sessionId: string
   schedulingConfigId?: string | null
-  eventType: 'invite_sent' | 'link_clicked' | 'marked_scheduled'
+  eventType: SchedulingEventType
   metadata?: Record<string, unknown>
 }) {
   return prisma.schedulingEvent.create({

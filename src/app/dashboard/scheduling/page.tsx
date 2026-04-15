@@ -1,15 +1,23 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 
 interface SchedulingConfig {
   id: string; name: string; provider: string; schedulingUrl: string
   isDefault: boolean; isActive: boolean; createdAt: string; updatedAt: string
   _count: { events: number }
 }
+interface Meeting {
+  id: string; eventType: string; eventAt: string
+  metadata: { scheduledAt?: string; meetingUrl?: string; notes?: string; source?: string } | null
+  session: { id: string; candidateName: string | null; candidateEmail: string | null }
+  schedulingConfig: { id: string; name: string } | null
+}
 
 export default function SchedulingPage() {
   const [configs, setConfigs] = useState<SchedulingConfig[]>([])
+  const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<SchedulingConfig | null>(null)
@@ -21,8 +29,12 @@ export default function SchedulingPage() {
   useEffect(() => { refresh() }, [])
 
   const refresh = async () => {
-    const r = await fetch('/api/scheduling')
-    if (r.ok) setConfigs(await r.json())
+    const [rc, rm] = await Promise.all([
+      fetch('/api/scheduling'),
+      fetch('/api/scheduling/meetings'),
+    ])
+    if (rc.ok) setConfigs(await rc.json())
+    if (rm.ok) setMeetings(await rm.json())
     setLoading(false)
   }
 
@@ -135,6 +147,71 @@ export default function SchedulingPage() {
           </table>
         </div>
       )}
+
+      {/* Scheduled Meetings */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-grey-15">Scheduled Meetings</h2>
+            <p className="text-sm text-grey-35 mt-0.5">Candidates with a logged interview time</p>
+          </div>
+          <span className="text-xs text-grey-40">{meetings.length} total</span>
+        </div>
+        {meetings.length === 0 ? (
+          <div className="section-card text-center py-10 text-sm text-grey-40">
+            No meetings logged yet. Use &quot;Log meeting&quot; on a candidate&apos;s page to add one, or wait for automatic detection via Calendar sync.
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
+            <table className="min-w-full">
+              <thead>
+                <tr className="border-b border-surface-border bg-surface">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Candidate</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">When</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Link</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Config</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Source</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-border">
+                {meetings.map((m) => {
+                  const when = m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt)
+                  const isPast = when.getTime() < Date.now()
+                  return (
+                    <tr key={m.id} className="hover:bg-surface-light">
+                      <td className="px-5 py-4 text-sm">
+                        <Link href={`/dashboard/candidates/${m.session.id}`} className="font-medium text-grey-15 hover:text-brand-500">
+                          {m.session.candidateName || m.session.candidateEmail || 'Anonymous'}
+                        </Link>
+                        {m.session.candidateEmail && m.session.candidateName && (
+                          <div className="text-xs text-grey-40">{m.session.candidateEmail}</div>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-grey-20">
+                        {when.toLocaleString()}
+                        {isPast && <span className="ml-2 text-xs text-grey-40">(past)</span>}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-grey-35 max-w-[220px] truncate">
+                        {m.metadata?.meetingUrl ? (
+                          <a href={m.metadata.meetingUrl} target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline">
+                            {m.metadata.meetingUrl.replace(/^https?:\/\//, '')}
+                          </a>
+                        ) : '—'}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-grey-35">{m.schedulingConfig?.name || '—'}</td>
+                      <td className="px-5 py-4">
+                        <span className={`text-xs px-2 py-1 rounded ${m.metadata?.source === 'manual' ? 'bg-gray-100 text-grey-40' : 'bg-green-50 text-green-700'}`}>
+                          {m.metadata?.source || 'auto'}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Modal */}
       {showModal && (
