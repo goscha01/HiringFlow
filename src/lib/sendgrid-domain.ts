@@ -41,6 +41,7 @@ export async function authenticateDomain(domain: string, subdomain?: string): Pr
       domain,
       ...(subdomain ? { subdomain } : {}),
       automatic_security: true,
+      custom_dkim_selector: 'sg', // Use sg1/sg2 instead of s1/s2 to avoid DKIM conflicts with Outlook/Wix/Google
     }),
   })
   if (!res.ok) {
