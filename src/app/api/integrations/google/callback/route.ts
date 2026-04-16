@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   cookieStore.delete(`goog_oauth_${state}`)
 
   try {
-    const { refreshToken, accessToken, expiresAt, email } = await exchangeCode(code)
+    const { refreshToken, accessToken, expiresAt, email, hostedDomain, grantedScopes } = await exchangeCode(code)
 
     await prisma.googleIntegration.upsert({
       where: { workspaceId },
@@ -38,12 +38,21 @@ export async function GET(request: NextRequest) {
         accessToken: accessToken ? encrypt(accessToken) : null,
         accessExpiresAt: expiresAt,
         calendarId: 'primary',
+        grantedScopes,
+        hostedDomain,
       },
       update: {
         googleEmail: email,
         refreshToken: encrypt(refreshToken),
         accessToken: accessToken ? encrypt(accessToken) : null,
         accessExpiresAt: expiresAt,
+        grantedScopes,
+        hostedDomain,
+        // Reconnect invalidates prior capability probe — it'll be re-run
+        // lazily on the next scheduling attempt or by the cron.
+        recordingCapable: null,
+        recordingCapabilityCheckedAt: null,
+        recordingCapabilityReason: null,
       },
     })
 

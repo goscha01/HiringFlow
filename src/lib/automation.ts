@@ -68,6 +68,80 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
   }
 }
 
+/**
+ * Generic lifecycle dispatcher for Meet integration v2 events
+ * (meeting_started / meeting_ended / recording_ready / transcript_ready).
+ * Each is a distinct automation trigger.
+ *
+ * For meeting_ended rules with waitForRecording=true, the rule is queued in
+ * a 'waiting_for_recording' state with a 4h hard cutoff (scheduledFor). The
+ * recording_ready trigger and the cron both release such queued executions.
+ */
+export async function fireMeetingLifecycleAutomations(
+  sessionId: string,
+  trigger: 'meeting_started' | 'meeting_ended' | 'recording_ready' | 'transcript_ready',
+) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { flow: true, ad: true },
+    })
+    if (!session) return
+
+    if (trigger === 'recording_ready') {
+      // Release any meeting_ended rules that were waiting on the recording.
+      const pending = await prisma.automationExecution.findMany({
+        where: { sessionId, status: 'waiting_for_recording' },
+        select: { id: true, automationRuleId: true },
+      })
+      for (const e of pending) {
+        await executeRule(e.automationRuleId, sessionId).catch((err) =>
+          console.error('[Automation] waiting release failed', e.id, err))
+      }
+    }
+
+    if (trigger === 'meeting_ended') {
+      // Dispatch meeting_ended rules — but if waitForRecording is set on the
+      // rule, park it in a 'waiting_for_recording' row with a 4h cutoff.
+      const rules = await prisma.automationRule.findMany({
+        where: {
+          isActive: true,
+          triggerType: 'meeting_ended',
+          workspaceId: session.workspaceId,
+          OR: [{ flowId: session.flowId }, { flowId: null }],
+        },
+        select: { id: true, delayMinutes: true, waitForRecording: true },
+      })
+      for (const rule of rules) {
+        if (rule.waitForRecording) {
+          const cutoff = new Date(Date.now() + 4 * 60 * 60 * 1000)
+          const existing = await prisma.automationExecution.findUnique({
+            where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
+          })
+          if (existing?.status === 'sent') continue
+          if (existing) {
+            await prisma.automationExecution.update({
+              where: { id: existing.id },
+              data: { status: 'waiting_for_recording', scheduledFor: cutoff, errorMessage: null },
+            })
+          } else {
+            await prisma.automationExecution.create({
+              data: { automationRuleId: rule.id, sessionId, status: 'waiting_for_recording', scheduledFor: cutoff },
+            })
+          }
+        } else {
+          await dispatchRule(rule.id, sessionId, rule.delayMinutes || 0)
+        }
+      }
+      return
+    }
+
+    await dispatchRulesForTrigger(sessionId, trigger, session)
+  } catch (error) {
+    console.error(`[Automation] Error firing ${trigger} automations for session`, sessionId, ':', error)
+  }
+}
+
 async function dispatchRulesForTrigger(sessionId: string, triggerType: string, session: SessionCtx) {
   const rules = await prisma.automationRule.findMany({
     where: {
@@ -185,31 +259,83 @@ export async function executeRule(ruleId: string, sessionId: string) {
     if (!scheduleLink && rule.nextStepUrl) scheduleLink = rule.nextStepUrl
   }
 
-  // Meeting details — pulled from the latest scheduling event for this session.
-  // Populated for meeting_scheduled triggers, and also available for any rule that
-  // fires after a booking exists (e.g. a 24h reminder chained from meeting_scheduled).
+  // Meeting details — prefer the typed InterviewMeeting row for this session
+  // (written by the Meet integration v2 schedule flow). Fall back to the
+  // legacy SchedulingEvent.metadata JSON path so pre-v2 Calendly bookings
+  // keep working.
   let meetingTime = ''
   let meetingLink = ''
-  const latestMeeting = await prisma.schedulingEvent.findFirst({
-    where: {
-      sessionId,
-      eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] },
+  let recordingLink = ''
+  let transcriptLink = ''
+  let recordingStatusNote = ''
+
+  const interviewMeeting = await prisma.interviewMeeting.findFirst({
+    where: { sessionId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, meetingUri: true, scheduledStart: true, recordingState: true,
+      transcriptState: true, driveRecordingFileId: true, driveTranscriptFileId: true,
     },
-    orderBy: { eventAt: 'desc' },
-    select: { metadata: true },
-  })
-  if (latestMeeting?.metadata) {
-    const meta = latestMeeting.metadata as Record<string, unknown>
-    if (typeof meta.scheduledAt === 'string') {
-      const d = new Date(meta.scheduledAt)
-      if (!isNaN(d.getTime())) {
-        meetingTime = d.toLocaleString('en-US', {
-          weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-          hour: 'numeric', minute: '2-digit', hour12: true,
-        })
-      }
+  }).catch(() => null)
+
+  if (interviewMeeting) {
+    meetingLink = interviewMeeting.meetingUri || ''
+    const d = interviewMeeting.scheduledStart
+    if (d) {
+      meetingTime = d.toLocaleString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      })
     }
-    if (typeof meta.meetingUrl === 'string') meetingLink = meta.meetingUrl
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'https://www.hirefunnel.app'
+    if (interviewMeeting.recordingState === 'ready' && interviewMeeting.driveRecordingFileId) {
+      try {
+        const { signArtifactToken } = await import('./meet/pubsub-jwt')
+        const tok = signArtifactToken({
+          meetingId: interviewMeeting.id,
+          kind: 'recording',
+          exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+        })
+        recordingLink = `${appUrl}/api/interview-meetings/${interviewMeeting.id}/recording?t=${encodeURIComponent(tok)}`
+      } catch { /* leave empty */ }
+    } else if (interviewMeeting.recordingState === 'processing' || interviewMeeting.recordingState === 'requested') {
+      recordingStatusNote = 'Recording will be available shortly.'
+    } else if (interviewMeeting.recordingState === 'failed' || interviewMeeting.recordingState === 'unavailable') {
+      recordingStatusNote = 'Recording was not captured for this interview.'
+    }
+    if (interviewMeeting.transcriptState === 'ready' && interviewMeeting.driveTranscriptFileId) {
+      try {
+        const { signArtifactToken } = await import('./meet/pubsub-jwt')
+        const tok = signArtifactToken({
+          meetingId: interviewMeeting.id,
+          kind: 'transcript',
+          exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+        })
+        transcriptLink = `${appUrl}/api/interview-meetings/${interviewMeeting.id}/transcript?t=${encodeURIComponent(tok)}`
+      } catch { /* leave empty */ }
+    }
+  } else {
+    const latestMeeting = await prisma.schedulingEvent.findFirst({
+      where: {
+        sessionId,
+        eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] },
+      },
+      orderBy: { eventAt: 'desc' },
+      select: { metadata: true },
+    })
+    if (latestMeeting?.metadata) {
+      const meta = latestMeeting.metadata as Record<string, unknown>
+      if (typeof meta.scheduledAt === 'string') {
+        const d = new Date(meta.scheduledAt)
+        if (!isNaN(d.getTime())) {
+          meetingTime = d.toLocaleString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true,
+          })
+        }
+      }
+      if (typeof meta.meetingUrl === 'string') meetingLink = meta.meetingUrl
+    }
   }
 
   const variables: Record<string, string> = {
@@ -219,6 +345,9 @@ export async function executeRule(ruleId: string, sessionId: string) {
     schedule_link: scheduleLink,
     meeting_time: meetingTime,
     meeting_link: meetingLink,
+    recording_link: recordingLink,
+    transcript_link: transcriptLink,
+    recording_status_note: recordingStatusNote,
     source: session.source || '',
     ad_name: session.ad?.name || '',
   }

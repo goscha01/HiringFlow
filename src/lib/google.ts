@@ -3,13 +3,49 @@ import { randomBytes } from 'crypto'
 import { prisma } from './prisma'
 import { encrypt, decrypt } from './crypto'
 
-const SCOPES = [
+// Legacy read-only scopes used by the pre-Meet-v2 Calendar sync path. Kept as
+// the minimum consent set so existing connected workspaces keep working.
+const BASE_SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar.events.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
 ]
 
-function getAppUrl(): string {
+// Scopes required by the Meet integration v2 flow. Additive to the base set —
+// requested via incremental consent. Drive access uses drive.meet.readonly as
+// the primary, scope-minimal choice; drive.readonly is held as a verified
+// fallback behind DRIVE_ARTIFACT_SCOPE_ESCALATION env var.
+const MEET_SCOPES = [
+  'https://www.googleapis.com/auth/meetings.space.created',
+  'https://www.googleapis.com/auth/meetings.space.settings',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/drive.meet.readonly',
+]
+
+const DRIVE_READONLY_FALLBACK = 'https://www.googleapis.com/auth/drive.readonly'
+
+export function getScopes(): string[] {
+  const scopes = [...BASE_SCOPES, ...MEET_SCOPES]
+  if (process.env.DRIVE_ARTIFACT_SCOPE_ESCALATION === '1') {
+    scopes.push(DRIVE_READONLY_FALLBACK)
+  }
+  return scopes
+}
+
+// Scopes required for the Meet v2 flow to be operational — used by hasMeetScopes.
+export const REQUIRED_MEET_SCOPES = [
+  'https://www.googleapis.com/auth/meetings.space.created',
+  'https://www.googleapis.com/auth/meetings.space.settings',
+  'https://www.googleapis.com/auth/calendar.events',
+]
+
+export function hasMeetScopes(grantedScopes: string | null | undefined): boolean {
+  if (!grantedScopes) return false
+  const granted = new Set(grantedScopes.split(/\s+/).filter(Boolean))
+  return REQUIRED_MEET_SCOPES.every((s) => granted.has(s))
+}
+
+export function getAppUrl(): string {
   return process.env.APP_URL
     || process.env.NEXT_PUBLIC_APP_URL
     || process.env.NEXTAUTH_URL
@@ -33,7 +69,7 @@ export function buildConsentUrl(stateToken: string): string {
   return getOAuthClient().generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: SCOPES,
+    scope: getScopes(),
     state: stateToken,
     include_granted_scopes: true,
   })
@@ -46,12 +82,16 @@ export async function exchangeCode(code: string) {
     throw new Error('No refresh token returned — user may need to revoke access and re-consent')
   }
   client.setCredentials(tokens)
+  // userinfo.get returns { email, hd, ... } — 'hd' is present for Google
+  // Workspace accounts (hosted domain), absent for free @gmail.com.
   const { data: userInfo } = await google.oauth2({ version: 'v2', auth: client }).userinfo.get()
   return {
     refreshToken: tokens.refresh_token,
     accessToken: tokens.access_token || null,
     expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     email: userInfo.email || '',
+    hostedDomain: (userInfo as { hd?: string }).hd || null,
+    grantedScopes: tokens.scope || null,
   }
 }
 

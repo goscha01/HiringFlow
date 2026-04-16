@@ -55,6 +55,9 @@ model Workspace {
   senderDomainId    String?   @map("sender_domain_id")    // SendGrid whitelabel domain id
   senderDomainValidatedAt DateTime? @map("sender_domain_validated_at")
   settings    Json?    // extensible provider config: { indeed: {...}, calendly: {...} }
+  // Meet integration v2 feature flag — gates the new in-app Google Meet scheduling
+  // flow. Off by default so the existing Calendly/Calendar path stays intact.
+  meetIntegrationV2Enabled Boolean @default(false) @map("meet_integration_v2_enabled")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -71,6 +74,7 @@ model Workspace {
   aiCallConfigs     AICallConfig[]
   aiCallCandidates  AICallCandidate[]
   googleIntegration GoogleIntegration?
+  interviewMeetings InterviewMeeting[]
 
   @@map("workspaces")
 }
@@ -90,10 +94,87 @@ model GoogleIntegration {
   watchExpiresAt  DateTime? @map("watch_expires_at")
   syncToken       String?   @map("sync_token")
   lastSyncedAt    DateTime? @map("last_synced_at")
+  // ----- Meet integration v2 fields -----
+  // Space-delimited scope string as returned by Google on token exchange. Read at
+  // dispatch time via hasMeetScopes() to decide whether the new Meet flow is
+  // available without forcing a full disconnect.
+  grantedScopes              String?   @map("granted_scopes")
+  // userinfo.hd — the Google-hosted domain for the connected account. Null for
+  // free @gmail.com. This is a *soft UX hint only* — never a recording signal.
+  hostedDomain               String?   @map("hosted_domain")
+  // Tri-state recording capability (null = never probed). Source of truth is the
+  // authoritative probe against the Meet settings API, not the hosted domain.
+  recordingCapable           Boolean?  @map("recording_capable")
+  recordingCapabilityCheckedAt DateTime? @map("recording_capability_checked_at")
+  // Machine-readable reason, e.g. probe_ok, permission_denied_plan,
+  // permission_denied_admin_policy, probe_not_run, probe_error.
+  recordingCapabilityReason  String?   @map("recording_capability_reason")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@map("google_integrations")
+}
+
+// ============ MEET INTEGRATION V2 ============
+// A scheduled Google Meet interview created by HiringFlow. The existing
+// SchedulingEvent table remains the append-only audit log; this table is the
+// typed, unique-per-conference entity that the Workspace Events webhook
+// correlates against and that the UI joins to the candidate timeline.
+model InterviewMeeting {
+  id                        String    @id @default(uuid())
+  workspaceId               String    @map("workspace_id")
+  workspace                 Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sessionId                 String    @map("session_id")
+  session                   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  schedulingConfigId        String?   @map("scheduling_config_id")
+  // Meet resource identifiers
+  meetSpaceName             String    @unique @map("meet_space_name")   // "spaces/abc..."
+  meetingCode               String?   @map("meeting_code")
+  meetingUri                String    @map("meeting_uri")
+  // Calendar event tied to this Meet space
+  googleCalendarEventId     String    @unique @map("google_calendar_event_id")
+  scheduledStart            DateTime  @map("scheduled_start")
+  scheduledEnd              DateTime  @map("scheduled_end")
+  // Set by Workspace Events conference.started / conference.ended
+  actualStart               DateTime? @map("actual_start")
+  actualEnd                 DateTime? @map("actual_end")
+  // Recording state
+  recordingEnabled          Boolean   @default(false) @map("recording_enabled")
+  recordingProvider         String?   @map("recording_provider")    // 'google_meet' | 'recall_ai' | null
+  // 'disabled' | 'requested' | 'recording' | 'processing' | 'ready' | 'failed' | 'unavailable'
+  recordingState            String    @default("disabled") @map("recording_state")
+  // 'disabled' | 'processing' | 'ready' | 'failed'
+  transcriptState           String    @default("disabled") @map("transcript_state")
+  driveRecordingFileId      String?   @map("drive_recording_file_id")
+  driveTranscriptFileId     String?   @map("drive_transcript_file_id")
+  // Workspace Events subscription for this space (one per space)
+  workspaceEventsSubName    String?   @map("workspace_events_sub_name")
+  workspaceEventsSubExpiresAt DateTime? @map("workspace_events_sub_expires_at")
+  // [{email, displayName, joinTime, leaveTime}] — appended by participant events
+  participants              Json?
+  // Capped ring buffer of recent CloudEvent payloads for debugging / replay
+  rawEvents                 Json?     @map("raw_events")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  @@index([workspaceId, sessionId])
+  @@index([scheduledStart])
+  @@map("interview_meetings")
+}
+
+// Idempotency ledger for Pub/Sub-delivered Workspace Events. Each processed
+// CloudEvent is recorded once; duplicate deliveries are ack'd without
+// reprocessing.
+model ProcessedWorkspaceEvent {
+  id            String   @id @default(uuid())
+  meetSpaceName String   @map("meet_space_name")
+  cloudEventId  String   @map("cloud_event_id")
+  eventType     String   @map("event_type")
+  processedAt   DateTime @default(now()) @map("processed_at")
+
+  @@unique([meetSpaceName, cloudEventId])
+  @@index([processedAt])
+  @@map("processed_workspace_events")
 }
 
 model WorkspaceMember {
@@ -253,6 +334,7 @@ model Session {
   trainingAccessTokens TrainingAccessToken[] @relation("AccessTokenSession")
   schedulingEvents    SchedulingEvent[]
   aiCalls             AICall[]
+  interviewMeetings   InterviewMeeting[]
 
   @@map("sessions")
 }
@@ -523,6 +605,9 @@ model AutomationRule {
   schedulingConfigId String?          @map("scheduling_config_id")
   schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
   delayMinutes    Int                 @default(0) @map("delay_minutes") // 0 = immediate
+  // When a meeting_ended rule has this set, execution is deferred until a
+  // recording_ready event fires for the same session (or a 4h hard cutoff).
+  waitForRecording Boolean            @default(false) @map("wait_for_recording")
   isActive        Boolean             @default(true) @map("is_active")
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")

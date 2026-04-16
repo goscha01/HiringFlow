@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/google-watch-renew",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/meet-subscriptions-renew",
+      "schedule": "10 3 * * *"
     }
   ]
 }

@@ -2,6 +2,16 @@
 
 import { useEffect, useState } from 'react'
 
+interface MeetV2 {
+  flagEnabled: boolean
+  scopesGranted: boolean
+  hostedDomain: string | null
+  recordingCapable: boolean | null
+  recordingCapabilityReason: string | null
+  recordingCapabilityMessage: string
+  recordingCapabilityCheckedAt: string | null
+}
+
 interface Status {
   configured: boolean
   connected: boolean
@@ -12,6 +22,7 @@ interface Status {
     lastSyncedAt: string | null
     createdAt: string
   } | null
+  meetV2: MeetV2 | null
 }
 
 export function GoogleIntegrationCard() {
@@ -51,6 +62,15 @@ export function GoogleIntegrationCard() {
 
   if (loading) return <div className="bg-white rounded-[12px] border border-surface-border p-6 text-sm text-grey-40">Loading…</div>
 
+  const meetV2 = status?.meetV2
+  const needsReconnect = !!status?.connected && !!meetV2 && meetV2.flagEnabled && !meetV2.scopesGranted
+  const recordingBadge = (() => {
+    if (!meetV2) return null
+    if (meetV2.recordingCapable === true) return { tone: 'green', text: 'Recording available' }
+    if (meetV2.recordingCapable === false) return { tone: 'amber', text: 'Recording unavailable' }
+    return { tone: 'gray', text: 'Recording: not yet checked' }
+  })()
+
   return (
     <div className="bg-white rounded-[12px] border border-surface-border p-6">
       {banner && (
@@ -64,9 +84,9 @@ export function GoogleIntegrationCard() {
             <svg viewBox="0 0 48 48" className="w-7 h-7"><path fill="#4285F4" d="M43 40h-7V22h7z"/><path fill="#EA4335" d="M12 40h7V22h-7z"/><path fill="#FBBC04" d="M36 40h-7V8h7z"/><path fill="#34A853" d="M19 8v8h-7V8z"/><path fill="#188038" d="M12 40V16h7v8h10v16z"/></svg>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-grey-15">Google Calendar</h3>
+            <h3 className="text-lg font-semibold text-grey-15">Google Calendar &amp; Meet</h3>
             <p className="text-sm text-grey-40 mt-0.5 max-w-md">
-              Auto-detect scheduled interviews when candidates book via Calendly, Cal.com, or any scheduler that writes to your Google Calendar. Meetings appear on the candidate timeline and Scheduling page automatically.
+              Auto-detect booked interviews and, when enabled, schedule Google Meet interviews directly from HiringFlow with recording support on qualifying Google plans.
             </p>
           </div>
         </div>
@@ -87,6 +107,13 @@ export function GoogleIntegrationCard() {
         </div>
       )}
 
+      {needsReconnect && (
+        <div className="mt-4 p-3 bg-amber-50 rounded-[8px] text-xs text-amber-800 flex items-center justify-between gap-3">
+          <span>Meet scheduling requires additional permissions. Reconnect your Google account to enable in-app interview scheduling and recording.</span>
+          <a href="/api/integrations/google/connect" className="btn-primary text-xs whitespace-nowrap">Reconnect</a>
+        </div>
+      )}
+
       {status?.connected && status.integration && (
         <div className="mt-4 space-y-2 text-sm">
           <div className="flex justify-between py-2 border-b border-surface-border">
@@ -101,10 +128,23 @@ export function GoogleIntegrationCard() {
             <span className="text-grey-40">Watch expires</span>
             <span className="text-grey-15">{status.integration.watchExpiresAt ? new Date(status.integration.watchExpiresAt).toLocaleString() : '—'}</span>
           </div>
-          <div className="flex justify-between py-2">
+          <div className="flex justify-between py-2 border-b border-surface-border">
             <span className="text-grey-40">Last synced</span>
             <span className="text-grey-15">{status.integration.lastSyncedAt ? new Date(status.integration.lastSyncedAt).toLocaleString() : 'Never'}</span>
           </div>
+          {meetV2 && meetV2.flagEnabled && meetV2.scopesGranted && recordingBadge && (
+            <div className="flex justify-between items-start py-2">
+              <span className="text-grey-40">Meet recording</span>
+              <div className="text-right">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  recordingBadge.tone === 'green' ? 'bg-green-100 text-green-700' :
+                  recordingBadge.tone === 'amber' ? 'bg-amber-100 text-amber-700' :
+                  'bg-gray-100 text-grey-40'
+                }`}>{recordingBadge.text}</span>
+                <p className="text-xs text-grey-40 mt-1 max-w-xs">{meetV2.recordingCapabilityMessage}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -116,7 +156,7 @@ export function GoogleIntegrationCard() {
             href="/api/integrations/google/connect"
             className={`btn-primary text-sm ${!status?.configured ? 'pointer-events-none opacity-50' : ''}`}
           >
-            Connect Google Calendar
+            Connect Google
           </a>
         )}
       </div>

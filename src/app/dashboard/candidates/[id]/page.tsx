@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { InterviewPanel } from './_InterviewPanel'
 
 interface Answer {
   id: string; answeredAt: string
@@ -240,6 +241,11 @@ export default function CandidateDetailPage() {
           <div className="text-sm font-medium text-grey-15">{candidate.submissions.filter(s => s.videoStorageKey).length}</div>
         </div>
       </div>
+
+      {/* Meet integration v2: in-app Google Meet scheduling (loosely coupled —
+          the panel self-hides if the feature flag / scopes aren't active, so
+          this never affects workspaces still on the Calendly flow) */}
+      <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} />
 
       {/* Form data */}
       {candidate.formData && Object.keys(candidate.formData).length > 0 && (

@@ -49,4 +49,9 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     subject: 'Reminder: Interview tomorrow — {{candidate_name}}',
     bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Quick reminder that your interview is tomorrow.</p>\n<p><strong>When:</strong> {{meeting_time}}</p>\n<p><strong>Join link:</strong> <a href="{{meeting_link}}">{{meeting_link}}</a></p>\n<p>A few tips:</p>\n<ul>\n<li>Join from a quiet space with a good internet connection</li>\n<li>Test your camera and microphone beforehand</li>\n<li>Have any questions ready</li>\n</ul>\n<p>Looking forward to speaking with you!</p>\n<p>Best,<br/>The Hiring Team</p>',
   },
+  {
+    name: 'Interview Follow-up (Post-meeting)',
+    subject: 'Thanks for the interview, {{candidate_name}}',
+    bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>Thanks for taking the time to meet with us about <strong>{{flow_name}}</strong>. We appreciate the conversation.</p>\n<p>{{recording_status_note}}</p>\n<p><a href="{{recording_link}}">View recording</a> &nbsp;|&nbsp; <a href="{{transcript_link}}">View transcript</a></p>\n<p>We will be in touch with next steps shortly.</p>\n<p>Best,<br/>The Hiring Team</p>',
+  },
 ]

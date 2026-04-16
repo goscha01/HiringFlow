@@ -51,6 +51,11 @@ export type SchedulingEventType =
   | 'meeting_scheduled'
   | 'meeting_rescheduled'
   | 'meeting_cancelled'
+  // Meet integration v2 lifecycle events — driven by Google Workspace Events.
+  | 'meeting_started'
+  | 'meeting_ended'
+  | 'recording_ready'
+  | 'transcript_ready'
 
 export async function logSchedulingEvent(opts: {
   sessionId: string
