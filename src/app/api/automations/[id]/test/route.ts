@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const rule = await prisma.automationRule.findFirst({
     where: { id: params.id, workspaceId: ws.workspaceId },
-    include: { emailTemplate: true, training: true, workspace: { select: { senderEmail: true, name: true } }, flow: { select: { name: true } } },
+    include: { emailTemplate: true, training: true, workspace: { select: { senderEmail: true, senderName: true, senderDomain: true, senderDomainValidatedAt: true, senderVerifiedAt: true, name: true } }, flow: { select: { name: true } } },
   })
   if (!rule) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (!rule.emailTemplate) return NextResponse.json({ error: 'Template missing' }, { status: 400 })
@@ -52,7 +52,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
   const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
 
-  const result = await sendEmail({ to, subject, html, text })
+  // Use workspace's verified sender if available
+  let from: { email: string; name?: string } | null = null
+  const wsData = rule.workspace
+  if (wsData?.senderEmail && wsData?.senderName) {
+    const domainOk = !!(wsData.senderDomainValidatedAt && wsData.senderDomain && wsData.senderEmail.toLowerCase().endsWith('@' + wsData.senderDomain.toLowerCase()))
+    const singleOk = !!wsData.senderVerifiedAt
+    if (domainOk || singleOk) {
+      from = { email: wsData.senderEmail, name: wsData.senderName }
+    }
+  }
+
+  const result = await sendEmail({ to, subject, html, text, from })
 
   if (!result.success) {
     return NextResponse.json({ success: false, error: result.error || 'Send failed' }, { status: 502 })
