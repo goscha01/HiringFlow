@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { MeetApiError } from '../google-meet'
+import { MeetApiError, parseMeetingCodeFromUrl } from '../google-meet'
+
+describe('parseMeetingCodeFromUrl', () => {
+  it('extracts codes from canonical Meet URLs', () => {
+    expect(parseMeetingCodeFromUrl('https://meet.google.com/abc-defg-hij')).toBe('abc-defg-hij')
+    expect(parseMeetingCodeFromUrl('http://meet.google.com/eqo-syqm-sjn')).toBe('eqo-syqm-sjn')
+    expect(parseMeetingCodeFromUrl('https://meet.google.com/abc-defg-hij?hs=1')).toBe('abc-defg-hij')
+    expect(parseMeetingCodeFromUrl('https://meet.google.com/abc-defg-hij#attendee')).toBe('abc-defg-hij')
+  })
+
+  it('returns null for non-Meet URLs and unsupported shapes', () => {
+    expect(parseMeetingCodeFromUrl(null)).toBeNull()
+    expect(parseMeetingCodeFromUrl(undefined)).toBeNull()
+    expect(parseMeetingCodeFromUrl('')).toBeNull()
+    expect(parseMeetingCodeFromUrl('https://zoom.us/j/12345')).toBeNull()
+    expect(parseMeetingCodeFromUrl('https://meet.google.com/lookup/abcdef')).toBeNull()
+    expect(parseMeetingCodeFromUrl('https://meet.google.com/short')).toBeNull()
+  })
+})
 
 describe('MeetApiError.recordingReason', () => {
   it('returns null for non-403 errors', () => {

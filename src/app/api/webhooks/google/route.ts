@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { pullChangedEvents } from '@/lib/google'
+import { pullChangedEvents, getAuthedClientForWorkspace, hasMeetScopes } from '@/lib/google'
 import { logSchedulingEvent, updatePipelineStatus } from '@/lib/scheduling'
 import { fireMeetingScheduledAutomations } from '@/lib/automation'
+import { meetIntegrationEnabled } from '@/lib/meet/feature-flag'
+import { getSpaceByMeetingCode, parseMeetingCodeFromUrl } from '@/lib/meet/google-meet'
+import { subscribeSpace } from '@/lib/meet/workspace-events'
 import type { calendar_v3 } from 'googleapis'
 
 // Google Calendar push notifications use these headers:
@@ -99,7 +102,94 @@ async function processEvent(workspaceId: string, event: calendar_v3.Schema$Event
     await fireMeetingScheduledAutomations(sessionId).catch((err) => {
       console.error('[Google webhook] fireMeetingScheduledAutomations failed:', err)
     })
+    // Best-effort: if the calendar event has a Google Meet link, adopt it into
+    // the Meet integration v2 flow so meeting_started/ended/recording_ready
+    // fire for externally-created (e.g. Calendly) bookings too. Failures here
+    // are non-fatal — the legacy timeline entry is already written.
+    await adoptExternalMeet(workspaceId, sessionId, event, start, end, meetingUrl).catch((err) => {
+      console.error('[Google webhook] adoptExternalMeet failed (non-fatal):', err?.message || err)
+    })
   }
+}
+
+/**
+ * Given a Calendly-booked (or any externally-created) Google Meet event,
+ * try to create a matching InterviewMeeting row and subscribe to Workspace
+ * Events for that space. This gives us meeting_started/ended/recording_ready
+ * lifecycle events without requiring the user to schedule through our UI.
+ *
+ * Silently skipped if: Meet v2 flag is off, Meet scopes aren't granted, the
+ * event has no hangoutLink, the meeting code can't be parsed, or we don't
+ * have API access to that space (403/404).
+ */
+async function adoptExternalMeet(
+  workspaceId: string,
+  sessionId: string,
+  event: calendar_v3.Schema$Event,
+  start: string | null | undefined,
+  end: string | null | undefined,
+  meetingUrl: string | null,
+): Promise<void> {
+  if (!event.id || !start || !end) return
+  const enabled = await meetIntegrationEnabled(workspaceId)
+  if (!enabled) return
+
+  const code = parseMeetingCodeFromUrl(meetingUrl || event.hangoutLink)
+  if (!code) return
+
+  // Already adopted?
+  const existing = await prisma.interviewMeeting.findUnique({ where: { googleCalendarEventId: event.id } })
+  if (existing) return
+
+  const authed = await getAuthedClientForWorkspace(workspaceId)
+  if (!authed) return
+  if (!hasMeetScopes(authed.integration.grantedScopes)) return
+
+  let space
+  try {
+    space = await getSpaceByMeetingCode(authed.client, code)
+  } catch (err: unknown) {
+    // 403 is expected when the connected account isn't the Meet space owner
+    // (e.g., the Calendly integration created it under a different account).
+    console.log('[AdoptMeet] spaces.get failed for code', code, (err as Error).message)
+    return
+  }
+
+  let subName: string | null = null
+  let subExpires: Date | null = null
+  try {
+    const sub = await subscribeSpace(authed.client, space.name)
+    subName = sub.name
+    subExpires = sub.expireTime ? new Date(sub.expireTime) : null
+  } catch (err) {
+    console.error('[AdoptMeet] subscribeSpace failed:', (err as Error).message)
+    // Proceed — we still want the InterviewMeeting row even without subscription,
+    // so the user sees the meeting surfaced in the UI and we can try to subscribe
+    // later via the renewal cron.
+  }
+
+  await prisma.interviewMeeting.create({
+    data: {
+      workspaceId,
+      sessionId,
+      meetSpaceName: space.name,
+      meetingCode: space.meetingCode || code,
+      meetingUri: space.meetingUri || meetingUrl || '',
+      googleCalendarEventId: event.id,
+      scheduledStart: new Date(start),
+      scheduledEnd: new Date(end),
+      recordingEnabled: space.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON',
+      recordingProvider: null,
+      recordingState: 'disabled',
+      transcriptState: 'disabled',
+      workspaceEventsSubName: subName,
+      workspaceEventsSubExpiresAt: subExpires,
+    },
+  }).catch((err) => {
+    // Race condition: another webhook fired for the same event and already adopted.
+    console.log('[AdoptMeet] insert skipped (likely race):', (err as Error).message)
+  })
+  console.log('[AdoptMeet] adopted externally-created Meet', space.name, 'for session', sessionId)
 }
 
 async function matchSession(workspaceId: string, event: calendar_v3.Schema$Event): Promise<string | null> {

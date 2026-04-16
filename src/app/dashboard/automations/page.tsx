@@ -22,14 +22,34 @@ const TRIGGERS = [
   { value: 'flow_passed', label: 'Flow Passed' },
   { value: 'training_completed', label: 'Training Done' },
   { value: 'meeting_scheduled', label: 'Meeting Scheduled' },
+  { value: 'meeting_started', label: 'Meeting Started' },
+  { value: 'meeting_ended', label: 'Meeting Ended' },
+  { value: 'recording_ready', label: 'Recording Ready' },
+  { value: 'transcript_ready', label: 'Transcript Ready' },
   { value: 'automation_completed', label: 'After Automation' },
 ]
+
+// Triggers that are session-wide (not tied to a specific flow). Used to hide
+// the Flow picker from the rule form when these are selected.
+const SESSION_WIDE_TRIGGERS = new Set([
+  'training_completed',
+  'automation_completed',
+  'meeting_scheduled',
+  'meeting_started',
+  'meeting_ended',
+  'recording_ready',
+  'transcript_ready',
+])
 
 const TRIGGER_LABELS: Record<string, string> = {
   flow_completed: 'Flow Completed',
   flow_passed: 'Flow Passed',
   training_completed: 'Training Done',
   meeting_scheduled: 'Meeting Scheduled',
+  meeting_started: 'Meeting Started',
+  meeting_ended: 'Meeting Ended',
+  recording_ready: 'Recording Ready',
+  transcript_ready: 'Transcript Ready',
   automation_completed: 'After Automation',
 }
 
@@ -51,6 +71,7 @@ export default function AutomationsPage() {
   const [trainingId, setTrainingId] = useState('')
   const [schedulingConfigId, setSchedulingConfigId] = useState('')
   const [delayMinutes, setDelayMinutes] = useState(0)
+  const [waitForRecording, setWaitForRecording] = useState(false)
   const [emailDestination, setEmailDestination] = useState<'applicant' | 'company' | 'specific'>('applicant')
   const [emailDestinationAddress, setEmailDestinationAddress] = useState('')
   const [companyEmail, setCompanyEmail] = useState<string | null>(null)
@@ -93,6 +114,7 @@ export default function AutomationsPage() {
     setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
     setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
     setDelayMinutes((r as any).delayMinutes || 0)
+    setWaitForRecording(!!(r as any).waitForRecording)
     setEmailDestination(((r as any).emailDestination as 'applicant' | 'company' | 'specific') || 'applicant')
     setEmailDestinationAddress((r as any).emailDestinationAddress || '')
     setShowModal(true)
@@ -103,7 +125,7 @@ export default function AutomationsPage() {
     setSaving(true)
     const body = {
       name, triggerType,
-      flowId: (triggerType !== 'training_completed' && triggerType !== 'automation_completed' && triggerType !== 'meeting_scheduled') ? (flowId || null) : null,
+      flowId: (!SESSION_WIDE_TRIGGERS.has(triggerType)) ? (flowId || null) : null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
       emailTemplateId: templateId,
       nextStepType: nextStepType || null,
@@ -111,6 +133,7 @@ export default function AutomationsPage() {
       trainingId: nextStepType === 'training' ? (trainingId || null) : null,
       schedulingConfigId: nextStepType === 'scheduling' ? (schedulingConfigId || null) : null,
       delayMinutes,
+      waitForRecording: triggerType === 'meeting_ended' ? waitForRecording : false,
       emailDestination,
       emailDestinationAddress: emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
     }
@@ -276,13 +299,24 @@ export default function AutomationsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Trigger</label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {TRIGGERS.map(t => (
-                    <button key={t.value} onClick={() => setTriggerType(t.value)} className={`flex-1 py-2.5 text-xs rounded-[8px] border font-medium ${triggerType === t.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{t.label}</button>
+                    <button key={t.value} onClick={() => setTriggerType(t.value)} className={`py-2.5 px-3 text-xs rounded-[8px] border font-medium ${triggerType === t.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{t.label}</button>
                   ))}
                 </div>
               </div>
-              {triggerType !== 'training_completed' && triggerType !== 'automation_completed' && triggerType !== 'meeting_scheduled' && (
+              {triggerType === 'meeting_ended' && (
+                <div className="p-3 bg-surface-weak rounded-[8px]">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={waitForRecording} onChange={(e) => setWaitForRecording(e.target.checked)} className="mt-0.5 h-4 w-4" />
+                    <div className="text-xs">
+                      <div className="font-medium text-grey-15">Wait for recording before sending</div>
+                      <div className="text-grey-40 mt-0.5">Send the email only after Meet finishes processing the recording (usually within 10 minutes). Falls back after 4 hours if the recording never lands. Only meaningful if the meeting was recorded.</div>
+                    </div>
+                  </label>
+                </div>
+              )}
+              {!SESSION_WIDE_TRIGGERS.has(triggerType) && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Flow (optional — leave empty for all flows)</label>
                   <select value={flowId} onChange={(e) => setFlowId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">

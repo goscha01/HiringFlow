@@ -159,6 +159,32 @@ export async function getSpace(client: OAuth2Client, spaceName: string): Promise
   return meetFetch<MeetSpace>(client, `/${path}`)
 }
 
+/**
+ * Look up a Meet space by its meeting code (e.g. "abc-defg-hij" from
+ * https://meet.google.com/abc-defg-hij). Used to adopt externally-created
+ * Meet spaces (Calendly, direct calendar invites) into our InterviewMeeting
+ * table so the webhook + recording flow work for them too.
+ *
+ * Only succeeds if the caller has access to the space (they must own or have
+ * joined it). Throws MeetApiError on 403/404 otherwise.
+ */
+export async function getSpaceByMeetingCode(client: OAuth2Client, meetingCode: string): Promise<MeetSpace> {
+  // The Meet v2 API accepts the meeting code in place of the numeric space id.
+  return meetFetch<MeetSpace>(client, `/spaces/${encodeURIComponent(meetingCode)}`)
+}
+
+/**
+ * Extract the meeting code from a Google Meet URL.
+ *   https://meet.google.com/abc-defg-hij        -> "abc-defg-hij"
+ *   https://meet.google.com/abc-defg-hij?auth=1 -> "abc-defg-hij"
+ *   https://meet.google.com/lookup/xxx          -> null (lookup links are unsupported)
+ */
+export function parseMeetingCodeFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  const m = url.match(/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})(?:[/?#]|$)/i)
+  return m ? m[1].toLowerCase() : null
+}
+
 export async function updateSpaceSettings(
   client: OAuth2Client,
   spaceName: string,
