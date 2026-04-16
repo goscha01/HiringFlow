@@ -12,10 +12,29 @@ interface Rule {
   id: string; name: string; triggerType: string; flowId: string | null
   actionType: string; emailTemplateId: string; nextStepType: string | null
   nextStepUrl: string | null; trainingId: string | null; schedulingConfigId: string | null
+  emailDestination: 'applicant' | 'company' | 'specific'
+  emailDestinationAddress: string | null
+  delayMinutes?: number
+  waitForRecording?: boolean
   isActive: boolean; createdAt: string
   flow: Flow | null; emailTemplate: Template; training: TrainingItem | null
   schedulingConfig: SchedulingItem | null; _count: { executions: number }
 }
+
+// Canonical pipeline order (left-to-right). automation_completed is chained
+// and shown as a separate tail section, not on the main pipeline.
+const PIPELINE_ORDER: Array<{ value: string; label: string; group: 'flow' | 'training' | 'meeting' }> = [
+  { value: 'flow_completed',     label: 'Flow Completed',   group: 'flow' },
+  { value: 'flow_passed',        label: 'Flow Passed',      group: 'flow' },
+  { value: 'training_completed', label: 'Training Done',    group: 'training' },
+  { value: 'meeting_scheduled',  label: 'Meeting Scheduled',group: 'meeting' },
+  { value: 'meeting_started',    label: 'Meeting Started',  group: 'meeting' },
+  { value: 'meeting_ended',      label: 'Meeting Ended',    group: 'meeting' },
+  { value: 'recording_ready',    label: 'Recording Ready',  group: 'meeting' },
+  { value: 'transcript_ready',   label: 'Transcript Ready', group: 'meeting' },
+]
+
+type DestinationFilter = 'all' | 'applicant' | 'company'
 
 const TRIGGERS = [
   { value: 'flow_completed', label: 'Flow Completed' },
@@ -60,6 +79,9 @@ export default function AutomationsPage() {
   const [trainings, setTrainings] = useState<TrainingItem[]>([])
   const [schedulingConfigs, setSchedulingConfigs] = useState<SchedulingItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [destinationFilter, setDestinationFilter] = useState<DestinationFilter>('all')
+  const [triggerFilter, setTriggerFilter] = useState<string | null>(null)
+  const [activeOnly, setActiveOnly] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
   const [name, setName] = useState('')
@@ -217,6 +239,38 @@ export default function AutomationsPage() {
         </div>
       </div>
 
+      {rules.length > 0 && <AutomationPipeline
+        rules={rules}
+        activeTrigger={triggerFilter}
+        onPickTrigger={(t) => setTriggerFilter(triggerFilter === t ? null : t)}
+      />}
+
+      {rules.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-xs text-grey-40 mr-2">Filter:</span>
+          {([
+            { v: 'all' as const, l: `All (${rules.length})` },
+            { v: 'applicant' as const, l: `Applicant (${rules.filter(r => r.emailDestination === 'applicant').length})` },
+            { v: 'company' as const, l: `Company (${rules.filter(r => r.emailDestination !== 'applicant').length})` },
+          ]).map((o) => (
+            <button key={o.v} onClick={() => setDestinationFilter(o.v)}
+              className={`text-xs px-3 py-1.5 rounded-full border font-medium ${destinationFilter === o.v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>
+              {o.l}
+            </button>
+          ))}
+          <button onClick={() => setActiveOnly(!activeOnly)}
+            className={`text-xs px-3 py-1.5 rounded-full border font-medium ${activeOnly ? 'border-green-500 bg-green-50 text-green-700' : 'border-surface-border text-grey-35'}`}>
+            Active only
+          </button>
+          {triggerFilter && (
+            <button onClick={() => setTriggerFilter(null)}
+              className="text-xs px-3 py-1.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 font-medium">
+              {TRIGGER_LABELS[triggerFilter] || triggerFilter} ×
+            </button>
+          )}
+        </div>
+      )}
+
       {rules.length === 0 ? (
         <div className="section-card text-center py-16">
           <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-[8px] flex items-center justify-center">
@@ -246,7 +300,11 @@ export default function AutomationsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-border">
-              {rules.map((r) => (
+              {rules
+                .filter(r => destinationFilter === 'all' || (destinationFilter === 'applicant' ? r.emailDestination === 'applicant' : r.emailDestination !== 'applicant'))
+                .filter(r => !activeOnly || r.isActive)
+                .filter(r => !triggerFilter || r.triggerType === triggerFilter)
+                .map((r) => (
                 <tr key={r.id} className="hover:bg-surface-light">
                   <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
                   <td className="px-5 py-4"><span className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.triggerType === 'training_completed' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-600'}`}>{TRIGGER_LABELS[r.triggerType] || r.triggerType}</span></td>
@@ -528,6 +586,94 @@ export default function AutomationsPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Two-row pipeline view — applicant journey on top, company notifications
+ * below. Each stage is a clickable chip that filters the rules table to
+ * automations for that trigger. Lifecycle events (Meeting Started/Ended,
+ * Recording/Transcript Ready) are visually grouped together so the
+ * post-meeting cluster is easy to scan.
+ */
+function AutomationPipeline({
+  rules,
+  activeTrigger,
+  onPickTrigger,
+}: {
+  rules: Rule[]
+  activeTrigger: string | null
+  onPickTrigger: (trigger: string) => void
+}) {
+  const countsByTriggerAndDest = (() => {
+    const m = new Map<string, { applicant: number; company: number }>()
+    for (const t of PIPELINE_ORDER) m.set(t.value, { applicant: 0, company: 0 })
+    for (const r of rules) {
+      const bucket = m.get(r.triggerType)
+      if (!bucket) continue
+      const bucketKey = r.emailDestination === 'applicant' ? 'applicant' : 'company'
+      bucket[bucketKey] += 1
+    }
+    return m
+  })()
+
+  const groupColor = (g: string) => g === 'flow' ? 'bg-blue-50 text-blue-700 border-blue-100'
+    : g === 'training' ? 'bg-amber-50 text-amber-700 border-amber-100'
+    : 'bg-purple-50 text-purple-700 border-purple-100'
+
+  const row = (dest: 'applicant' | 'company', title: string, subtitle: string) => {
+    const total = PIPELINE_ORDER.reduce((sum, t) => sum + (countsByTriggerAndDest.get(t.value)?.[dest] || 0), 0)
+    return (
+      <div className="bg-white rounded-[12px] border border-surface-border p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-xs font-semibold text-grey-15 uppercase tracking-wide">{title}</div>
+            <div className="text-xs text-grey-40 mt-0.5">{subtitle}</div>
+          </div>
+          <span className="text-xs text-grey-40">{total} rule{total === 1 ? '' : 's'}</span>
+        </div>
+        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          {PIPELINE_ORDER.map((stage, i) => {
+            const count = countsByTriggerAndDest.get(stage.value)?.[dest] || 0
+            const isActive = activeTrigger === stage.value
+            const empty = count === 0
+            return (
+              <div key={stage.value} className="flex items-center shrink-0">
+                <button
+                  onClick={() => onPickTrigger(stage.value)}
+                  className={`px-3 py-2 rounded-[8px] border text-xs font-medium whitespace-nowrap transition-all ${
+                    isActive
+                      ? 'border-brand-500 bg-brand-50 text-brand-700 ring-2 ring-brand-200'
+                      : empty
+                        ? 'border-dashed border-surface-border text-grey-40 bg-white hover:border-grey-25'
+                        : `border-transparent ${groupColor(stage.group)} hover:ring-1 hover:ring-grey-25`
+                  }`}
+                >
+                  <span>{stage.label}</span>
+                  <span className={`ml-2 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold ${
+                    empty ? 'bg-gray-100 text-grey-40' : 'bg-white/70 text-grey-15'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+                {i < PIPELINE_ORDER.length - 1 && (
+                  <svg className="w-3 h-3 text-grey-40 shrink-0" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                    <path d="M4 2l4 4-4 4V2z" />
+                  </svg>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-6 space-y-3">
+      {row('applicant', 'Applicant journey', 'Emails sent to the candidate as they move through the pipeline')}
+      {row('company', 'Company notifications', 'Emails sent to your team or a specific inbox')}
     </div>
   )
 }
