@@ -47,10 +47,14 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Fire-and-forget: start the events.watch. If it fails, user can retry later.
-    startWatch(workspaceId).catch((err) => {
+    // Await startWatch — fire-and-forget breaks in Vercel serverless (function
+    // returns → outstanding promises killed before Google API calls complete).
+    try {
+      await startWatch(workspaceId)
+    } catch (err: any) {
       console.error('[Google] startWatch failed after connect:', err?.message)
-    })
+      return NextResponse.redirect(new URL(`${redirectBase}&status=error&msg=${encodeURIComponent('Connected, but could not set up calendar watch: ' + (err?.message || 'unknown'))}`, url.origin))
+    }
 
     return NextResponse.redirect(new URL(`${redirectBase}&status=connected`, url.origin))
   } catch (err: any) {
