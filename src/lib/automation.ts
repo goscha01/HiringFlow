@@ -131,7 +131,7 @@ export async function executeRule(ruleId: string, sessionId: string) {
   console.log(`[Automation] executeRule start ruleId=${ruleId} sessionId=${sessionId}`)
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
-    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true } } },
+    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true } } },
   })
   if (!rule) { console.log(`[Automation] Rule ${ruleId} NOT FOUND`); return }
   if (!rule.isActive) { console.log(`[Automation] Rule ${ruleId} INACTIVE`); return }
@@ -240,10 +240,19 @@ export async function executeRule(ruleId: string, sessionId: string) {
     return
   }
 
-  // Use workspace's verified sender if set, else fall back to the default.
-  const from = rule.workspace?.senderVerifiedAt && rule.workspace.senderEmail
-    ? { email: rule.workspace.senderEmail, name: rule.workspace.senderName || undefined }
-    : null
+  // Use workspace's custom sender if we have a valid verification:
+  //   1. Domain authentication (preferred) — any email on the validated domain
+  //   2. Legacy single-sender verification — exact email that was verified
+  // Otherwise fall back to the default noreply@hirefunnel.app.
+  let from: { email: string; name?: string } | null = null
+  const ws = rule.workspace
+  if (ws?.senderEmail && ws?.senderName) {
+    const domainOk = !!(ws.senderDomainValidatedAt && ws.senderDomain && ws.senderEmail.toLowerCase().endsWith('@' + ws.senderDomain.toLowerCase()))
+    const singleOk = !!ws.senderVerifiedAt
+    if (domainOk || singleOk) {
+      from = { email: ws.senderEmail, name: ws.senderName || undefined }
+    }
+  }
 
   const result = await sendEmail({ to: recipient, subject, html, text, from })
 

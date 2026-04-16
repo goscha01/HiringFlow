@@ -48,9 +48,12 @@ model Workspace {
   logoUrl     String?  @map("logo_url")
   senderName  String?  @map("sender_name")  // from name for emails
   senderEmail String?  @map("sender_email") // reply-to for emails
-  senderVerifiedId  String?   @map("sender_verified_id")  // SendGrid verified_sender ID
-  senderVerifiedAt  DateTime? @map("sender_verified_at")
+  senderVerifiedId  String?   @map("sender_verified_id")  // legacy: SendGrid single-sender id
+  senderVerifiedAt  DateTime? @map("sender_verified_at")  // legacy
   senderAddress     Json?     @map("sender_address")      // { line1, line2, city, state, zip, country }
+  senderDomain      String?   @map("sender_domain")       // e.g. "spotless.homes"
+  senderDomainId    String?   @map("sender_domain_id")    // SendGrid whitelabel domain id
+  senderDomainValidatedAt DateTime? @map("sender_domain_validated_at")
   settings    Json?    // extensible provider config: { indeed: {...}, calendly: {...} }
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
