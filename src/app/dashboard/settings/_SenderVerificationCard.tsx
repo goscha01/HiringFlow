@@ -17,6 +17,7 @@ export function SenderVerificationCard() {
   const [loading, setLoading] = useState(true)
   const [showSetup, setShowSetup] = useState(false)
   const [domain, setDomain] = useState('')
+  const [subdomain, setSubdomain] = useState('em')
   const [senderEmail, setSenderEmail] = useState('')
   const [senderName, setSenderName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -49,7 +50,7 @@ export function SenderVerificationCard() {
     const res = await fetch('/api/workspace/domain', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain, senderEmail, senderName }),
+      body: JSON.stringify({ domain, subdomain, senderEmail, senderName }),
     })
     setSaving(false)
     const data = await res.json()
@@ -142,6 +143,11 @@ export function SenderVerificationCard() {
               <label className="block text-xs font-medium text-grey-20 mb-1">Domain</label>
               <input type="text" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="spotless.homes" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm" />
               <p className="text-xs text-grey-40 mt-1">Just the domain — no https://, no paths.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-grey-20 mb-1">Subdomain <span className="text-grey-40 font-normal">(avoids conflicts with existing DKIM from Outlook, Google, Wix, etc.)</span></label>
+              <input type="text" value={subdomain} onChange={(e) => setSubdomain(e.target.value)} placeholder="em" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm" />
+              <p className="text-xs text-grey-40 mt-1">SendGrid&apos;s DNS records will live under <code className="bg-white px-1 rounded">{subdomain || 'em'}.{domain || 'yourdomain.com'}</code> — recommended if your domain already sends mail via another provider.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

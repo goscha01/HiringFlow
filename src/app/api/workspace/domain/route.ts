@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   if (!ws) return unauthorized()
 
   const body = await request.json()
-  const { domain, senderEmail, senderName } = body
+  const { domain, subdomain, senderEmail, senderName } = body
   if (!domain || typeof domain !== 'string') {
     return NextResponse.json({ error: 'domain required' }, { status: 400 })
   }
@@ -80,8 +80,10 @@ export async function POST(request: NextRequest) {
     await deleteDomain(workspace.senderDomainId).catch(() => {})
   }
 
+  const cleanedSubdomain = typeof subdomain === 'string' ? subdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, '') : ''
+
   try {
-    const d = await authenticateDomain(cleaned)
+    const d = await authenticateDomain(cleaned, cleanedSubdomain || undefined)
     await prisma.workspace.update({
       where: { id: ws.workspaceId },
       data: {

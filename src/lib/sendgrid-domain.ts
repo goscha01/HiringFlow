@@ -30,13 +30,17 @@ export interface WhitelabelDomain {
 }
 
 // Create the domain — SendGrid returns the CNAMEs the user must add.
-export async function authenticateDomain(domain: string): Promise<WhitelabelDomain> {
+// `subdomain` lets us scope SendGrid's DKIM/MX records under a prefix
+// like "em" or "mail", avoiding collisions with existing DKIM records
+// from other providers (Outlook, Google Workspace, Wix, etc.).
+export async function authenticateDomain(domain: string, subdomain?: string): Promise<WhitelabelDomain> {
   const res = await fetch(`${API}/whitelabel/domains`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${key()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       domain,
-      automatic_security: true, // SendGrid manages DKIM keys (recommended)
+      ...(subdomain ? { subdomain } : {}),
+      automatic_security: true,
     }),
   })
   if (!res.ok) {
