@@ -36,12 +36,20 @@ export const ALL_MEET_EVENT_TYPES: MeetEventType[] = [
 ]
 
 export interface WorkspaceEventsSubscription {
-  name: string                // projects/X/subscriptions/Y
-  targetResource: string      // //meet.googleapis.com/spaces/abc...
+  name: string                // "subscriptions/<id>"
+  targetResource: string      // "//meet.googleapis.com/spaces/abc..."
   eventTypes: string[]
   expireTime?: string
   state?: string
   notificationEndpoint?: { pubsubTopic?: string }
+}
+
+interface Operation {
+  name: string
+  done?: boolean
+  error?: { code?: number; message?: string }
+  response?: WorkspaceEventsSubscription & { '@type'?: string }
+  metadata?: { '@type'?: string; targetResource?: string }
 }
 
 export class WorkspaceEventsError extends Error {
@@ -92,17 +100,51 @@ export async function subscribeSpace(
   meetSpaceName: string,
   opts: { ttlSeconds?: number; eventTypes?: MeetEventType[] } = {},
 ): Promise<WorkspaceEventsSubscription> {
+  // Meet target resources do not support payloadOptions.includeResource — the
+  // Workspace Events API rejects it with "include_resource is not supported".
+  const target = `//meet.googleapis.com/${meetSpaceName.startsWith('spaces/') ? meetSpaceName : 'spaces/' + meetSpaceName}`
   const body = {
-    targetResource: `//meet.googleapis.com/${meetSpaceName.startsWith('spaces/') ? meetSpaceName : 'spaces/' + meetSpaceName}`,
+    targetResource: target,
     eventTypes: opts.eventTypes ?? ALL_MEET_EVENT_TYPES,
     notificationEndpoint: { pubsubTopic: getPubsubTopic() },
-    payloadOptions: { includeResource: true },
     ttl: `${opts.ttlSeconds ?? 604800}s`,
   }
-  return wseFetch<WorkspaceEventsSubscription>(client, '/subscriptions', {
+  // subscriptions.create returns a long-running Operation. If it's done
+  // inline (typical case), we can extract the Subscription directly.
+  // Otherwise fall back to listing subscriptions filtered by target resource.
+  const op = await wseFetch<Operation>(client, '/subscriptions', {
     method: 'POST',
     body: JSON.stringify(body),
   })
+  if (op.done && op.response && op.response.name) {
+    return op.response
+  }
+  return await findSubscriptionByTarget(client, target)
+}
+
+/**
+ * Fetch the current Subscription for a Meet target resource. Used to resolve
+ * the final subscription resource name after subscriptions.create returns an
+ * async operation that hasn't completed inline, and for diagnostics.
+ */
+export async function findSubscriptionByTarget(
+  client: OAuth2Client,
+  targetResource: string,
+): Promise<WorkspaceEventsSubscription> {
+  // The API filter is on event_types (not target_resource), so we scan the
+  // user's subscriptions looking for a matching target. For realistic loads
+  // (one subscription per active meeting) this is cheap.
+  const filter = encodeURIComponent('event_types:"google.workspace.meet.conference.v2.started"')
+  const body = await wseFetch<{ subscriptions?: WorkspaceEventsSubscription[] }>(
+    client,
+    `/subscriptions?filter=${filter}`,
+  )
+  const subs = body.subscriptions || []
+  const match = subs.find((s) => s.targetResource === targetResource)
+  if (!match) {
+    throw new WorkspaceEventsError(404, `No subscription found for target ${targetResource}`)
+  }
+  return match
 }
 
 export async function renewSubscription(
