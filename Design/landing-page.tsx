@@ -1,29 +1,11 @@
-/**
- * Marketing landing page — port of Design/landing-page.tsx. Sections (in order):
- *   1. Navbar
- *   2. Hero
- *   3. Logo strip
- *   4. Pain points (Old way vs Hirefunnel way)
- *   5. Feature triptych (branching / anti-AI / paid training)
- *   6. Feature rows (flow builder, analytics)
- *   7. How it works (4-step)
- *   8. Social proof (testimonial + 3 metrics)
- *   9. Pricing (3 tiers, Growth highlighted)
- *   10. FAQ (accordion)
- *   11. CTA band
- *   12. Footer
- *
- * Wordmark locked to "HireFunnel" (capital F) per product decision. The
- * design file uses "Hirefunnel"; we deliberately diverge here.
- */
-
 'use client'
 
 import Link from 'next/link'
 import { useState } from 'react'
 
 /* ------------------------------------------------------------------ */
-/*  Icons — inline, stroke-based                                      */
+/*  Icons — inline, stroke-based, 20px default. No dependency on a   */
+/*  third-party icon lib so the landing page stays self-contained.   */
 /* ------------------------------------------------------------------ */
 function Icon({ name, size = 20, className = '' }: { name: string; size?: number; className?: string }) {
   const common = {
@@ -68,7 +50,10 @@ function Icon({ name, size = 20, className = '' }: { name: string; size?: number
 /* ------------------------------------------------------------------ */
 function Eyebrow({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`font-mono text-[11px] uppercase text-grey-35 mb-5 ${className}`} style={{ letterSpacing: '0.16em' }}>
+    <div
+      className={`font-mono text-[11px] uppercase text-grey-35 mb-5 ${className}`}
+      style={{ letterSpacing: '0.16em' }}
+    >
       {children}
     </div>
   )
@@ -98,7 +83,9 @@ function SectionHeading({
         {title}
       </Tag>
       {sub ? (
-        <p className={`text-[17px] text-grey-35 leading-[1.55] ${align === 'center' ? 'mx-auto' : ''} max-w-[600px]`}>
+        <p
+          className={`text-[17px] text-grey-35 leading-[1.55] ${align === 'center' ? 'mx-auto' : ''} max-w-[600px]`}
+        >
           {sub}
         </p>
       ) : null}
@@ -110,7 +97,12 @@ function OrangeCheck({ size = 16 }: { size?: number }) {
   return (
     <span
       className="inline-flex items-center justify-center flex-shrink-0 rounded-full mt-[3px]"
-      style={{ width: size, height: size, background: 'rgba(255,149,0,0.14)', color: '#C2710A' }}
+      style={{
+        width: size,
+        height: size,
+        background: 'rgba(255,149,0,0.14)',
+        color: '#C2710A',
+      }}
     >
       <Icon name="check" size={size - 4} />
     </span>
@@ -133,7 +125,7 @@ function Navbar() {
               h
             </div>
             <span className="text-[16px] font-semibold text-ink" style={{ letterSpacing: '-0.01em' }}>
-              HireFunnel
+              Hirefunnel
             </span>
           </Link>
           <div className="hidden md:flex items-center gap-7">
@@ -161,7 +153,7 @@ function Navbar() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Hero                                                              */
+/*  Hero — kept faithful to existing refreshed hero                    */
 /* ------------------------------------------------------------------ */
 function Hero() {
   return (
@@ -177,7 +169,7 @@ function Hero() {
       />
       <div className="relative max-w-[1200px] mx-auto px-6 md:px-10 pt-20 pb-24">
         <div className="max-w-[900px]">
-          <Eyebrow>HireFunnel · video-first hiring</Eyebrow>
+          <Eyebrow>Hirefunnel · video-first hiring</Eyebrow>
           <h1
             className="text-[44px] md:text-[72px] font-semibold text-ink leading-[1.02] mb-7"
             style={{ letterSpacing: '-0.025em' }}
@@ -231,9 +223,23 @@ function Hero() {
             { top: 'Time-to-hire', big: '6 d', sub: 'down from 24' },
             { top: 'Interviews', big: '9', sub: 'booked this week' },
           ].map((c) => (
-            <div key={c.top} className="bg-white rounded-[14px] border border-surface-border p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <div className="font-mono text-[10px] uppercase text-grey-35 mb-2" style={{ letterSpacing: '0.12em' }}>{c.top}</div>
-              <div className="text-[28px] font-semibold text-ink leading-none" style={{ letterSpacing: '-0.02em' }}>{c.big}</div>
+            <div
+              key={c.top}
+              className="bg-white rounded-[14px] border border-surface-border p-4"
+              style={{ boxShadow: 'var(--shadow-card)' }}
+            >
+              <div
+                className="font-mono text-[10px] uppercase text-grey-35 mb-2"
+                style={{ letterSpacing: '0.12em' }}
+              >
+                {c.top}
+              </div>
+              <div
+                className="text-[28px] font-semibold text-ink leading-none"
+                style={{ letterSpacing: '-0.02em' }}
+              >
+                {c.big}
+              </div>
               <div className="text-[11px] text-grey-35 mt-1.5">{c.sub}</div>
             </div>
           ))}
@@ -244,19 +250,26 @@ function Hero() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Logo strip                                                        */
+/*  2. Logo strip                                                     */
 /* ------------------------------------------------------------------ */
 function LogoStrip() {
   const logos = ['Northwind', 'Relay.co', 'Pilotworks', 'Moraine', 'Halogen', 'Evercrest']
   return (
     <section className="bg-[#F7F3EB] border-y border-surface-border">
       <div className="max-w-[1100px] mx-auto px-6 md:px-10 py-[60px]">
-        <div className="text-center font-mono text-[11px] uppercase text-grey-35 mb-7" style={{ letterSpacing: '0.16em' }}>
+        <div
+          className="text-center font-mono text-[11px] uppercase text-grey-35 mb-7"
+          style={{ letterSpacing: '0.16em' }}
+        >
           Trusted by teams hiring at scale
         </div>
         <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-5 opacity-55">
           {logos.map((l) => (
-            <span key={l} className="text-[20px] font-semibold text-ink" style={{ fontFamily: 'var(--display-font)', letterSpacing: '-0.02em' }}>
+            <span
+              key={l}
+              className="text-[20px] font-semibold text-ink"
+              style={{ fontFamily: 'var(--display-font)', letterSpacing: '-0.02em' }}
+            >
               {l}
             </span>
           ))}
@@ -267,7 +280,7 @@ function LogoStrip() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Pain points                                                       */
+/*  3. Pain points                                                    */
 /* ------------------------------------------------------------------ */
 function PainPoints() {
   const oldWay = [
@@ -287,13 +300,29 @@ function PainPoints() {
       <div className="max-w-[1100px] mx-auto px-6 md:px-10 py-[80px] md:py-[120px]">
         <SectionHeading
           eyebrow="The problem"
-          title={<>The résumé funnel wastes<br className="hidden md:block" /> everyone&apos;s time.</>}
+          title={
+            <>
+              The résumé funnel wastes
+              <br className="hidden md:block" /> everyone's time.
+            </>
+          }
           sub="Two paths diverge between you and your next hire. One of them still asks people to paste their job history into a PDF."
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-12">
-          <div className="rounded-[14px] border border-surface-border p-7 md:p-8" style={{ background: '#F1EBE1' }}>
-            <div className="font-mono text-[11px] uppercase text-grey-35 mb-4" style={{ letterSpacing: '0.16em' }}>The old way</div>
-            <h3 className="text-[22px] font-semibold text-[#59595A] mb-5" style={{ letterSpacing: '-0.01em' }}>Paper-trail hiring</h3>
+          {/* Old way */}
+          <div
+            className="rounded-[14px] border border-surface-border p-7 md:p-8"
+            style={{ background: '#F1EBE1' }}
+          >
+            <div
+              className="font-mono text-[11px] uppercase text-grey-35 mb-4"
+              style={{ letterSpacing: '0.16em' }}
+            >
+              The old way
+            </div>
+            <h3 className="text-[22px] font-semibold text-[#59595A] mb-5" style={{ letterSpacing: '-0.01em' }}>
+              Paper-trail hiring
+            </h3>
             <ul className="space-y-3.5">
               {oldWay.map((item) => (
                 <li key={item} className="flex items-start gap-3 text-[14px] text-[#59595A] leading-[1.55]">
@@ -308,20 +337,30 @@ function PainPoints() {
               ))}
             </ul>
           </div>
-          <div className="rounded-[14px] border p-7 md:p-8 relative overflow-hidden" style={{ background: '#FFF3DF', borderColor: '#F0DCB4' }}>
+          {/* New way */}
+          <div
+            className="rounded-[14px] border p-7 md:p-8 relative overflow-hidden"
+            style={{ background: '#FFF3DF', borderColor: '#F0DCB4' }}
+          >
             <div
               className="absolute -top-12 -right-12 w-48 h-48 rounded-full pointer-events-none"
               style={{ background: 'radial-gradient(circle, rgba(255,149,0,0.2), transparent 70%)' }}
               aria-hidden
             />
-            <div className="font-mono text-[11px] uppercase mb-4 relative" style={{ letterSpacing: '0.16em', color: '#C2710A' }}>
-              The HireFunnel way
+            <div
+              className="font-mono text-[11px] uppercase mb-4 relative"
+              style={{ letterSpacing: '0.16em', color: '#C2710A' }}
+            >
+              The Hirefunnel way
             </div>
-            <h3 className="text-[22px] font-semibold text-ink mb-5 relative" style={{ letterSpacing: '-0.01em' }}>Video-first screening</h3>
+            <h3 className="text-[22px] font-semibold text-ink mb-5 relative" style={{ letterSpacing: '-0.01em' }}>
+              Video-first screening
+            </h3>
             <ul className="space-y-3.5 relative">
               {newWay.map((item) => (
                 <li key={item} className="flex items-start gap-3 text-[14px] text-ink leading-[1.55]">
-                  <OrangeCheck /> {item}
+                  <OrangeCheck />
+                  {item}
                 </li>
               ))}
             </ul>
@@ -333,7 +372,7 @@ function PainPoints() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Feature triptych                                                  */
+/*  4. Features — triptych                                            */
 /* ------------------------------------------------------------------ */
 function FeatureTriptych() {
   const features = [
@@ -363,11 +402,20 @@ function FeatureTriptych() {
         />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-14">
           {features.map((f) => (
-            <div key={f.title} className="bg-white rounded-[14px] border border-surface-border p-7 flex flex-col" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <div className="w-11 h-11 rounded-[10px] flex items-center justify-center mb-5" style={{ background: '#FFF3DF', color: '#C2710A' }}>
+            <div
+              key={f.title}
+              className="bg-white rounded-[14px] border border-surface-border p-7 flex flex-col"
+              style={{ boxShadow: 'var(--shadow-card)' }}
+            >
+              <div
+                className="w-11 h-11 rounded-[10px] flex items-center justify-center mb-5"
+                style={{ background: '#FFF3DF', color: '#C2710A' }}
+              >
                 <Icon name={f.icon} size={20} />
               </div>
-              <h3 className="text-[19px] font-semibold text-ink mb-2.5" style={{ letterSpacing: '-0.01em' }}>{f.title}</h3>
+              <h3 className="text-[19px] font-semibold text-ink mb-2.5" style={{ letterSpacing: '-0.01em' }}>
+                {f.title}
+              </h3>
               <p className="text-[14px] text-grey-35 leading-[1.55] mb-6">{f.body}</p>
               <a
                 href="#"
@@ -385,7 +433,7 @@ function FeatureTriptych() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Feature rows                                                      */
+/*  4b. Feature rows                                                  */
 /* ------------------------------------------------------------------ */
 function FeatureRow({
   eyebrow,
@@ -405,27 +453,40 @@ function FeatureRow({
   const image = (
     <div
       className="aspect-[4/3] rounded-[16px] border border-surface-border relative overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, rgba(255,149,0,0.18), rgba(255,149,0,0.04))' }}
+      style={{
+        background:
+          'linear-gradient(135deg, rgba(255,149,0,0.18), rgba(255,149,0,0.04))',
+      }}
     >
+      {/* Dot grid */}
       <div
         className="absolute inset-0 opacity-40"
-        style={{ backgroundImage: 'radial-gradient(rgba(26,24,21,0.15) 1px, transparent 1px)', backgroundSize: '18px 18px' }}
+        style={{
+          backgroundImage: 'radial-gradient(rgba(26,24,21,0.15) 1px, transparent 1px)',
+          backgroundSize: '18px 18px',
+        }}
         aria-hidden
       />
+      {/* Glyph / placeholder UI */}
       {glyph === 'builder' ? (
         <div className="absolute inset-0 p-8 flex flex-col gap-3 justify-center">
-          {['Tell us about yourself', 'Frontend or backend?', 'Record a 60s intro', 'Share a side project'].map((label, i) => (
-            <div
-              key={i}
-              className="bg-white/95 border border-surface-border rounded-[10px] px-4 py-3 flex items-center gap-3 shadow-[0_2px_6px_rgba(26,24,21,0.04)]"
-              style={{ marginLeft: `${i * 18}px`, maxWidth: 280 }}
-            >
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-mono font-semibold" style={{ background: '#FFF3DF', color: '#C2710A' }}>
-                {i + 1}
+          {['Tell us about yourself', 'Frontend or backend?', 'Record a 60s intro', 'Share a side project'].map(
+            (label, i) => (
+              <div
+                key={i}
+                className="bg-white/95 border border-surface-border rounded-[10px] px-4 py-3 flex items-center gap-3 shadow-[0_2px_6px_rgba(26,24,21,0.04)]"
+                style={{ marginLeft: `${i * 18}px`, maxWidth: 280 }}
+              >
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-mono font-semibold"
+                  style={{ background: '#FFF3DF', color: '#C2710A' }}
+                >
+                  {i + 1}
+                </div>
+                <span className="text-[12px] text-ink font-medium">{label}</span>
               </div>
-              <span className="text-[12px] text-ink font-medium">{label}</span>
-            </div>
-          ))}
+            ),
+          )}
         </div>
       ) : (
         <div className="absolute inset-0 p-8 flex items-end">
@@ -436,8 +497,16 @@ function FeatureRow({
                 <stop offset="100%" stopColor="#FF9500" stopOpacity="0" />
               </linearGradient>
             </defs>
-            <path d="M0,180 L40,160 L80,168 L120,130 L160,140 L200,100 L240,110 L280,70 L320,85 L360,50 L400,60 L400,220 L0,220 Z" fill="url(#fillGrad)" />
-            <path d="M0,180 L40,160 L80,168 L120,130 L160,140 L200,100 L240,110 L280,70 L320,85 L360,50 L400,60" fill="none" stroke="#FF9500" strokeWidth="2.5" />
+            <path
+              d="M0,180 L40,160 L80,168 L120,130 L160,140 L200,100 L240,110 L280,70 L320,85 L360,50 L400,60 L400,220 L0,220 Z"
+              fill="url(#fillGrad)"
+            />
+            <path
+              d="M0,180 L40,160 L80,168 L120,130 L160,140 L200,100 L240,110 L280,70 L320,85 L360,50 L400,60"
+              fill="none"
+              stroke="#FF9500"
+              strokeWidth="2.5"
+            />
             {[40, 120, 200, 280, 360].map((x, i) => (
               <circle key={i} cx={x} cy={[160, 130, 100, 70, 50][i]} r="4" fill="#FF9500" />
             ))}
@@ -450,7 +519,12 @@ function FeatureRow({
   const text = (
     <div>
       <Eyebrow>{eyebrow}</Eyebrow>
-      <h3 className="text-[28px] md:text-[32px] font-semibold text-ink leading-[1.15] mb-4" style={{ letterSpacing: '-0.02em' }}>{title}</h3>
+      <h3
+        className="text-[28px] md:text-[32px] font-semibold text-ink leading-[1.15] mb-4"
+        style={{ letterSpacing: '-0.02em' }}
+      >
+        {title}
+      </h3>
       <p className="text-[15px] text-grey-35 leading-[1.6] mb-6 max-w-[480px]">{body}</p>
       <ul className="space-y-2.5 mb-7">
         {bullets.map((b) => (
@@ -459,7 +533,10 @@ function FeatureRow({
           </li>
         ))}
       </ul>
-      <a href="#" className="inline-flex items-center gap-2 text-[13px] font-medium text-ink border border-surface-border bg-white rounded-[10px] px-4 py-2.5 hover:bg-[#F7F3EB] transition-colors">
+      <a
+        href="#"
+        className="inline-flex items-center gap-2 text-[13px] font-medium text-ink border border-surface-border bg-white rounded-[10px] px-4 py-2.5 hover:bg-[#F7F3EB] transition-colors"
+      >
         See it live <Icon name="arrow" size={14} />
       </a>
     </div>
@@ -467,7 +544,17 @@ function FeatureRow({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-14 items-center">
-      {imageSide === 'left' ? (<>{image}{text}</>) : (<>{text}{image}</>)}
+      {imageSide === 'left' ? (
+        <>
+          {image}
+          {text}
+        </>
+      ) : (
+        <>
+          {text}
+          {image}
+        </>
+      )}
     </div>
   )
 }
@@ -506,7 +593,7 @@ function FeatureRows() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  How it works                                                      */
+/*  5. How it works                                                   */
 /* ------------------------------------------------------------------ */
 function HowItWorks() {
   const steps = [
@@ -520,10 +607,12 @@ function HowItWorks() {
       <div className="max-w-[1100px] mx-auto px-6 md:px-10 py-[80px] md:py-[120px]">
         <SectionHeading eyebrow="How it works" title="Four steps to your first hire." />
         <div className="mt-14 grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-4 relative">
+          {/* Dashed connector line — desktop only */}
           <div
             className="hidden md:block absolute left-0 right-0 top-[26px] h-px pointer-events-none"
             style={{
-              background: 'repeating-linear-gradient(to right, rgba(255,149,0,0.4) 0 6px, transparent 6px 14px)',
+              background:
+                'repeating-linear-gradient(to right, rgba(255,149,0,0.4) 0 6px, transparent 6px 14px)',
               marginLeft: 80,
               marginRight: 80,
             }}
@@ -537,7 +626,9 @@ function HowItWorks() {
               >
                 {s.n}
               </div>
-              <h3 className="text-[17px] font-semibold text-ink mb-2" style={{ letterSpacing: '-0.01em' }}>{s.t}</h3>
+              <h3 className="text-[17px] font-semibold text-ink mb-2" style={{ letterSpacing: '-0.01em' }}>
+                {s.t}
+              </h3>
               <p className="text-[13px] text-grey-35 leading-[1.55]">{s.d}</p>
             </div>
           ))}
@@ -548,7 +639,7 @@ function HowItWorks() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Social proof                                                      */
+/*  6. Social proof                                                   */
 /* ------------------------------------------------------------------ */
 function SocialProof() {
   const metrics = [
@@ -565,20 +656,28 @@ function SocialProof() {
           sub="The numbers we hear most from teams in their first 90 days."
         />
         <div className="grid grid-cols-1 md:grid-cols-5 gap-5 mt-12">
-          <div className="md:col-span-3 rounded-[16px] p-8 md:p-10 relative overflow-hidden" style={{ background: '#1a2d26', color: '#F5F2EC' }}>
+          {/* Testimonial */}
+          <div
+            className="md:col-span-3 rounded-[16px] p-8 md:p-10 relative overflow-hidden"
+            style={{ background: '#1a2d26', color: '#F5F2EC' }}
+          >
             <div
-              className="absolute top-5 left-6 text-[140px] leading-none pointer-events-none"
-              style={{ color: 'rgba(255,149,0,0.45)', fontFamily: 'Georgia, "Times New Roman", serif' }}
+              className="absolute top-5 left-6 font-serif text-[140px] leading-none pointer-events-none"
+              style={{ color: 'rgba(255,149,0,0.45)', fontFamily: 'Instrument Serif, serif' }}
               aria-hidden
             >
-              &ldquo;
+              “
             </div>
             <div className="relative pt-14 max-w-[480px]">
               <p className="text-[22px] font-medium leading-[1.3] mb-7" style={{ letterSpacing: '-0.01em' }}>
-                We cut our hiring loop from three weeks to four days. Half the candidates we&apos;d have rejected on paper ended up being the strongest in person.
+                We cut our hiring loop from three weeks to four days. Half the candidates we'd have rejected on
+                paper ended up being the strongest in person.
               </p>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-[13px]" style={{ background: 'rgba(255,149,0,0.2)', color: '#FFD89F' }}>
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-[13px]"
+                  style={{ background: 'rgba(255,149,0,0.2)', color: '#FFD89F' }}
+                >
                   MB
                 </div>
                 <div>
@@ -588,11 +687,26 @@ function SocialProof() {
               </div>
             </div>
           </div>
+          {/* Metrics */}
           <div className="md:col-span-2 grid grid-cols-1 gap-4">
             {metrics.map((m) => (
-              <div key={m.eyebrow} className="bg-white border border-surface-border rounded-[14px] p-5" style={{ boxShadow: 'var(--shadow-card)' }}>
-                <div className="font-mono text-[10px] uppercase text-grey-35 mb-2" style={{ letterSpacing: '0.14em' }}>{m.eyebrow}</div>
-                <div className="text-[34px] font-semibold text-ink leading-none mb-1.5" style={{ letterSpacing: '-0.02em' }}>{m.big}</div>
+              <div
+                key={m.eyebrow}
+                className="bg-white border border-surface-border rounded-[14px] p-5"
+                style={{ boxShadow: 'var(--shadow-card)' }}
+              >
+                <div
+                  className="font-mono text-[10px] uppercase text-grey-35 mb-2"
+                  style={{ letterSpacing: '0.14em' }}
+                >
+                  {m.eyebrow}
+                </div>
+                <div
+                  className="text-[34px] font-semibold text-ink leading-none mb-1.5"
+                  style={{ letterSpacing: '-0.02em' }}
+                >
+                  {m.big}
+                </div>
                 <div className="text-[13px] text-grey-35">{m.sub}</div>
               </div>
             ))}
@@ -604,7 +718,7 @@ function SocialProof() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Pricing                                                           */
+/*  7. Pricing                                                        */
 /* ------------------------------------------------------------------ */
 function Pricing() {
   const tiers = [
@@ -655,25 +769,45 @@ function Pricing() {
           {tiers.map((t) => (
             <div
               key={t.name}
-              className={`relative rounded-[14px] p-8 flex flex-col bg-white border ${t.highlight ? 'border-[2px]' : 'border-surface-border'}`}
+              className={`relative rounded-[14px] p-8 flex flex-col bg-white border ${
+                t.highlight ? 'border-[2px]' : 'border-surface-border'
+              }`}
               style={{
                 borderColor: t.highlight ? 'var(--brand-primary)' : undefined,
-                boxShadow: t.highlight ? '0 14px 40px -16px rgba(255,149,0,0.35)' : 'var(--shadow-card)',
+                boxShadow: t.highlight
+                  ? '0 14px 40px -16px rgba(255,149,0,0.35)'
+                  : 'var(--shadow-card)',
               }}
             >
               {t.highlight ? (
                 <div
                   className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full font-mono text-[10px] uppercase font-semibold"
-                  style={{ background: 'var(--brand-primary)', color: 'white', letterSpacing: '0.14em' }}
+                  style={{
+                    background: 'var(--brand-primary)',
+                    color: 'white',
+                    letterSpacing: '0.14em',
+                  }}
                 >
                   Most popular
                 </div>
               ) : null}
               <div className="mb-5">
-                <div className="font-mono text-[11px] uppercase text-grey-35 mb-3" style={{ letterSpacing: '0.14em' }}>{t.name}</div>
+                <div
+                  className="font-mono text-[11px] uppercase text-grey-35 mb-3"
+                  style={{ letterSpacing: '0.14em' }}
+                >
+                  {t.name}
+                </div>
                 <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-[38px] font-semibold text-ink leading-none" style={{ letterSpacing: '-0.03em' }}>{t.price}</span>
-                  {t.suffix ? <span className="text-[14px] text-grey-35">{t.suffix}</span> : null}
+                  <span
+                    className="text-[38px] font-semibold text-ink leading-none"
+                    style={{ letterSpacing: '-0.03em' }}
+                  >
+                    {t.price}
+                  </span>
+                  {t.suffix ? (
+                    <span className="text-[14px] text-grey-35">{t.suffix}</span>
+                  ) : null}
                 </div>
                 <p className="text-[14px] text-grey-35 mt-2">{t.tagline}</p>
               </div>
@@ -687,9 +821,15 @@ function Pricing() {
               <Link
                 href={t.cta === 'Talk to sales' ? '/contact' : '/register'}
                 className={`block w-full text-center py-3 rounded-[10px] font-semibold text-[14px] transition-colors ${
-                  t.highlight ? 'text-white hover:opacity-90' : 'text-ink border border-surface-border bg-white hover:bg-[#F7F3EB]'
+                  t.highlight
+                    ? 'text-white hover:opacity-90'
+                    : 'text-ink border border-surface-border bg-white hover:bg-[#F7F3EB]'
                 }`}
-                style={t.highlight ? { background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' } : undefined}
+                style={
+                  t.highlight
+                    ? { background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' }
+                    : undefined
+                }
               >
                 {t.cta}
               </Link>
@@ -702,7 +842,7 @@ function Pricing() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  FAQ                                                               */
+/*  8. FAQ                                                            */
 /* ------------------------------------------------------------------ */
 function FAQ() {
   const items = [
@@ -744,14 +884,22 @@ function FAQ() {
           {items.map((item, i) => {
             const isOpen = open === i
             return (
-              <div key={i} className="border-b border-surface-border">
+              <div
+                key={i}
+                className="border-b border-surface-border"
+              >
                 <button
                   type="button"
                   className="w-full flex items-center justify-between gap-6 py-5 text-left group"
                   onClick={() => setOpen(isOpen ? null : i)}
                   aria-expanded={isOpen}
                 >
-                  <span className="text-[16px] font-medium text-ink" style={{ letterSpacing: '-0.005em' }}>{item.q}</span>
+                  <span
+                    className="text-[16px] font-medium text-ink"
+                    style={{ letterSpacing: '-0.005em' }}
+                  >
+                    {item.q}
+                  </span>
                   <span
                     className="flex-shrink-0 text-grey-35 transition-transform duration-200"
                     style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
@@ -759,7 +907,10 @@ function FAQ() {
                     <Icon name="chevron" size={18} />
                   </span>
                 </button>
-                <div className="grid transition-all duration-200 ease-out" style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}>
+                <div
+                  className="grid transition-all duration-200 ease-out"
+                  style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
+                >
                   <div className="overflow-hidden">
                     <p className="text-[14px] text-grey-35 leading-[1.6] pb-5 pr-6">{item.a}</p>
                   </div>
@@ -774,22 +925,34 @@ function FAQ() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  CTA band                                                          */
+/*  9. CTA band — full bleed                                          */
 /* ------------------------------------------------------------------ */
 function CTABand() {
   return (
-    <section className="relative" style={{ background: 'linear-gradient(135deg, #2d4a3e, #1a2d26)' }}>
+    <section
+      className="relative"
+      style={{ background: 'linear-gradient(135deg, #2d4a3e, #1a2d26)' }}
+    >
       <div
         className="absolute inset-0 pointer-events-none opacity-40"
-        style={{ background: 'radial-gradient(ellipse at top right, rgba(255,149,0,0.18), transparent 55%)' }}
+        style={{
+          background:
+            'radial-gradient(ellipse at top right, rgba(255,149,0,0.18), transparent 55%)',
+        }}
         aria-hidden
       />
       <div className="relative max-w-[900px] mx-auto px-6 md:px-10 py-[80px] md:py-[100px] text-center">
-        <h2 className="text-[40px] md:text-[52px] font-semibold text-white leading-[1.05] mb-5" style={{ letterSpacing: '-0.02em' }}>
+        <h2
+          className="text-[40px] md:text-[52px] font-semibold text-white leading-[1.05] mb-5"
+          style={{ letterSpacing: '-0.02em' }}
+        >
           Stop screening résumés.
           <br /> Start meeting people.
         </h2>
-        <p className="text-[17px] leading-[1.55] max-w-[520px] mx-auto mb-9" style={{ color: 'rgba(255,255,255,0.78)' }}>
+        <p
+          className="text-[17px] leading-[1.55] max-w-[520px] mx-auto mb-9"
+          style={{ color: 'rgba(255,255,255,0.78)' }}
+        >
           Fourteen days free, unlimited submissions, no credit card. Your first flow takes seven minutes.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -803,7 +966,11 @@ function CTABand() {
           <Link
             href="/contact"
             className="px-6 py-3.5 rounded-[10px] font-medium text-[14px] border transition-colors"
-            style={{ borderColor: 'rgba(255,255,255,0.3)', color: '#fff', background: 'transparent' }}
+            style={{
+              borderColor: 'rgba(255,255,255,0.3)',
+              color: '#fff',
+              background: 'transparent',
+            }}
           >
             Book a demo
           </Link>
@@ -814,7 +981,7 @@ function CTABand() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Footer                                                            */
+/*  10. Footer                                                        */
 /* ------------------------------------------------------------------ */
 function Footer() {
   const cols = [
@@ -829,22 +996,37 @@ function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-6 gap-10 mb-12">
           <div className="col-span-2">
             <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-[17px]" style={{ background: 'var(--brand-primary)' }}>
+              <div
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-[17px]"
+                style={{ background: 'var(--brand-primary)' }}
+              >
                 h
               </div>
-              <span className="text-[16px] font-semibold text-white" style={{ letterSpacing: '-0.01em' }}>HireFunnel</span>
+              <span className="text-[16px] font-semibold text-white" style={{ letterSpacing: '-0.01em' }}>
+                Hirefunnel
+              </span>
             </div>
             <p className="text-[13px] leading-[1.6] max-w-[260px]">
-              Video-first hiring for teams who&apos;d rather meet people than read résumés.
+              Video-first hiring for teams who'd rather meet people than read résumés.
             </p>
           </div>
           {cols.map((col) => (
             <div key={col.title}>
-              <div className="font-mono text-[10px] uppercase text-white/50 mb-4" style={{ letterSpacing: '0.14em' }}>{col.title}</div>
+              <div
+                className="font-mono text-[10px] uppercase text-white/50 mb-4"
+                style={{ letterSpacing: '0.14em' }}
+              >
+                {col.title}
+              </div>
               <ul className="space-y-2.5">
                 {col.links.map((l) => (
                   <li key={l}>
-                    <a href="#" className="text-[13px] font-medium hover:text-white transition-colors duration-100">{l}</a>
+                    <a
+                      href="#"
+                      className="text-[13px] font-medium hover:text-white transition-colors duration-100"
+                    >
+                      {l}
+                    </a>
                   </li>
                 ))}
               </ul>
@@ -852,10 +1034,16 @@ function Footer() {
           ))}
         </div>
         <div className="pt-6 border-t border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between">
-          <div className="text-[12px] text-white/50">© {new Date().getFullYear()} HireFunnel. All rights reserved.</div>
+          <div className="text-[12px] text-white/50">
+            © {new Date().getFullYear()} Hirefunnel. All rights reserved.
+          </div>
           <div className="flex items-center gap-4 text-white/60">
-            <a href="#" className="hover:text-white transition-colors" aria-label="Twitter"><Icon name="twitter" size={16} /></a>
-            <a href="#" className="hover:text-white transition-colors" aria-label="LinkedIn"><Icon name="linkedin" size={16} /></a>
+            <a href="#" className="hover:text-white transition-colors" aria-label="Twitter">
+              <Icon name="twitter" size={16} />
+            </a>
+            <a href="#" className="hover:text-white transition-colors" aria-label="LinkedIn">
+              <Icon name="linkedin" size={16} />
+            </a>
           </div>
         </div>
       </div>
@@ -868,7 +1056,10 @@ function Footer() {
 /* ------------------------------------------------------------------ */
 export default function LandingPage() {
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}>
+    <div
+      className="min-h-screen"
+      style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}
+    >
       <Navbar />
       <Hero />
       <LogoStrip />
