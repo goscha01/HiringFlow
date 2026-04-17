@@ -1,42 +1,82 @@
+/**
+ * Training editor — three-pane layout per Design/SPEC-training-editor.md.
+ *
+ *   ┌─ TopNav (global, in dashboard/layout.tsx) ───┐
+ *   ├─ Subnav: breadcrumb + badge + Preview/Publish ┤
+ *   ├─ Sections ─┬─ Content editor ─┬─ Settings ────┤
+ *   │  300px     │  flex 1          │  340px        │
+ *
+ * All CRUD endpoints from the previous editor are preserved verbatim. This
+ * pass is presentational + UX: 3-pane layout, sticky subnav, inline rename,
+ * drag-reorder sections, pre-flight publish drawer, autosave indicator.
+ *
+ * What we intentionally keep from the existing data model:
+ *   - Section.contents[] where each content has type 'video' | 'text' and
+ *     optional videoId. We present the FIRST video content as "the section's
+ *     video" and the FIRST text content as "the section's description".
+ *     Existing multi-content sections keep working — additional contents are
+ *     just not editable from this screen (edit them from the old flow, or
+ *     we can migrate later).
+ *   - Quiz model + endpoints unchanged.
+ */
+
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { uploadVideoFile } from '@/lib/upload-client'
-import { type BrandingConfig, mergeBranding } from '@/lib/branding'
+import { Badge, Button, Eyebrow, type BadgeTone } from '@/components/design'
 
-interface Video { id: string; filename: string; url: string; displayName?: string | null }
+// ───────────────────────── Types (mirrors existing API shape) ─────────────────────────
+
+interface Video { id: string; filename: string; url: string; displayName?: string | null; durationSeconds?: number | null }
 interface Content { id: string; type: string; sortOrder: number; videoId: string | null; video: Video | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
 interface Question { id: string; questionText: string; questionType: string; sortOrder: number; options: Array<{ text: string; isCorrect: boolean; hint?: string }> }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: Question[] }
-interface Section { id: string; title: string; sortOrder: number; contents: Content[]; quiz: Quiz | null }
-interface Training { id: string; title: string; slug: string; description: string | null; coverImage: string | null; isPublished: boolean; timeLimit: Record<string, unknown> | null; pricing: Record<string, unknown> | null; branding: Record<string, unknown> | null; passingGrade: number; sections: Section[] }
-
-function VideoUploadButton({ onUploaded }: { onUploaded: (video: Video) => void }) {
-  const [uploading, setUploading] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !file.type.startsWith('video/')) return
-    setUploading(true); setProgress(0)
-    try {
-      const result = await uploadVideoFile(file, (p) => setProgress(p))
-      if (result.id) onUploaded({ id: result.id!, filename: result.filename, url: result.url, displayName: null })
-    } catch (err) { console.error('Video upload failed:', err); alert('Upload failed. Please try again.') }
-    setUploading(false)
-    if (inputRef.current) inputRef.current.value = ''
-  }
-  return (
-    <label className={`px-4 py-2 rounded-[8px] text-xs font-medium cursor-pointer transition-colors whitespace-nowrap ${
-      uploading ? 'bg-surface text-grey-40 cursor-wait' : 'bg-brand-50 text-brand-500 border border-brand-200 hover:bg-brand-100'
-    }`}>
-      {uploading ? `${progress}%` : 'Upload'}
-      <input ref={inputRef} type="file" accept="video/*" onChange={handleUpload} disabled={uploading} className="hidden" />
-    </label>
-  )
+interface Section {
+  id: string
+  title: string
+  sortOrder: number
+  contents: Content[]
+  quiz: Quiz | null
+  // Gate + enrollment stats are derived client-side in this pass — not
+  // persisted. When the API grows those fields we drop the derivation.
 }
+interface Training {
+  id: string
+  title: string
+  slug: string
+  description: string | null
+  coverImage: string | null
+  isPublished: boolean
+  passingGrade: number
+  sections: Section[]
+}
+
+// ───────────────────────── Helpers ─────────────────────────
+
+const fmtDuration = (s?: number | null): string => {
+  if (!s || !isFinite(s)) return '—'
+  const m = Math.floor(s / 60)
+  const sec = Math.round(s % 60)
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
+const videoContent = (sec: Section): Content | null =>
+  sec.contents.find((c) => c.type === 'video') ?? null
+const textContent = (sec: Section): Content | null =>
+  sec.contents.find((c) => c.type === 'text') ?? null
+
+type Gate = 'none' | 'watch' | 'quiz'
+const deriveGate = (sec: Section): Gate => {
+  if (sec.quiz && sec.quiz.requiredPassing) return 'quiz'
+  const vc = videoContent(sec)
+  if (vc?.requiredWatch) return 'watch'
+  return 'none'
+}
+
+// ───────────────────────── Main component ─────────────────────────
 
 export default function TrainingEditorPage() {
   const params = useParams()
@@ -45,11 +85,992 @@ export default function TrainingEditorPage() {
   const [training, setTraining] = useState<Training | null>(null)
   const [videos, setVideos] = useState<Video[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeSection, setActiveSection] = useState<string | null>(null)
-  const [uploadingCover, setUploadingCover] = useState(false)
-  const [activeStep, setActiveStep] = useState<number | null>(null)
-  const [uploadingVideo, setUploadingVideo] = useState<Record<string, number>>({}) // contentId -> progress %
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'section' | 'course'>('section')
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [showPublishDrawer, setShowPublishDrawer] = useState(false)
+
+  // Drag state
+  const [dragSectionId, setDragSectionId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ id: string; edge: 'above' | 'below' } | null>(null)
+
+  // Local edit buffers (debounced saves)
+  const titleBufferRef = useRef<Record<string, string>>({})
+  const descBufferRef = useRef<Record<string, string>>({})
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({})
+
+  // Flash the saved chip
+  const flashSaved = useCallback(() => {
+    setSavedAt(Date.now())
+    setTimeout(() => setSavedAt((t) => (t && Date.now() - t >= 900 ? null : t)), 1000)
+  }, [])
+
+  // ─────── Data loading ───────
+
+  const loadAll = useCallback(async () => {
+    const [t, v] = await Promise.all([
+      fetch(`/api/trainings/${trainingId}`).then((r) => r.json()),
+      fetch('/api/videos').then((r) => r.json()),
+    ])
+    setTraining(t)
+    setVideos(
+      (v as Array<Record<string, unknown>>).map((vid) => ({
+        id: vid.id as string,
+        filename: vid.filename as string,
+        url: (vid.url as string) || (vid.storageKey as string),
+        displayName: (vid.displayName as string | null) ?? null,
+        durationSeconds: (vid.durationSeconds as number | null) ?? null,
+      })),
+    )
+    if (!activeSectionId && t.sections?.length > 0) setActiveSectionId(t.sections[0].id)
+    setLoading(false)
+  }, [trainingId, activeSectionId])
+
+  useEffect(() => { loadAll() }, [loadAll])
+
+  // Prevent browser from opening dropped files in a new tab (capture phase)
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      const t = e.target as HTMLElement
+      if (!t.closest('[data-dropzone]')) e.preventDefault()
+    }
+    window.addEventListener('dragover', prevent, true)
+    window.addEventListener('drop', prevent, true)
+    return () => {
+      window.removeEventListener('dragover', prevent, true)
+      window.removeEventListener('drop', prevent, true)
+    }
+  }, [])
+
+  const refresh = async () => {
+    const res = await fetch(`/api/trainings/${trainingId}`)
+    if (res.ok) setTraining(await res.json())
+  }
+
+  // ─────── CRUD wrappers ───────
+
+  const patchTraining = async (data: Partial<Training>) => {
+    await fetch(`/api/trainings/${trainingId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    flashSaved()
+    refresh()
+  }
+
+  const addSection = async () => {
+    const res = await fetch(`/api/trainings/${trainingId}/sections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'New section' }),
+    })
+    if (res.ok) {
+      const created = await res.json().catch(() => null)
+      await refresh()
+      if (created?.id) setActiveSectionId(created.id)
+      flashSaved()
+    }
+  }
+
+  const patchSection = async (sectionId: string, data: Record<string, unknown>) => {
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    flashSaved()
+    refresh()
+  }
+
+  const reorderSections = async (orderedIds: string[]) => {
+    // Optimistic
+    setTraining((prev) =>
+      prev
+        ? {
+            ...prev,
+            sections: orderedIds
+              .map((id, idx) => {
+                const s = prev.sections.find((x) => x.id === id)
+                return s ? { ...s, sortOrder: idx } : null
+              })
+              .filter((x): x is Section => x !== null),
+          }
+        : prev,
+    )
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        fetch(`/api/trainings/${trainingId}/sections/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sortOrder: idx }),
+        }),
+      ),
+    )
+    flashSaved()
+  }
+
+  const removeSection = async (sectionId: string) => {
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}`, { method: 'DELETE' })
+    if (activeSectionId === sectionId) setActiveSectionId(null)
+    flashSaved()
+    refresh()
+  }
+
+  const upsertContent = async (sectionId: string, data: { type: 'video' | 'text'; videoId?: string | null; textContent?: string | null; requiredWatch?: boolean }) => {
+    const existing = training?.sections.find((s) => s.id === sectionId)?.contents.find((c) => c.type === data.type)
+    if (existing) {
+      await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentId: existing.id, ...data }),
+      })
+    } else {
+      await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+    }
+    flashSaved()
+    refresh()
+  }
+
+  const removeVideoFromSection = async (sectionId: string) => {
+    const vc = training?.sections.find((s) => s.id === sectionId)?.contents.find((c) => c.type === 'video')
+    if (!vc) return
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contentId: vc.id }),
+    })
+    flashSaved()
+    refresh()
+  }
+
+  // Debounced text saves
+  const debouncedSaveDescription = (sectionId: string, text: string) => {
+    descBufferRef.current[sectionId] = text
+    if (debounceTimers.current[`d-${sectionId}`]) clearTimeout(debounceTimers.current[`d-${sectionId}`])
+    debounceTimers.current[`d-${sectionId}`] = setTimeout(() => {
+      upsertContent(sectionId, { type: 'text', textContent: descBufferRef.current[sectionId] })
+    }, 500)
+  }
+
+  const debouncedSaveTitle = (sectionId: string, title: string) => {
+    titleBufferRef.current[sectionId] = title
+    if (debounceTimers.current[`t-${sectionId}`]) clearTimeout(debounceTimers.current[`t-${sectionId}`])
+    debounceTimers.current[`t-${sectionId}`] = setTimeout(() => {
+      patchSection(sectionId, { title: titleBufferRef.current[sectionId] })
+    }, 500)
+  }
+
+  // Video upload + attach to section
+  const uploadAndAttach = async (sectionId: string, file: File, onProgress: (p: number) => void) => {
+    if (!file.type.startsWith('video/')) {
+      alert('Please upload a video file (MP4, MOV, WebM)')
+      return
+    }
+    const result = await uploadVideoFile(file, onProgress)
+    if (result.id) {
+      setVideos((prev) => [
+        { id: result.id!, filename: result.filename, url: result.url, displayName: null, durationSeconds: null },
+        ...prev,
+      ])
+      await upsertContent(sectionId, { type: 'video', videoId: result.id })
+    }
+  }
+
+  // Quiz
+  const createQuiz = async (sectionId: string) => {
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Section quiz', requiredPassing: true, passingGrade: 80 }),
+    })
+    flashSaved()
+    refresh()
+  }
+  const quizAction = async (sectionId: string, data: Record<string, unknown>) => {
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    flashSaved()
+    refresh()
+  }
+  const deleteQuiz = async (sectionId: string) => {
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'DELETE' })
+    flashSaved()
+    refresh()
+  }
+
+  // ─────── Keyboard shortcuts ───────
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey
+      if (meta && e.key === 's') {
+        e.preventDefault()
+        flashSaved()
+        return
+      }
+      if (meta && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (!training || training.sections.length === 0) return
+        e.preventDefault()
+        const idx = training.sections.findIndex((s) => s.id === activeSectionId)
+        const next = e.key === 'ArrowUp' ? Math.max(0, idx - 1) : Math.min(training.sections.length - 1, idx + 1)
+        setActiveSectionId(training.sections[next].id)
+        setViewMode('section')
+      }
+      if (e.key === 'Escape' && viewMode === 'section') {
+        setViewMode('course')
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [training, activeSectionId, viewMode, flashSaved])
+
+  // ─────── Loading state ───────
+
+  if (loading || !training) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading editor…</div>
+      </div>
+    )
+  }
+
+  const activeSection = training.sections.find((s) => s.id === activeSectionId) ?? null
+  const preflight = computePreflight(training)
+
+  return (
+    // The dashboard layout wraps children in a max-width container with
+    // px + py. Negate those so the editor goes full-bleed and we can manage
+    // our own scroll regions.
+    <div className="-mx-6 lg:-mx-[132px] -my-8 flex flex-col" style={{ height: 'calc(100vh - 60px)', background: 'var(--bg)' }}>
+      {/* ─────── Subnav ─────── */}
+      <div className="shrink-0 bg-white border-b border-surface-border">
+        <div className="px-6 py-3.5 flex items-center gap-3">
+          <Link href="/dashboard/trainings" className="text-[13px] text-grey-35 hover:text-ink">
+            Trainings <span className="text-grey-50 mx-1">/</span>
+          </Link>
+          <div className="text-[15px] font-semibold text-ink">{training.title}</div>
+          <Badge tone={training.isPublished ? 'success' : 'brand'}>
+            {training.isPublished ? 'Published' : 'Draft'}
+          </Badge>
+          <div className="ml-auto flex items-center gap-2.5">
+            {savedAt && (
+              <div className="font-mono text-[10px] uppercase text-grey-35 transition-opacity" style={{ letterSpacing: '0.12em' }}>
+                Saved
+              </div>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => window.open(`/t/${training.slug}`, '_blank')}
+            >
+              Preview
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setShowPublishDrawer(true)}
+            >
+              {training.isPublished ? 'Update' : 'Publish'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─────── 3-pane body ─────── */}
+      <div className="flex-1 flex min-h-0">
+        {/* ───── Left: Sections ───── */}
+        <aside className="w-[300px] shrink-0 bg-white border-r border-surface-border overflow-y-auto">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2.5">
+              <Eyebrow size="xs">Sections · {training.sections.length}</Eyebrow>
+              <button
+                onClick={() => { setViewMode('course'); setActiveSectionId(null) }}
+                className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded-full transition-colors ${
+                  viewMode === 'course' ? 'bg-brand-50 text-[color:var(--brand-fg)]' : 'text-grey-35 hover:bg-surface-light'
+                }`}
+                style={{ letterSpacing: '0.12em' }}
+                title="Course settings"
+              >
+                Course
+              </button>
+            </div>
+
+            {training.sections.length === 0 ? (
+              <div className="text-center py-10 px-2">
+                <div className="text-[13px] font-medium text-ink mb-1.5">Your course is empty</div>
+                <p className="text-[12px] text-grey-35 mb-4">Add your first section to get started.</p>
+                <Button size="sm" onClick={addSection}>+ Add section</Button>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {training.sections.map((s, idx) => {
+                  const isActive = viewMode === 'section' && activeSectionId === s.id
+                  const vc = videoContent(s)
+                  const dur = fmtDuration(vc?.video?.durationSeconds ?? null)
+                  const isDropTargetAbove = dropTarget?.id === s.id && dropTarget.edge === 'above'
+                  const isDropTargetBelow = dropTarget?.id === s.id && dropTarget.edge === 'below'
+                  return (
+                    <div
+                      key={s.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragSectionId(s.id)
+                        e.dataTransfer.effectAllowed = 'move'
+                        e.dataTransfer.setData('text/plain', s.id)
+                      }}
+                      onDragOver={(e) => {
+                        if (!dragSectionId || dragSectionId === s.id) return
+                        e.preventDefault()
+                        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                        const edge: 'above' | 'below' = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below'
+                        setDropTarget({ id: s.id, edge })
+                      }}
+                      onDragLeave={() => setDropTarget(null)}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        const src = dragSectionId
+                        setDragSectionId(null)
+                        setDropTarget(null)
+                        if (!src || src === s.id) return
+                        const currentOrder = training.sections.map((x) => x.id)
+                        const filtered = currentOrder.filter((id) => id !== src)
+                        let target = filtered.indexOf(s.id)
+                        if (dropTarget?.edge === 'below') target += 1
+                        filtered.splice(target, 0, src)
+                        reorderSections(filtered)
+                      }}
+                      onDragEnd={() => { setDragSectionId(null); setDropTarget(null) }}
+                      onClick={() => { setActiveSectionId(s.id); setViewMode('section') }}
+                      className={`group relative rounded-[8px] px-3 py-2.5 cursor-pointer transition-all border ${
+                        isActive
+                          ? 'bg-brand-50 border-[color:var(--brand-primary)]'
+                          : 'bg-transparent border-transparent hover:bg-surface-weak'
+                      }`}
+                      style={{ opacity: dragSectionId === s.id ? 0.4 : 1 }}
+                    >
+                      {isDropTargetAbove && <div className="absolute -top-0.5 left-0 right-0 h-[2px]" style={{ background: 'var(--brand-primary)' }} />}
+                      {isDropTargetBelow && <div className="absolute -bottom-0.5 left-0 right-0 h-[2px]" style={{ background: 'var(--brand-primary)' }} />}
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="w-[22px] h-[22px] rounded-full shrink-0 flex items-center justify-center font-mono text-[11px] font-semibold"
+                          style={{
+                            background: isActive ? 'var(--brand-primary)' : '#F1EBE1',
+                            color: isActive ? '#fff' : '#59595A',
+                          }}
+                        >
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-medium text-ink truncate">{s.title}</div>
+                          <div className="font-mono text-[11px] text-grey-35 truncate" style={{ letterSpacing: '0.02em' }}>{dur}</div>
+                        </div>
+                        {/* Drag handle — visible on hover */}
+                        <svg
+                          width={14}
+                          height={14}
+                          viewBox="0 0 14 14"
+                          className="opacity-0 group-hover:opacity-100 text-grey-50"
+                          style={{ cursor: dragSectionId === s.id ? 'grabbing' : 'grab' }}
+                          aria-hidden
+                        >
+                          <circle cx={4} cy={3} r={1.1} fill="currentColor" />
+                          <circle cx={4} cy={7} r={1.1} fill="currentColor" />
+                          <circle cx={4} cy={11} r={1.1} fill="currentColor" />
+                          <circle cx={10} cy={3} r={1.1} fill="currentColor" />
+                          <circle cx={10} cy={7} r={1.1} fill="currentColor" />
+                          <circle cx={10} cy={11} r={1.1} fill="currentColor" />
+                        </svg>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {training.sections.length > 0 && (
+              <button
+                onClick={addSection}
+                className="mt-3 w-full text-left px-3 py-2 rounded-[8px] text-[12px] font-medium text-grey-35 hover:text-ink hover:bg-surface-weak transition-colors"
+              >
+                + Add section
+              </button>
+            )}
+          </div>
+        </aside>
+
+        {/* ───── Middle: Content editor ───── */}
+        <section className="flex-1 min-w-0 overflow-y-auto" style={{ background: 'var(--bg)' }}>
+          {viewMode === 'course' || !activeSection ? (
+            <CourseSettingsPane
+              training={training}
+              onUpdate={patchTraining}
+              onChooseSection={(id) => { setActiveSectionId(id); setViewMode('section') }}
+            />
+          ) : (
+            <SectionEditorPane
+              key={activeSection.id}
+              section={activeSection}
+              sectionNumber={training.sections.findIndex((s) => s.id === activeSection.id) + 1}
+              videos={videos}
+              onRenameSection={(title) => debouncedSaveTitle(activeSection.id, title)}
+              onDescriptionChange={(text) => debouncedSaveDescription(activeSection.id, text)}
+              onAttachVideo={(videoId) => upsertContent(activeSection.id, { type: 'video', videoId })}
+              onUploadVideo={(file, onProgress) => uploadAndAttach(activeSection.id, file, onProgress)}
+              onRemoveVideo={() => removeVideoFromSection(activeSection.id)}
+              onCreateQuiz={() => createQuiz(activeSection.id)}
+              onQuizAction={(data) => quizAction(activeSection.id, data)}
+              onDeleteQuiz={() => deleteQuiz(activeSection.id)}
+            />
+          )}
+        </section>
+
+        {/* ───── Right: Settings ───── */}
+        <aside className="w-[340px] shrink-0 bg-white border-l border-surface-border overflow-y-auto">
+          {viewMode === 'section' && activeSection ? (
+            <SectionSettingsPane
+              section={activeSection}
+              videos={videos}
+              onAttachVideo={(videoId) => upsertContent(activeSection.id, { type: 'video', videoId })}
+              onSetRequiredWatch={(req) => upsertContent(activeSection.id, { type: 'video', requiredWatch: req })}
+              onToggleQuizGate={async (enabled) => {
+                if (enabled && !activeSection.quiz) await createQuiz(activeSection.id)
+                if (activeSection.quiz) await quizAction(activeSection.id, { requiredPassing: enabled })
+              }}
+              onDeleteSection={async () => {
+                if (!confirm(`Delete section ${training.sections.findIndex((s) => s.id === activeSection.id) + 1}? This removes its video & quiz data.`)) return
+                await removeSection(activeSection.id)
+              }}
+            />
+          ) : (
+            <CourseSettingsRightPane training={training} onUpdate={patchTraining} />
+          )}
+        </aside>
+      </div>
+
+      {/* ─────── Publish pre-flight drawer ─────── */}
+      {showPublishDrawer && (
+        <PublishDrawer
+          training={training}
+          preflight={preflight}
+          onClose={() => setShowPublishDrawer(false)}
+          onPublish={async () => {
+            await patchTraining({ isPublished: true })
+            setShowPublishDrawer(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ───────────────────────── Middle pane — Course settings ─────────────────────────
+
+function CourseSettingsPane({
+  training,
+  onUpdate,
+  onChooseSection,
+}: {
+  training: Training
+  onUpdate: (data: Partial<Training>) => void
+  onChooseSection: (id: string) => void
+}) {
+  return (
+    <div className="p-8 lg:p-10 max-w-[720px]">
+      <Eyebrow size="xs" className="mb-1.5">Course</Eyebrow>
+      <h2 className="text-[24px] font-semibold text-ink tracking-tight2 mb-6">{training.title}</h2>
+
+      <p className="text-[13px] text-grey-35 mb-6 leading-relaxed max-w-[580px]">
+        Course-level settings live in the right pane. Pick a section to the left to edit its video, description, and quiz — or add a new one.
+      </p>
+
+      {training.sections.length > 0 && (
+        <div className="mb-8">
+          <div className="eyebrow mb-2">Quick jump</div>
+          <div className="space-y-2">
+            {training.sections.map((s, i) => (
+              <button
+                key={s.id}
+                onClick={() => onChooseSection(s.id)}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-[10px] border border-surface-border bg-white hover:bg-surface-weak text-left transition-colors"
+              >
+                <div className="w-[22px] h-[22px] rounded-full font-mono text-[11px] font-semibold flex items-center justify-center text-grey-35" style={{ background: '#F1EBE1' }}>
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-medium text-ink truncate">{s.title}</div>
+                  <div className="font-mono text-[11px] text-grey-35 truncate">{fmtDuration(videoContent(s)?.video?.durationSeconds ?? null)}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <label className="block">
+          <div className="eyebrow mb-1.5">Title</div>
+          <input
+            type="text"
+            defaultValue={training.title}
+            onBlur={(e) => { if (e.target.value !== training.title) onUpdate({ title: e.target.value }) }}
+            className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] text-ink text-[14px] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          />
+        </label>
+        <label className="block">
+          <div className="eyebrow mb-1.5">Description</div>
+          <textarea
+            defaultValue={training.description || ''}
+            rows={4}
+            onBlur={(e) => { if (e.target.value !== (training.description || '')) onUpdate({ description: e.target.value }) }}
+            className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] text-ink text-[14px] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            placeholder="Short description of the course…"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────── Middle pane — Section editor ─────────────────────────
+
+function SectionEditorPane({
+  section,
+  sectionNumber,
+  videos,
+  onRenameSection,
+  onDescriptionChange,
+  onAttachVideo,
+  onUploadVideo,
+  onRemoveVideo,
+  onCreateQuiz,
+  onQuizAction,
+  onDeleteQuiz,
+}: {
+  section: Section
+  sectionNumber: number
+  videos: Video[]
+  onRenameSection: (title: string) => void
+  onDescriptionChange: (text: string) => void
+  onAttachVideo: (videoId: string) => void
+  onUploadVideo: (file: File, onProgress: (p: number) => void) => Promise<void>
+  onRemoveVideo: () => void
+  onCreateQuiz: () => void
+  onQuizAction: (data: Record<string, unknown>) => void
+  onDeleteQuiz: () => void
+}) {
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const vc = videoContent(section)
+  const tc = textContent(section)
+  const duration = fmtDuration(vc?.video?.durationSeconds ?? null)
+
+  const pickFile = () => fileRef.current?.click()
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadProgress(0)
+    await onUploadVideo(file, (p) => setUploadProgress(p))
+    setUploadProgress(null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+  const onDropVideo = async (e: React.DragEvent) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    setUploadProgress(0)
+    await onUploadVideo(file, (p) => setUploadProgress(p))
+    setUploadProgress(null)
+  }
+
+  return (
+    <div className="p-8 lg:p-10 max-w-[720px] mx-auto">
+      <Eyebrow size="xs" className="mb-1">
+        Section {sectionNumber} · {duration}
+      </Eyebrow>
+
+      <InlineEditableHeading
+        value={section.title}
+        onChange={onRenameSection}
+      />
+
+      {/* ─── Video block ─── */}
+      <div className="mb-6">
+        {vc?.video ? (
+          <div className="relative rounded-[14px] overflow-hidden border border-surface-border bg-[#1a1815] aspect-video">
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video
+              src={vc.video.url}
+              controls
+              className="w-full h-full object-contain bg-black"
+              preload="metadata"
+            />
+          </div>
+        ) : (
+          <div
+            data-dropzone
+            onClick={pickFile}
+            onDragOver={(e) => { e.preventDefault(); (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--brand-primary)' }}
+            onDragLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)' }}
+            onDrop={onDropVideo}
+            className="aspect-video rounded-[14px] border-2 border-dashed cursor-pointer flex flex-col items-center justify-center text-center px-6 transition-colors"
+            style={{ borderColor: 'var(--border)', background: '#fff' }}
+          >
+            {uploadProgress !== null ? (
+              <>
+                <div className="w-10 h-10 rounded-full border-2 border-brand-200 border-t-[color:var(--brand-primary)] animate-spin mb-3" />
+                <div className="font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>
+                  Uploading · {uploadProgress}%
+                </div>
+              </>
+            ) : (
+              <>
+                <svg className="w-8 h-8 text-grey-50 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                <div className="text-[14px] text-ink font-medium mb-1">Drop a video here or click to browse</div>
+                <div className="font-mono text-[11px] uppercase text-grey-50" style={{ letterSpacing: '0.1em' }}>
+                  MP4, MOV, WEBM · up to 500MB
+                </div>
+              </>
+            )}
+            <input ref={fileRef} type="file" accept="video/*" className="hidden" onChange={onFile} />
+          </div>
+        )}
+
+        {vc?.video && (
+          <div className="mt-3 flex items-center gap-2.5">
+            <label>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-surface-border rounded-[10px] text-[12px] font-medium text-ink bg-white hover:bg-surface-light cursor-pointer">
+                Replace video
+              </span>
+              <input type="file" accept="video/*" className="hidden" onChange={onFile} />
+            </label>
+            <button
+              onClick={onRemoveVideo}
+              className="text-[12px] font-medium px-3 py-1.5 rounded-[10px] hover:bg-[color:var(--danger-bg)] transition-colors"
+              style={{ color: 'var(--danger-fg)' }}
+            >
+              Remove
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Description block ─── */}
+      <div className="mb-8">
+        <div className="eyebrow mb-1.5">Description</div>
+        <textarea
+          key={section.id /* reset when switching sections */}
+          defaultValue={tc?.textContent || ''}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          rows={6}
+          className="w-full px-3.5 py-3 border border-surface-border rounded-[10px] text-ink text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          placeholder="What will candidates learn in this section?"
+        />
+      </div>
+
+      {/* ─── Quiz block ─── */}
+      {section.quiz ? (
+        <QuizBlock
+          quiz={section.quiz}
+          onQuizAction={onQuizAction}
+          onDelete={onDeleteQuiz}
+        />
+      ) : (
+        <button
+          onClick={onCreateQuiz}
+          className="w-full text-left p-4 rounded-[14px] border border-dashed border-surface-border hover:border-[color:var(--brand-primary)] hover:bg-brand-50/40 transition-colors"
+        >
+          <div className="font-mono text-[10px] uppercase text-grey-35 mb-1" style={{ letterSpacing: '0.12em' }}>
+            Optional
+          </div>
+          <div className="text-[14px] font-medium text-ink">+ Add a quiz to gate this section</div>
+          <div className="text-[12px] text-grey-35 mt-0.5">Candidates must pass before moving on.</div>
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ───────────────────────── Inline heading ─────────────────────────
+
+function InlineEditableHeading({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [local, setLocal] = useState(value)
+  useEffect(() => setLocal(value), [value])
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={local}
+        onChange={(e) => { setLocal(e.target.value); onChange(e.target.value) }}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); (e.currentTarget as HTMLInputElement).blur() }
+          if (e.key === 'Escape') { setLocal(value); setEditing(false) }
+        }}
+        className="w-full text-[24px] font-semibold text-ink tracking-tight2 mb-5 bg-transparent border-b border-surface-border focus:outline-none focus:border-[color:var(--brand-primary)]"
+      />
+    )
+  }
+  return (
+    <h2
+      className="text-[24px] font-semibold text-ink tracking-tight2 mb-5 cursor-text hover:bg-surface-weak rounded-[6px] -mx-1 px-1 transition-colors"
+      onClick={() => setEditing(true)}
+      title="Click to rename"
+    >
+      {value}
+    </h2>
+  )
+}
+
+// ───────────────────────── Quiz block ─────────────────────────
+
+function QuizBlock({
+  quiz,
+  onQuizAction,
+  onDelete,
+}: {
+  quiz: Quiz
+  onQuizAction: (data: Record<string, unknown>) => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="bg-white border border-surface-border rounded-[14px] p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <Eyebrow size="xs" className="mb-0.5">Quiz</Eyebrow>
+          <div className="text-[14px] font-semibold text-ink">
+            {quiz.questions.length} question{quiz.questions.length === 1 ? '' : 's'}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onQuizAction({ action: 'addQuestion', question: { questionText: 'New question', questionType: 'single', options: [{ text: 'Option A', isCorrect: true }, { text: 'Option B', isCorrect: false }] } })}
+            className="text-[12px] font-medium text-grey-35 hover:text-ink"
+          >
+            + Add question
+          </button>
+          <button
+            onClick={() => { if (confirm('Delete quiz? All questions will be lost.')) onDelete() }}
+            className="text-[12px] font-medium hover:underline"
+            style={{ color: 'var(--danger-fg)' }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {quiz.questions.length === 0 ? (
+        <div className="text-center py-6 text-[13px] text-grey-35">
+          No questions yet. Add one to gate this section.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {quiz.questions.map((q, i) => (
+            <div key={q.id} className="pb-4 border-b border-surface-divider last:border-0 last:pb-0">
+              <div className="flex items-start gap-2 mb-2">
+                <div className="font-mono text-[11px] text-grey-50 pt-2 w-6" style={{ letterSpacing: '0.08em' }}>Q{i + 1}</div>
+                <input
+                  defaultValue={q.questionText}
+                  onBlur={(e) => { if (e.target.value !== q.questionText) onQuizAction({ action: 'updateQuestion', questionId: q.id, questionText: e.target.value }) }}
+                  className="flex-1 px-3 py-1.5 bg-transparent border-b border-surface-border text-[14px] text-ink focus:outline-none focus:border-[color:var(--brand-primary)]"
+                />
+                <button
+                  onClick={() => onQuizAction({ action: 'deleteQuestion', questionId: q.id })}
+                  className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[18px] px-2"
+                  title="Delete question"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="ml-8 space-y-1.5">
+                {q.options.map((opt, oi) => (
+                  <div key={oi} className="flex items-center gap-2">
+                    <input
+                      type={q.questionType === 'multi' ? 'checkbox' : 'radio'}
+                      checked={opt.isCorrect}
+                      onChange={() => {
+                        const next = q.options.map((o, j) => ({
+                          ...o,
+                          isCorrect: q.questionType === 'multi'
+                            ? (j === oi ? !o.isCorrect : o.isCorrect)
+                            : (j === oi),
+                        }))
+                        onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                      }}
+                      className="accent-[color:var(--brand-primary)]"
+                    />
+                    <input
+                      defaultValue={opt.text}
+                      onBlur={(e) => {
+                        if (e.target.value === opt.text) return
+                        const next = q.options.map((o, j) => (j === oi ? { ...o, text: e.target.value } : o))
+                        onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                      }}
+                      className="flex-1 px-2 py-1 text-[13px] text-ink bg-transparent border-b border-surface-border focus:outline-none focus:border-[color:var(--brand-primary)]"
+                    />
+                    <button
+                      onClick={() => {
+                        const next = q.options.filter((_, j) => j !== oi)
+                        onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                      }}
+                      className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[14px] w-6"
+                      title="Remove option"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const next = [...q.options, { text: `Option ${String.fromCharCode(65 + q.options.length)}`, isCorrect: false }]
+                    onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                  }}
+                  className="text-[11px] font-mono uppercase text-grey-35 hover:text-ink"
+                  style={{ letterSpacing: '0.08em' }}
+                >
+                  + Add option
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ───────────────────────── Right pane — Section settings ─────────────────────────
+
+function SectionSettingsPane({
+  section,
+  videos,
+  onAttachVideo,
+  onSetRequiredWatch,
+  onToggleQuizGate,
+  onDeleteSection,
+}: {
+  section: Section
+  videos: Video[]
+  onAttachVideo: (videoId: string) => void
+  onSetRequiredWatch: (required: boolean) => void
+  onToggleQuizGate: (enabled: boolean) => void
+  onDeleteSection: () => void
+}) {
+  const vc = videoContent(section)
+  const gate = deriveGate(section)
+
+  return (
+    <div className="p-5">
+      <Eyebrow size="xs" className="mb-3">Section settings</Eyebrow>
+
+      <Field label="Video source">
+        <select
+          value={vc?.videoId || ''}
+          onChange={(e) => e.target.value && onAttachVideo(e.target.value)}
+          className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+        >
+          <option value="">None attached</option>
+          {videos.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.displayName || v.filename}
+              {v.durationSeconds ? ` · ${fmtDuration(v.durationSeconds)}` : ''}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field label="Gate">
+        <div className="inline-flex w-full rounded-[10px] bg-surface-weak p-0.5">
+          {([
+            { v: 'none' as const, l: 'None' },
+            { v: 'watch' as const, l: 'Watch' },
+            { v: 'quiz' as const, l: 'Quiz' },
+          ]).map((o) => (
+            <button
+              key={o.v}
+              onClick={() => {
+                if (o.v === 'none') { onSetRequiredWatch(false); onToggleQuizGate(false) }
+                if (o.v === 'watch') { onSetRequiredWatch(true); onToggleQuizGate(false) }
+                if (o.v === 'quiz') { onSetRequiredWatch(false); onToggleQuizGate(true) }
+              }}
+              className={`flex-1 px-2 py-1.5 text-[12px] font-medium rounded-[8px] transition-colors ${
+                gate === o.v ? 'bg-white text-ink shadow-sm' : 'text-grey-35 hover:text-ink'
+              }`}
+            >
+              {o.l}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.08em' }}>
+          {gate === 'quiz' && !section.quiz?.questions.length ? 'Add ≥1 question to publish' : ''}
+        </div>
+      </Field>
+
+      <Field label="Quiz">
+        <label className="flex items-center gap-2.5 cursor-pointer">
+          <button
+            type="button"
+            onClick={() => onToggleQuizGate(!section.quiz)}
+            className="w-10 h-5 rounded-full transition-colors relative"
+            style={{ background: section.quiz ? 'var(--brand-primary)' : '#D1CFCA' }}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${section.quiz ? 'left-5' : 'left-0.5'}`} />
+          </button>
+          <span className="text-[13px] text-ink">
+            {section.quiz ? 'Enabled' : 'Disabled'}
+          </span>
+        </label>
+      </Field>
+
+      <Field label="Estimated duration">
+        <div className="font-mono text-[13px] text-ink">
+          {fmtDuration(vc?.video?.durationSeconds ?? null)}
+        </div>
+      </Field>
+
+      {/* Enrollment group — placeholder stats (API doesn't return yet) */}
+      <div className="mt-6 mb-3"><Eyebrow size="xs">Enrollment</Eyebrow></div>
+      <div className="grid grid-cols-2 gap-2">
+        <MiniStat label="Enrolled" value="—" />
+        <MiniStat label="Completed" value="—" />
+        <MiniStat label="Avg. time" value="—" />
+        {gate === 'quiz' && <MiniStat label="Quiz pass rate" value="—" />}
+      </div>
+
+      {/* Delete */}
+      <div className="mt-6 pt-5 border-t border-surface-divider">
+        <button
+          onClick={onDeleteSection}
+          className="w-full text-[12px] font-medium py-2 rounded-[10px] hover:bg-[color:var(--danger-bg)] transition-colors"
+          style={{ color: 'var(--danger-fg)' }}
+        >
+          Delete section
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────── Right pane — Course settings ─────────────────────────
+
+function CourseSettingsRightPane({
+  training,
+  onUpdate,
+}: {
+  training: Training
+  onUpdate: (data: Partial<Training>) => void
+}) {
   const coverRef = useRef<HTMLInputElement>(null)
+  const [uploadingCover, setUploadingCover] = useState(false)
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -59,542 +1080,178 @@ export default function TrainingEditorPage() {
       const formData = new FormData()
       formData.append('file', file)
       const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
-      if (res.ok) { const { url } = await res.json(); updateTraining({ coverImage: url } as Partial<Training>) }
-    } catch {}
-    setUploadingCover(false)
-    if (coverRef.current) coverRef.current.value = ''
-  }
-
-  useEffect(() => {
-    Promise.all([
-      fetch(`/api/trainings/${trainingId}`).then(r => r.json()),
-      fetch('/api/videos').then(r => r.json()),
-    ]).then(([t, v]) => {
-      setTraining(t)
-      setVideos(v.map((vid: Record<string, unknown>) => ({ id: vid.id, filename: vid.filename, url: vid.url || vid.storageKey, displayName: vid.displayName })))
-      if (t.sections?.length > 0) setActiveSection(t.sections[0].id)
-      setLoading(false)
-    })
-  }, [trainingId])
-
-  const refresh = async () => { const res = await fetch(`/api/trainings/${trainingId}`); if (res.ok) setTraining(await res.json()) }
-  const updateTraining = async (data: Partial<Training>) => { await fetch(`/api/trainings/${trainingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); refresh() }
-  const addSection = async () => { await fetch(`/api/trainings/${trainingId}/sections`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'New Section' }) }); refresh() }
-  const updateSection = async (sectionId: string, data: Record<string, unknown>) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); refresh() }
-  const deleteSection = async (sectionId: string) => { if (!confirm('Delete this section?')) return; await fetch(`/api/trainings/${trainingId}/sections/${sectionId}`, { method: 'DELETE' }); refresh() }
-  const addContent = async (sectionId: string, type: 'video' | 'text') => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type }) }); refresh() }
-  const updateContent = async (sectionId: string, contentId: string, data: Record<string, unknown>) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contentId, ...data }) }); refresh() }
-  const deleteContent = async (sectionId: string, contentId: string) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contentId }) }); refresh() }
-  const createOrUpdateQuiz = async (sectionId: string, data: Record<string, unknown>) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); refresh() }
-  const quizAction = async (sectionId: string, data: Record<string, unknown>) => { await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); refresh() }
-  const deleteQuiz = async (sectionId: string) => { if (!confirm('Delete this quiz?')) return; await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'DELETE' }); refresh() }
-
-  // Prevent browser from opening dropped files in a new tab — capture phase
-  useEffect(() => {
-    const preventDragOver = (e: DragEvent) => e.preventDefault()
-    const preventDrop = (e: DragEvent) => {
-      // Only prevent default if not dropping on a valid drop zone
-      const target = e.target as HTMLElement
-      if (!target.closest('[data-dropzone]')) {
-        e.preventDefault()
+      if (res.ok) {
+        const { url } = await res.json()
+        onUpdate({ coverImage: url })
       }
+    } finally {
+      setUploadingCover(false)
+      if (coverRef.current) coverRef.current.value = ''
     }
-    window.addEventListener('dragover', preventDragOver, true)
-    window.addEventListener('drop', preventDragOver, true)
-    return () => {
-      window.removeEventListener('dragover', preventDragOver, true)
-      window.removeEventListener('drop', preventDragOver, true)
-    }
-  }, [])
-
-  const handleVideoUploadForContent = async (file: File, sectionId: string, contentId: string) => {
-    if (!file.type.startsWith('video/')) {
-      alert(`"${file.name}" is not a video file. Please upload a video (MP4, MOV, WebM, etc.)`)
-      return
-    }
-    setUploadingVideo(prev => ({ ...prev, [contentId]: 0 }))
-    try {
-      const result = await uploadVideoFile(file, (p) => setUploadingVideo(prev => ({ ...prev, [contentId]: p })))
-      if (result.id) {
-        setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
-        updateContent(sectionId, contentId, { videoId: result.id })
-      }
-    } catch (err) { console.error(err); alert('Upload failed. Please try again.') }
-    setUploadingVideo(prev => { const n = { ...prev }; delete n[contentId]; return n })
   }
-
-  if (loading || !training) return <div className="flex items-center justify-center py-20"><div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>
-
-  const currentSection = training.sections.find(s => s.id === activeSection)
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <Link href="/dashboard/trainings" className="w-10 h-10 flex items-center justify-center rounded-[8px] border border-surface-border hover:bg-surface transition-colors">
-            <svg className="w-5 h-5 text-grey-35" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-          </Link>
-          <div>
-            <input
-              type="text"
-              defaultValue={training.title}
-              onBlur={(e) => { if (e.target.value !== training.title) updateTraining({ title: e.target.value }) }}
-              className="text-[28px] font-semibold text-grey-15 bg-transparent border-none focus:outline-none focus:ring-0 w-full"
-            />
-            <p className="text-sm text-grey-40">/{training.slug}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => window.open(`/t/${training.slug}`, '_blank')}
-            className="btn-secondary text-sm"
-          >
-            Preview
-          </button>
-          <button
-            onClick={() => updateTraining({ isPublished: !training.isPublished })}
-            className={training.isPublished ? 'px-5 py-3 text-sm rounded-[8px] font-medium bg-green-50 text-green-700 border border-green-200' : 'btn-primary text-sm'}
-          >
-            {training.isPublished ? '● Published' : 'Publish'}
-          </button>
-          {training.isPublished && (
-            <button
-              onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/t/${training.slug}`); alert('Link copied!') }}
-              className="btn-secondary text-sm gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-              Copy Link
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="p-5">
+      <Eyebrow size="xs" className="mb-3">Course settings</Eyebrow>
 
-      {/* Published URL banner */}
-      {training.isPublished && (
-        <div className="mb-8 flex items-center gap-3 px-5 py-4 bg-green-50 border border-green-200 rounded-[8px]">
-          <span className="w-2 h-2 bg-green-500 rounded-full" />
-          <span className="text-sm text-green-800 font-medium">Live at:</span>
-          <a href={`/t/${training.slug}`} target="_blank" className="text-sm text-green-700 underline hover:text-green-900 truncate">
-            {typeof window !== 'undefined' ? window.location.origin : ''}/t/{training.slug}
-          </a>
-          <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/t/${training.slug}`)} className="ml-auto text-xs text-green-600 hover:text-green-800">Copy</button>
-        </div>
-      )}
-
-      {/* Cover image */}
-      <div className="mb-8">
+      <Field label="Cover image">
         {training.coverImage ? (
-          <div className="relative rounded-[12px] overflow-hidden">
-            <img src={training.coverImage} alt="Cover" className="w-full h-[200px] object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-            <div className="absolute bottom-4 right-4 flex gap-2">
-              <label className="px-4 py-2 text-xs bg-white/90 rounded-[8px] cursor-pointer hover:bg-white shadow font-medium">
-                Change
-                <input ref={coverRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
-              </label>
-              <button onClick={() => updateTraining({ coverImage: null } as Partial<Training>)} className="px-4 py-2 text-xs bg-brand-500/90 text-white rounded-[8px] hover:bg-brand-600 shadow font-medium">
-                Remove
-              </button>
-            </div>
+          <div className="relative rounded-[10px] overflow-hidden border border-surface-border">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={training.coverImage} alt="Cover" className="w-full h-28 object-cover" />
+            <button
+              onClick={() => onUpdate({ coverImage: null })}
+              className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full text-xs"
+            >
+              ×
+            </button>
           </div>
         ) : (
-          <div
-            data-dropzone
-            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
-            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
-            onDrop={async (e) => {
-              e.preventDefault(); e.stopPropagation()
-              e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
-              const file = e.dataTransfer.files[0]
-              if (file && file.type.startsWith('image/')) {
-                setUploadingCover(true)
-                try {
-                  const formData = new FormData(); formData.append('file', file)
-                  const res = await fetch('/api/uploads/logo', { method: 'POST', body: formData })
-                  if (res.ok) { const { url } = await res.json(); updateTraining({ coverImage: url } as Partial<Training>) }
-                } catch {}
-                setUploadingCover(false)
-              }
-            }}
-            onClick={() => coverRef.current?.click()}
-            className="w-full h-[160px] border-2 border-dashed border-surface-divider rounded-[12px] cursor-pointer hover:border-brand-400 transition-colors flex items-center justify-center"
-          >
-            <div className="text-center">
-              <svg className="w-10 h-10 mx-auto text-grey-60 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              <span className="text-sm text-grey-40">{uploadingCover ? 'Uploading...' : 'Drag & drop image or click to browse'}</span>
-            </div>
+          <label className="block w-full h-24 border-2 border-dashed border-surface-border rounded-[10px] cursor-pointer hover:border-[color:var(--brand-primary)] transition-colors flex items-center justify-center">
+            <span className="text-[11px] text-grey-35">{uploadingCover ? 'Uploading…' : 'Upload image'}</span>
             <input ref={coverRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" disabled={uploadingCover} />
-          </div>
+          </label>
         )}
+      </Field>
+
+      <Field label="Public slug">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[11px] text-grey-50">/t/</span>
+          <input
+            type="text"
+            defaultValue={training.slug}
+            onBlur={(e) => { if (e.target.value !== training.slug) onUpdate({ slug: e.target.value } as Partial<Training>) }}
+            className="flex-1 px-2.5 py-1.5 border border-surface-border rounded-[10px] text-[13px] text-ink font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          />
+        </div>
+      </Field>
+
+      <Field label="Passing grade">
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            defaultValue={training.passingGrade}
+            onBlur={(e) => {
+              const n = Number(e.target.value)
+              if (n !== training.passingGrade) onUpdate({ passingGrade: n } as Partial<Training>)
+            }}
+            className="w-20 px-2.5 py-1.5 border border-surface-border rounded-[10px] text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          />
+          <span className="font-mono text-[11px] text-grey-50">%</span>
+        </div>
+      </Field>
+
+      <Field label="Status">
+        <Badge tone={training.isPublished ? 'success' : 'brand'}>
+          {training.isPublished ? 'Published' : 'Draft'}
+        </Badge>
+      </Field>
+    </div>
+  )
+}
+
+// ───────────────────────── Small helpers ─────────────────────────
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block mb-4">
+      <div className="font-mono text-[10px] uppercase text-grey-35 mb-1.5" style={{ letterSpacing: '0.1em' }}>
+        {label}
       </div>
+      {children}
+    </label>
+  )
+}
 
-      {/* Progress steps — clickable, orange */}
-      <div className="bg-white rounded-[12px] border border-surface-border mb-8">
-        <div className="px-8 py-5 border-b border-surface-border">
-          <h2 className="text-[20px] font-semibold text-grey-15">Setup Progress</h2>
-        </div>
-        <div className="flex items-center px-[50px] py-6">
-          {[
-            { label: 'Create content', done: training.sections.length > 0, step: 0 },
-            { label: 'Set price', done: !!training.pricing, step: 1 },
-            { label: 'Customize page', done: !!training.description, step: 2 },
-            { label: 'Publish', done: training.isPublished, step: 3 },
-          ].map((item, i, arr) => (
-            <div key={i} className="flex items-center flex-1">
-              <button
-                onClick={() => setActiveStep(activeStep === item.step ? null : item.step)}
-                className={`flex items-center gap-3 rounded-[8px] px-3 py-2 -mx-3 transition-colors ${
-                  activeStep === item.step ? 'bg-brand-50' : 'hover:bg-surface'
-                }`}
-              >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
-                  item.done ? 'bg-[#FF9500] text-white' : activeStep === item.step ? 'bg-[#FF9500]/20 border-2 border-[#FF9500] text-[#FF9500]' : 'bg-surface border border-surface-border text-grey-40'
-                }`}>
-                  {item.done ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg> : String(i + 1).padStart(2, '0')}
-                </div>
-                <span className={`text-sm font-medium ${item.done ? 'text-[#FF9500]' : activeStep === item.step ? 'text-[#FF9500]' : 'text-grey-35'}`}>{item.label}</span>
-              </button>
-              {i < arr.length - 1 && <div className="flex-1 h-px bg-surface-border mx-6" />}
-            </div>
-          ))}
-        </div>
-
-        {/* Step panels */}
-        {activeStep === 1 && (
-          <div className="px-8 pb-6 border-t border-surface-border pt-5">
-            <h3 className="text-sm font-semibold text-grey-15 mb-3">Pricing</h3>
-            <div className="flex gap-3 mb-4">
-              <button onClick={() => updateTraining({ pricing: { type: 'free' } } as Partial<Training>)} className={`flex-1 py-3 text-sm rounded-[8px] border font-medium ${(training.pricing as Record<string, unknown>)?.type === 'free' ? 'border-[#FF9500] bg-[#FFF7ED] text-[#FF9500]' : 'border-surface-border text-grey-35'}`}>Free</button>
-              <button onClick={() => updateTraining({ pricing: { type: 'paid', price: 0 } } as Partial<Training>)} className={`flex-1 py-3 text-sm rounded-[8px] border font-medium ${(training.pricing as Record<string, unknown>)?.type === 'paid' ? 'border-[#FF9500] bg-[#FFF7ED] text-[#FF9500]' : 'border-surface-border text-grey-35'}`}>Paid</button>
-            </div>
-            {(training.pricing as Record<string, unknown>)?.type === 'paid' && (
-              <div className="flex items-center gap-2">
-                <span className="text-grey-35">$</span>
-                <input type="number" min={0} step={0.01} defaultValue={Number((training.pricing as Record<string, unknown>)?.price) || 0} onBlur={(e) => updateTraining({ pricing: { type: 'paid', price: Number(e.target.value) } } as Partial<Training>)} className="flex-1 px-4 py-2.5 border border-surface-border rounded-[8px] text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeStep === 2 && (
-          <div className="px-8 pb-6 border-t border-surface-border pt-5">
-            <h3 className="text-sm font-semibold text-grey-15 mb-3">Description</h3>
-            <textarea
-              key={`desc-${training.id}`}
-              defaultValue={training.description || ''}
-              onBlur={(e) => updateTraining({ description: e.target.value } as Partial<Training>)}
-              rows={4}
-              placeholder="Describe your training program..."
-              className="w-full px-4 py-3 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
-            />
-          </div>
-        )}
-
-        {activeStep === 3 && (
-          <div className="px-8 pb-6 border-t border-surface-border pt-5">
-            <h3 className="text-sm font-semibold text-grey-15 mb-3">Publish</h3>
-            <p className="text-sm text-grey-35 mb-4">{training.isPublished ? 'Your training is live.' : 'Publish to make it accessible via the public link.'}</p>
-            <button onClick={() => updateTraining({ isPublished: !training.isPublished })} className={`px-6 py-3 text-sm rounded-[8px] font-medium ${training.isPublished ? 'bg-surface border border-surface-border text-grey-35' : 'bg-[#FF9500] text-white hover:bg-[#EA8500]'}`}>
-              {training.isPublished ? 'Unpublish' : 'Publish Now'}
-            </button>
-          </div>
-        )}
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[8px] p-2.5" style={{ background: '#F7F3EB' }}>
+      <div className="font-mono text-[10px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>
+        {label}
       </div>
+      <div className="text-[15px] font-semibold text-ink mt-0.5">{value}</div>
+    </div>
+  )
+}
 
-      {/* Main content area */}
-      <div className="flex gap-6">
-        {/* Left: Sections sidebar */}
-        <div className="w-[260px] flex-shrink-0">
-          <div className="bg-white rounded-[12px] border border-surface-border">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
-              <h3 className="text-sm font-semibold text-grey-15 uppercase tracking-wide">Sections</h3>
-              <button onClick={addSection} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Add</button>
-            </div>
-            <div className="p-2">
-              {training.sections.map((section, i) => (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  className={`w-full text-left px-4 py-3 rounded-[8px] text-sm transition-colors mb-1 ${
-                    activeSection === section.id
-                      ? 'bg-brand-50 text-brand-700 border border-brand-200'
-                      : 'text-grey-35 hover:bg-surface'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs font-bold ${activeSection === section.id ? 'text-brand-500' : 'text-grey-50'}`}>
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{section.title}</div>
-                      <div className="text-[11px] text-grey-40 mt-0.5">
-                        {section.contents.length} items{section.quiz ? ' · Quiz' : ''}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              ))}
-              {training.sections.length === 0 && (
-                <div className="text-center py-6 text-grey-40 text-sm">No sections yet</div>
-              )}
-            </div>
-          </div>
+// ───────────────────────── Publish pre-flight ─────────────────────────
+
+type PreflightCheck = { label: string; ok: boolean; blocking: boolean; sectionHint?: string }
+
+function computePreflight(training: Training): PreflightCheck[] {
+  const checks: PreflightCheck[] = []
+  for (let i = 0; i < training.sections.length; i++) {
+    const s = training.sections[i]
+    const hasVideo = !!videoContent(s)?.videoId
+    checks.push({
+      label: `Section ${i + 1} has a video`,
+      ok: hasVideo,
+      blocking: true,
+      sectionHint: hasVideo ? undefined : s.title,
+    })
+    if (s.quiz && s.quiz.requiredPassing) {
+      checks.push({
+        label: `Section ${i + 1} quiz has ≥1 question`,
+        ok: s.quiz.questions.length >= 1,
+        blocking: true,
+      })
+    }
+  }
+  checks.push({ label: 'Cover image set', ok: !!training.coverImage, blocking: false })
+  checks.push({ label: 'Public slug set', ok: !!training.slug, blocking: true })
+  return checks
+}
+
+function PublishDrawer({
+  training,
+  preflight,
+  onClose,
+  onPublish,
+}: {
+  training: Training
+  preflight: PreflightCheck[]
+  onClose: () => void
+  onPublish: () => Promise<void>
+}) {
+  const blocked = preflight.some((c) => c.blocking && !c.ok)
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={onClose}>
+      <div
+        className="bg-white rounded-[14px] border border-surface-border w-full max-w-[480px] p-6"
+        style={{ boxShadow: 'var(--shadow-raised)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Eyebrow size="xs" className="mb-1">Pre-flight</Eyebrow>
+        <h3 className="text-[20px] font-semibold text-ink mb-4 tracking-tight2">
+          {training.isPublished ? 'Update this training' : 'Publish this training'}
+        </h3>
+
+        <div className="space-y-2 mb-5">
+          {preflight.map((c, i) => {
+            const tone: BadgeTone = c.ok ? 'success' : c.blocking ? 'danger' : 'warn'
+            return (
+              <div key={i} className="flex items-center justify-between gap-3 py-1.5 border-b border-surface-divider last:border-0">
+                <div className="text-[13px] text-ink">{c.label}</div>
+                <Badge tone={tone}>{c.ok ? 'OK' : c.blocking ? 'Block' : 'Warn'}</Badge>
+              </div>
+            )
+          })}
         </div>
 
-        {/* Right: Section editor */}
-        <div className="flex-1 min-w-0">
-          {currentSection ? (
-            <div key={currentSection.id} className="bg-white rounded-[12px] border border-surface-border">
-              {/* Section header */}
-              <div className="flex items-center justify-between px-6 py-5 border-b border-surface-border">
-                <div className="flex items-center gap-3 group flex-1">
-                  <input
-                    key={`title-${currentSection.id}`}
-                    type="text"
-                    defaultValue={currentSection.title}
-                    onBlur={(e) => { if (e.target.value !== currentSection.title) updateSection(currentSection.id, { title: e.target.value }) }}
-                    className="text-lg font-semibold text-grey-15 bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-brand-400 focus:bg-brand-50 rounded-[8px] px-2 py-1 -ml-2"
-                  />
-                  <svg className="w-4 h-4 text-grey-60 group-hover:text-grey-30 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                </div>
-                <button onClick={() => deleteSection(currentSection.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Delete Section</button>
-              </div>
-
-              <div className="p-6">
-                {/* Add content buttons */}
-                <div className="flex gap-3 mb-6">
-                  <button onClick={() => addContent(currentSection.id, 'video')} className="px-4 py-2.5 text-xs bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 font-medium">
-                    + Video
-                  </button>
-                  <button onClick={() => addContent(currentSection.id, 'text')} className="px-4 py-2.5 text-xs bg-surface text-grey-35 border border-surface-border rounded-[8px] hover:bg-surface-light font-medium">
-                    + Text
-                  </button>
-                  {!currentSection.quiz && (
-                    <button onClick={() => createOrUpdateQuiz(currentSection.id, {})} className="px-4 py-2.5 text-xs bg-[#FFF7ED] text-[#FF9500] border border-[#FFEDD5] rounded-[8px] hover:bg-[#FFEDD5] font-medium">
-                      + Quiz
-                    </button>
-                  )}
-                </div>
-
-                {/* Content items */}
-                <div className="space-y-4">
-                  {currentSection.contents.map((content) => (
-                    <div key={content.id} className="rounded-[8px] border border-surface-border p-5">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${
-                          content.type === 'video' ? 'bg-brand-50 text-brand-600' : 'bg-surface text-grey-35'
-                        }`}>
-                          {content.type === 'video' ? '▶ Video' : '¶ Text'}
-                        </span>
-                        <button onClick={() => deleteContent(currentSection.id, content.id)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-brand-500 hover:bg-brand-50 transition-colors">&times;</button>
-                      </div>
-
-                      {content.type === 'video' ? (
-                        <div className="space-y-3">
-                          {/* Video preview or drop zone */}
-                          {content.video?.url ? (
-                            <div className="rounded-[8px] overflow-hidden mb-2">
-                              <video src={content.video.url} controls className="w-full rounded-[8px]" />
-                            </div>
-                          ) : uploadingVideo[content.id] !== undefined ? (
-                            <div className="border-2 border-brand-300 bg-brand-50 rounded-[8px] p-6 text-center">
-                              <div className="w-10 h-10 mx-auto mb-3 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
-                              <span className="text-sm font-medium text-brand-700">Uploading... {uploadingVideo[content.id]}%</span>
-                              <div className="w-full bg-brand-200 rounded-full h-2 mt-3">
-                                <div className="bg-brand-500 h-2 rounded-full transition-all duration-300" style={{ width: `${uploadingVideo[content.id]}%` }} />
-                              </div>
-                            </div>
-                          ) : (
-                            <label
-                              data-dropzone
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('border-brand-500', 'bg-brand-50') }}
-                              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50') }}
-                              onDrop={async (e) => {
-                                e.preventDefault(); e.stopPropagation()
-                                e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
-                                const file = e.dataTransfer.files[0]
-                                if (file) handleVideoUploadForContent(file, currentSection.id, content.id)
-                              }}
-                              className="block border-2 border-dashed border-surface-border rounded-[8px] p-6 text-center cursor-pointer hover:border-brand-400 transition-colors"
-                            >
-                              <svg className="w-8 h-8 mx-auto text-grey-50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                              <p className="text-xs text-grey-40">Drag & drop video or click to browse</p>
-                              <p className="text-[10px] text-grey-50 mt-1">MP4, MOV, WebM supported</p>
-                              <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
-                                const file = e.target.files?.[0]
-                                if (file) handleVideoUploadForContent(file, currentSection.id, content.id)
-                                if (e.target) e.target.value = ''
-                              }} />
-                            </label>
-                          )}
-                          <div className="flex gap-2">
-                            <select
-                              value={content.videoId || ''}
-                              onChange={(e) => updateContent(currentSection.id, content.id, { videoId: e.target.value || null })}
-                              className="flex-1 px-4 py-2.5 text-sm border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                            >
-                              <option value="">Select video...</option>
-                              {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
-                            </select>
-                            <VideoUploadButton onUploaded={(video) => { setVideos(prev => [video, ...prev]); updateContent(currentSection.id, content.id, { videoId: video.id }) }} />
-                          </div>
-                          <div className="flex gap-5">
-                            <label className="flex items-center gap-2 text-xs text-grey-35 cursor-pointer">
-                              <input type="checkbox" checked={content.requiredWatch} onChange={(e) => updateContent(currentSection.id, content.id, { requiredWatch: e.target.checked })} className="rounded accent-[#FF9500]" />
-                              Required to watch
-                            </label>
-                            <label className="flex items-center gap-2 text-xs text-grey-35 cursor-pointer">
-                              <input type="checkbox" checked={content.autoplayNext} onChange={(e) => updateContent(currentSection.id, content.id, { autoplayNext: e.target.checked })} className="rounded accent-[#FF9500]" />
-                              Autoplay next
-                            </label>
-                          </div>
-                        </div>
-                      ) : (
-                        <textarea
-                          defaultValue={content.textContent || ''}
-                          onBlur={(e) => updateContent(currentSection.id, content.id, { textContent: e.target.value })}
-                          rows={4}
-                          placeholder="Enter text content..."
-                          className="w-full px-4 py-3 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
-                        />
-                      )}
-                    </div>
-                  ))}
-
-                  {/* Quiz */}
-                  {currentSection.quiz && (
-                    <div className="rounded-[8px] border border-[#FFEDD5] bg-[#FFFBF5] p-5">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] px-2.5 py-1 rounded-full font-medium bg-[#FFF7ED] text-[#FF9500]">Quiz</span>
-                          <input
-                            type="text"
-                            defaultValue={currentSection.quiz.title}
-                            onBlur={(e) => createOrUpdateQuiz(currentSection.id, { title: e.target.value })}
-                            className="text-sm font-semibold text-grey-15 bg-transparent border-none focus:outline-none"
-                          />
-                        </div>
-                        <button onClick={() => deleteQuiz(currentSection.id)} className="w-7 h-7 flex items-center justify-center rounded-[8px] text-brand-500 hover:bg-brand-50">&times;</button>
-                      </div>
-
-                      <div className="flex items-center gap-4 mb-4 pb-4 border-b border-[#FFEDD5]">
-                        <label className="flex items-center gap-2 text-xs text-grey-35 cursor-pointer">
-                          <input type="checkbox" checked={currentSection.quiz.requiredPassing} onChange={(e) => createOrUpdateQuiz(currentSection.id, { requiredPassing: e.target.checked })} className="rounded accent-[#FF9500]" />
-                          Require passing
-                        </label>
-                        <div className="flex items-center gap-1.5 text-xs text-grey-35">
-                          <span>Grade:</span>
-                          <input type="number" min={0} max={100} defaultValue={currentSection.quiz.passingGrade} onBlur={(e) => createOrUpdateQuiz(currentSection.id, { passingGrade: Number(e.target.value) })} className="w-14 px-2 py-1.5 border border-surface-border rounded-[8px] text-xs text-center" />
-                          <span>%</span>
-                        </div>
-                      </div>
-
-                      {/* Questions */}
-                      <div className="space-y-3">
-                        {currentSection.quiz.questions.map((q, qi) => (
-                          <div key={q.id} className="bg-white rounded-[8px] p-4 border border-[#FFEDD5]">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-[11px] font-bold text-grey-40">Q{String(qi + 1).padStart(2, '0')}</span>
-                              <button onClick={() => quizAction(currentSection.id, { action: 'delete_question', questionId: q.id })} className="text-brand-400 hover:text-brand-600 text-xs">&times;</button>
-                            </div>
-                            <input
-                              type="text"
-                              defaultValue={q.questionText}
-                              onBlur={(e) => quizAction(currentSection.id, { action: 'update_question', questionId: q.id, questionText: e.target.value })}
-                              className="w-full px-3 py-2 text-sm border border-surface-border rounded-[8px] mb-3 focus:outline-none focus:ring-1 focus:ring-brand-500 text-grey-15"
-                            />
-                            <div className="space-y-2">
-                              {(q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((opt, oi) => (
-                                <div key={oi} className={`rounded-[8px] border p-3 ${opt.isCorrect ? 'border-[#FFEDD5] bg-[#FFF7ED]' : 'border-surface-border'}`}>
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      onClick={() => {
-                                        const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => ({
-                                          ...o, isCorrect: q.questionType === 'multiselect' ? (i === oi ? !o.isCorrect : o.isCorrect) : i === oi,
-                                        }))
-                                        quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                      }}
-                                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                                        opt.isCorrect ? 'border-[#FF9500] bg-[#FF9500] text-white' : 'border-grey-60 hover:border-[#FF9500]'
-                                      }`}
-                                    >
-                                      {opt.isCorrect && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                                    </button>
-                                    <input
-                                      type="text"
-                                      defaultValue={opt.text}
-                                      onBlur={(e) => {
-                                        const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => i === oi ? { ...o, text: e.target.value } : o)
-                                        quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                      }}
-                                      className="flex-1 px-2 py-0.5 text-xs border-none bg-transparent focus:outline-none text-grey-15"
-                                    />
-                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${opt.isCorrect ? 'bg-[#FFF7ED] text-[#FF9500]' : 'bg-surface text-grey-40'}`}>
-                                      {opt.isCorrect ? 'Correct' : 'Wrong'}
-                                    </span>
-                                    {(q.options as Array<{ text: string; isCorrect: boolean }>).length > 2 && (
-                                      <button onClick={() => {
-                                        const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).filter((_, i) => i !== oi)
-                                        quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                      }} className="text-brand-400 hover:text-brand-600 text-xs">&times;</button>
-                                    )}
-                                  </div>
-                                  <div className="ml-7 mt-1.5">
-                                    <input
-                                      type="text"
-                                      defaultValue={opt.hint || ''}
-                                      onBlur={(e) => {
-                                        const newOpts = (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => i === oi ? { ...o, hint: e.target.value } : o)
-                                        quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                      }}
-                                      placeholder={opt.isCorrect ? 'Hint: "Correct! Because..."' : 'Hint: "Not quite..."'}
-                                      className="w-full px-2 py-0.5 text-[10px] text-grey-40 border border-dashed border-surface-border rounded bg-transparent focus:outline-none focus:border-brand-400"
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                              <button
-                                onClick={() => {
-                                  const newOpts = [...(q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>), { text: 'New option', isCorrect: false, hint: '' }]
-                                  quizAction(currentSection.id, { action: 'update_question', questionId: q.id, options: newOpts })
-                                }}
-                                className="text-[11px] text-brand-500 hover:text-brand-600 font-medium"
-                              >
-                                + Add option
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <button
-                        onClick={() => quizAction(currentSection.id, { action: 'add_question' })}
-                        className="mt-3 px-4 py-2 text-xs text-[#FF9500] border border-[#FFEDD5] rounded-[8px] hover:bg-[#FFF7ED] font-medium"
-                      >
-                        + Add Question
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {currentSection.contents.length === 0 && !currentSection.quiz && (
-                  <div className="text-center py-12 text-grey-40">
-                    <svg className="w-12 h-12 mx-auto mb-3 text-grey-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                    <p className="text-sm">Add video, text, or quiz content</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-[12px] border border-surface-border text-center py-16">
-              <svg className="w-12 h-12 mx-auto mb-3 text-grey-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-              <p className="text-grey-35">{training.sections.length === 0 ? 'Add a section to get started' : 'Select a section'}</p>
-            </div>
-          )}
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            disabled={blocked || busy}
+            onClick={async () => { setBusy(true); await onPublish(); setBusy(false) }}
+          >
+            {busy ? 'Publishing…' : training.isPublished ? 'Update now' : 'Publish now'}
+          </Button>
         </div>
       </div>
-
     </div>
   )
 }
