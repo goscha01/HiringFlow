@@ -1,13 +1,23 @@
 /**
- * Candidates — refreshed visual skin on the existing filtered-table flow.
- * Design's 4-column kanban isn't applied yet because the existing pipeline
- * has 9 stages; a kanban pass would require collapsing those. Tracked for a
- * later, dedicated UX pass.
+ * Candidates — kanban view per design handoff. 4 columns mapped from the
+ * existing 9 pipeline stages:
+ *
+ *   New          ← no pipelineStatus, 'applied'
+ *   In progress  ← completed_flow, passed, training_in_progress,
+ *                  training_completed, invited_to_schedule, scheduled
+ *   Hired        ← pipelineStatus === 'hired' (new terminal value the
+ *                  user moves candidates to)
+ *   Rejected     ← 'failed', 'rejected'
+ *
+ * Drag-drop (native HTML5 API — no third-party lib) moves a candidate
+ * between columns and patches /api/candidates/:id with a column-default
+ * pipelineStatus. The column buttons show the full stage detail on the
+ * card so moving a card doesn't lose granularity.
  */
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Badge, Card, Eyebrow, PageHeader, type BadgeTone } from '@/components/design'
 
@@ -23,99 +33,96 @@ interface Candidate {
 
 interface Flow { id: string; name: string }
 
-const STATUSES: Array<{ value: string; label: string; tone: BadgeTone }> = [
-  { value: 'all', label: 'All', tone: 'neutral' },
-  { value: 'applied', label: 'Applied', tone: 'neutral' },
-  { value: 'completed_flow', label: 'Completed', tone: 'info' },
-  { value: 'passed', label: 'Passed', tone: 'success' },
-  { value: 'failed', label: 'Failed', tone: 'danger' },
-  { value: 'training_in_progress', label: 'Training', tone: 'info' },
-  { value: 'training_completed', label: 'Trained', tone: 'brand' },
-  { value: 'invited_to_schedule', label: 'Invited', tone: 'brand' },
-  { value: 'scheduled', label: 'Scheduled', tone: 'warn' },
-]
+type Column = 'new' | 'in_progress' | 'hired' | 'rejected'
 
-function statusBadge(status: string | null) {
-  if (!status) return <Badge tone="neutral">New</Badge>
-  const s = STATUSES.find((st) => st.value === status)
-  return <Badge tone={s?.tone ?? 'neutral'}>{s?.label || status.replace(/_/g, ' ')}</Badge>
+const COLUMN_ORDER: Column[] = ['new', 'in_progress', 'hired', 'rejected']
+
+const COLUMN_META: Record<Column, { label: string; tone: BadgeTone; defaultStatus: string; accentColor: string }> = {
+  new:         { label: 'New',         tone: 'neutral', defaultStatus: 'applied',  accentColor: 'var(--neutral-fg)' },
+  in_progress: { label: 'In progress', tone: 'brand',   defaultStatus: 'passed',   accentColor: 'var(--brand-primary)' },
+  hired:       { label: 'Hired',       tone: 'success', defaultStatus: 'hired',    accentColor: 'var(--success-fg)' },
+  rejected:    { label: 'Rejected',    tone: 'danger',  defaultStatus: 'rejected', accentColor: 'var(--danger-fg)' },
 }
+
+function stageToColumn(status: string | null): Column {
+  if (!status || status === 'applied') return 'new'
+  if (status === 'hired') return 'hired'
+  if (status === 'failed' || status === 'rejected') return 'rejected'
+  return 'in_progress'
+}
+
+// Human-readable label for the raw pipeline stage, rendered inside the card.
+const STAGE_LABELS: Record<string, string> = {
+  applied: 'Applied',
+  completed_flow: 'Completed',
+  passed: 'Passed',
+  failed: 'Failed',
+  rejected: 'Rejected',
+  training_in_progress: 'Training',
+  training_completed: 'Trained',
+  invited_to_schedule: 'Invited',
+  scheduled: 'Scheduled',
+  hired: 'Hired',
+}
+
+const MOVE_TARGETS: Array<{ column: Column; status: string }> = [
+  { column: 'new',         status: 'applied'  },
+  { column: 'in_progress', status: 'passed'   },
+  { column: 'hired',       status: 'hired'    },
+  { column: 'rejected',    status: 'rejected' },
+]
 
 export default function CandidatesPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('all')
   const [flowFilter, setFlowFilter] = useState('')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [hoverCol, setHoverCol] = useState<Column | null>(null)
 
   useEffect(() => {
-    fetch('/api/flows').then((r) => r.json()).then((f) => setFlows(f)).catch(() => {})
+    fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
   }, [])
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true)
     const params = new URLSearchParams()
-    if (statusFilter !== 'all') params.set('status', statusFilter)
     if (flowFilter) params.set('flowId', flowFilter)
     if (search) params.set('search', search)
     fetch(`/api/candidates?${params}`).then((r) => r.json()).then((d) => { setCandidates(d); setLoading(false) })
-  }, [statusFilter, flowFilter, search])
+  }, [flowFilter, search])
+
+  useEffect(() => { load() }, [load])
 
   const updateStatus = async (id: string, pipelineStatus: string) => {
+    setCandidates((prev) => prev.map((c) => c.id === id ? { ...c, pipelineStatus } : c))
     await fetch(`/api/candidates/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pipelineStatus }),
     })
-    setCandidates((prev) => prev.map((c) => c.id === id ? { ...c, pipelineStatus } : c))
   }
 
-  const counts = candidates.reduce((acc, c) => {
-    const s = c.pipelineStatus || 'applied'
-    acc[s] = (acc[s] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  // Group candidates into the four kanban columns.
+  const grouped = useMemo(() => {
+    const g: Record<Column, Candidate[]> = { new: [], in_progress: [], hired: [], rejected: [] }
+    for (const c of candidates) g[stageToColumn(c.pipelineStatus)].push(c)
+    return g
+  }, [candidates])
 
   return (
     <div className="-mx-6 lg:-mx-[132px]">
       <PageHeader
         eyebrow={`${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}
         title="Candidates"
-        description="People who have started or completed one of your flows."
+        description="Drag between columns to move candidates through your pipeline."
       />
 
-      <div className="px-8 py-6">
-        {/* Status pills */}
-        <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-          {STATUSES.filter((s) => s.value === 'all' || counts[s.value]).map((s) => {
-            const active = statusFilter === s.value
-            const count = s.value === 'all' ? candidates.length : (counts[s.value] || 0)
-            return (
-              <button
-                key={s.value}
-                onClick={() => setStatusFilter(s.value)}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-[12px] font-medium whitespace-nowrap transition-colors ${
-                  active
-                    ? 'bg-ink text-white border-ink'
-                    : 'bg-white border-surface-border text-grey-35 hover:text-ink'
-                }`}
-              >
-                {s.label}
-                <span
-                  className={`font-mono text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-white/15 text-white' : 'bg-surface-light text-grey-50'}`}
-                  style={{ letterSpacing: '0.06em' }}
-                >
-                  {count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
+      <div className="px-8 py-5">
         {/* Filters */}
-        <div className="flex gap-2.5 mb-4">
+        <div className="flex gap-2.5 mb-5">
           <input
             type="text"
             value={searchInput}
@@ -123,7 +130,7 @@ export default function CandidatesPage() {
             onKeyDown={(e) => e.key === 'Enter' && setSearch(searchInput)}
             onBlur={() => setSearch(searchInput)}
             placeholder="Search by name, email, phone…"
-            className="flex-1 max-w-xs px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            className="flex-1 max-w-xs px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/40 bg-white"
           />
           <select
             value={flowFilter}
@@ -148,70 +155,112 @@ export default function CandidatesPage() {
             <p className="text-grey-35 text-[14px]">Candidates will appear here once they start a flow.</p>
           </Card>
         ) : (
-          <Card padding={0} className="overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr style={{ background: 'var(--surface-light, #FCFAF6)' }}>
-                  {['Candidate', 'Flow', 'Source', 'Status', 'Responses', 'Applied', 'Actions'].map((h, i) => (
-                    <th
-                      key={h}
-                      className={`px-4 py-2.5 font-mono text-[10px] uppercase text-grey-35 border-b border-surface-divider ${i >= 6 ? 'text-right' : 'text-left'}`}
-                      style={{ letterSpacing: '0.1em' }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((c) => (
-                  <tr key={c.id} className="border-b border-surface-divider last:border-0 hover:bg-surface-light">
-                    <td className="px-4 py-3">
-                      <Link href={`/dashboard/candidates/${c.id}`} className="block">
-                        <div className="font-medium text-ink hover:text-[color:var(--brand-primary)]">{c.candidateName || 'Anonymous'}</div>
-                        {c.candidateEmail && <div className="text-[11px] text-grey-35">{c.candidateEmail}</div>}
-                        {c.candidatePhone && <div className="text-[11px] text-grey-50 font-mono">{c.candidatePhone}</div>}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-grey-35">{c.flow?.name || '—'}</td>
-                    <td className="px-4 py-3">
-                      {c.source || c.ad?.source ? (
-                        <Badge tone="brand">{c.ad?.source || c.source}</Badge>
-                      ) : (
-                        <span className="text-[11px] text-grey-50">Direct</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{statusBadge(c.pipelineStatus)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {c.answerCount > 0 && <span className="font-mono text-[11px] text-grey-35">{c.answerCount}Q</span>}
-                        {c.submissionCount > 0 && <span className="font-mono text-[11px] text-[color:var(--brand-fg)]">{c.submissionCount}🎥</span>}
-                        {c.answerCount === 0 && c.submissionCount === 0 && <span className="text-[11px] text-grey-50">—</span>}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
+            {COLUMN_ORDER.map((col) => {
+              const meta = COLUMN_META[col]
+              const items = grouped[col]
+              const isHover = hoverCol === col
+              return (
+                <div
+                  key={col}
+                  onDragOver={(e) => { e.preventDefault(); setHoverCol(col) }}
+                  onDragLeave={() => setHoverCol((cur) => (cur === col ? null : cur))}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    const id = e.dataTransfer.getData('text/candidate-id')
+                    if (!id) return
+                    const current = candidates.find((c) => c.id === id)
+                    if (!current) return
+                    if (stageToColumn(current.pipelineStatus) === col) { setHoverCol(null); return }
+                    updateStatus(id, meta.defaultStatus)
+                    setHoverCol(null)
+                  }}
+                  className={`rounded-[14px] border transition-all ${
+                    isHover ? 'border-[color:var(--brand-primary)] bg-brand-50/40' : 'border-surface-border bg-white'
+                  }`}
+                >
+                  <div className="px-4 py-3 border-b border-surface-divider flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: meta.accentColor }} />
+                      <div className="font-semibold text-[13px] text-ink">{meta.label}</div>
+                    </div>
+                    <div className="font-mono text-[11px] text-grey-35" style={{ letterSpacing: '0.06em' }}>
+                      {items.length}
+                    </div>
+                  </div>
+                  <div className="p-2.5 space-y-2 min-h-[120px]">
+                    {items.length === 0 ? (
+                      <div className="text-center py-8 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.12em' }}>
+                        Drop here
                       </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-grey-35">{new Date(c.startedAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <select
-                        value={c.pipelineStatus || ''}
-                        onChange={(e) => updateStatus(c.id, e.target.value)}
-                        className="text-[11px] px-2 py-1 border border-surface-border rounded-[8px] text-grey-35 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500/40"
-                      >
-                        <option value="">New</option>
-                        <option value="applied">Applied</option>
-                        <option value="completed_flow">Completed</option>
-                        <option value="passed">Passed</option>
-                        <option value="failed">Failed</option>
-                        <option value="training_in_progress">Training</option>
-                        <option value="training_completed">Trained</option>
-                        <option value="invited_to_schedule">Invited</option>
-                        <option value="scheduled">Scheduled</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+                    ) : items.map((c) => {
+                      const stageLabel = STAGE_LABELS[c.pipelineStatus || 'applied'] || 'New'
+                      const isDragging = dragging === c.id
+                      return (
+                        <div
+                          key={c.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/candidate-id', c.id)
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDragging(c.id)
+                          }}
+                          onDragEnd={() => { setDragging(null); setHoverCol(null) }}
+                          className={`rounded-[10px] border border-surface-border bg-white p-3 cursor-grab active:cursor-grabbing transition-shadow ${
+                            isDragging ? 'opacity-50' : 'hover:shadow-[0_2px_6px_rgba(26,24,21,0.06)]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight">
+                              {c.candidateName || 'Anonymous'}
+                            </Link>
+                            <Badge tone={COLUMN_META[stageToColumn(c.pipelineStatus)].tone}>{stageLabel}</Badge>
+                          </div>
+                          {c.candidateEmail && (
+                            <div className="font-mono text-[10px] text-grey-35 truncate mb-1.5" style={{ letterSpacing: '0.02em' }}>
+                              {c.candidateEmail}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 mb-2 text-[11px] text-grey-35">
+                            {c.flow?.name && (
+                              <span className="truncate max-w-[130px]" title={c.flow.name}>{c.flow.name}</span>
+                            )}
+                            {(c.source || c.ad?.source) && (
+                              <>
+                                {c.flow?.name && <span className="text-grey-50">·</span>}
+                                <span className="capitalize">{c.ad?.source || c.source}</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] font-mono text-grey-50" style={{ letterSpacing: '0.04em' }}>
+                            <span>{new Date(c.startedAt).toLocaleDateString()}</span>
+                            <div className="flex gap-2">
+                              {c.answerCount > 0 && <span>{c.answerCount}Q</span>}
+                              {c.submissionCount > 0 && <span style={{ color: 'var(--brand-fg)' }}>{c.submissionCount}🎥</span>}
+                            </div>
+                          </div>
+                          {/* Quick move buttons — visible on hover, same target set as drag */}
+                          <div className="mt-2 pt-2 border-t border-surface-divider flex gap-1.5 opacity-0 hover:opacity-100 transition-opacity" style={{ opacity: isDragging ? 0 : undefined }}>
+                            {MOVE_TARGETS.filter((t) => t.column !== col).map((t) => (
+                              <button
+                                key={t.status}
+                                onClick={() => updateStatus(c.id, t.status)}
+                                className="flex-1 font-mono text-[9px] uppercase px-2 py-1 rounded-[6px] border border-surface-border text-grey-35 hover:text-ink hover:bg-surface-light transition-colors"
+                                style={{ letterSpacing: '0.08em' }}
+                                title={`Move to ${COLUMN_META[t.column].label}`}
+                              >
+                                → {COLUMN_META[t.column].label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>

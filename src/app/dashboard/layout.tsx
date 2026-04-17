@@ -1,98 +1,75 @@
+/**
+ * Dashboard chrome — refreshed per design handoff. Drops the orange top
+ * banner and uses the 60px TopNav primitive from src/components/design.
+ *
+ * The PageHeader blocks on each page were written with a negative horizontal
+ * margin (-mx-6 lg:-mx-[132px]) so they span full-bleed against the content
+ * container's outer edge. That still works here — the main element keeps
+ * its max-w-[1596px] centered container.
+ */
+
 'use client'
 
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 import { signOut, useSession } from 'next-auth/react'
+import { TopNav, type TopNavItem } from '@/components/design'
 
-export default function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const pathname = usePathname()
+const NAV_ITEMS: TopNavItem[] = [
+  { href: '/dashboard/candidates', label: 'Candidates' },
+  { href: '/dashboard/campaigns', label: 'Campaigns' },
+  { href: '/dashboard/flows', label: 'Screening' },
+  { href: '/dashboard/automations', label: 'Automations' },
+  { href: '/dashboard/scheduling', label: 'Scheduling' },
+  { href: '/dashboard/trainings', label: 'Trainings', matches: ['/dashboard/trainings', '/dashboard/ai-calls'] },
+  { href: '/dashboard/content', label: 'Assets', matches: ['/dashboard/content', '/dashboard/videos'] },
+  { href: '/dashboard/branding', label: 'Branding' },
+  { href: '/dashboard/analytics', label: 'Analytics' },
+  { href: '/dashboard/settings', label: 'Settings' },
+]
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || ''
   const { data: session } = useSession()
-  const workspaceName = (session?.user as any)?.workspaceName || ''
-  const isSuperAdmin = (session?.user as any)?.isSuperAdmin || false
+  const user = session?.user as { name?: string; email?: string; workspaceName?: string; isSuperAdmin?: boolean } | undefined
+  const workspaceName = user?.workspaceName || ''
+  const isSuperAdmin = user?.isSuperAdmin || false
 
-  const navItems = [
-    { href: '/dashboard/candidates', label: 'Candidates' },
-    { href: '/dashboard/campaigns', label: 'Campaigns' },
-    { href: '/dashboard/flows', label: 'Screening' },
-    { href: '/dashboard/automations', label: 'Automations' },
-    { href: '/dashboard/scheduling', label: 'Scheduling' },
-    { href: '/dashboard/trainings', label: 'Trainings', matches: ['/dashboard/trainings', '/dashboard/ai-calls'] },
-    { href: '/dashboard/content', label: 'Assets', matches: ['/dashboard/content', '/dashboard/videos'] },
-    { href: '/dashboard/branding', label: 'Branding' },
-    { href: '/dashboard/analytics', label: 'Analytics' },
-    { href: '/dashboard/settings', label: 'Settings' },
-  ] as Array<{ href: string; label: string; matches?: string[] }>
+  // The "is this tab active" logic (matching subpaths like /flows/[id]/builder)
+  // lives inside TopNav via its own pathname check.
 
   return (
-    <div className="min-h-screen bg-surface">
-      {/* Top banner */}
-      <div className="bg-brand-500 text-white text-center py-3 text-sm font-normal">
-        HireFunnel — Application Flows & Training Platform
-      </div>
-
-      {/* Navbar */}
-      <nav className="bg-white border-b border-surface-border">
-        <div className="max-w-[1596px] mx-auto px-6 lg:px-[132px]">
-          <div className="flex justify-between items-center h-[72px]">
-            {/* Left: Logo + Nav */}
-            <div className="flex items-center gap-[50px]">
-              {/* Logo */}
-              <Link href="/dashboard/flows" className="flex-shrink-0">
-                <div className="w-[44px] h-[44px] bg-brand-500 rounded-[8px] flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/>
-                  </svg>
-                </div>
-              </Link>
-
-              {/* Nav items */}
-              <div className="flex items-center gap-1">
-                {navItems.map((item) => {
-                  const isActive = (item.matches || [item.href]).some(p => pathname.startsWith(p))
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`px-5 py-2.5 rounded-[8px] text-[15px] font-normal transition-colors ${
-                        isActive
-                          ? 'bg-surface text-grey-15 font-medium'
-                          : 'text-grey-35 hover:text-grey-15 hover:bg-surface-light'
-                      }`}
-                    >
-                      {item.label}
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Right: Workspace + Platform Admin + Sign out */}
-            <div className="flex items-center gap-4">
-              {workspaceName && (
-                <span className="text-[13px] text-grey-40 bg-surface px-3 py-1.5 rounded-[8px]">{workspaceName}</span>
-              )}
-              {isSuperAdmin && (
-                <Link href="/platform-admin" className="text-[13px] text-amber-600 bg-amber-50 px-3 py-1.5 rounded-[8px] font-medium hover:bg-amber-100">
-                  Platform Admin
-                </Link>
-              )}
-              <button
-                onClick={() => signOut({ callbackUrl: '/login' })}
-                className="text-[15px] text-grey-35 hover:text-grey-15 transition-colors"
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
+      <TopNav
+        items={NAV_ITEMS}
+        workspaceName={workspaceName}
+        user={{ name: user?.name, avatarUrl: null }}
+        // The design's CTA slot on the right (e.g. "+ New flow"). We use it
+        // for the super-admin link + sign-out action here so all workspace
+        // chrome affordances stay on one bar.
+        cta={
+          <div className="flex items-center gap-2">
+            {isSuperAdmin && (
+              <Link
+                href="/platform-admin"
+                className="font-mono text-[10px] uppercase px-2.5 py-1 rounded-full border"
+                style={{ letterSpacing: '0.1em', color: 'var(--warn-fg)', background: 'var(--warn-bg)', borderColor: 'transparent' }}
               >
-                Sign Out
-              </button>
-            </div>
+                Platform
+              </Link>
+            )}
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="text-[12px] text-grey-35 hover:text-ink transition-colors px-2 py-1"
+              title="Sign out"
+            >
+              Sign out
+            </button>
           </div>
-        </div>
-      </nav>
+        }
+      />
 
-      {/* Main content */}
-      <main className="max-w-[1596px] mx-auto px-6 lg:px-[132px] py-10">
+      <main className={`flex-1 w-full max-w-[1596px] mx-auto px-6 lg:px-[132px] py-8 ${pathname.endsWith('/builder') ? 'pt-0' : ''}`}>
         {children}
       </main>
     </div>

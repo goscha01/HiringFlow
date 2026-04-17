@@ -259,36 +259,60 @@ export default function SessionPlayerPage() {
     )
   }
 
-  // Form screen — shown before video
+  // Form screen — shown before video. Restyled to match the Classic StartCard
+  // from the design handoff; behaviour unchanged.
   if (showForm && !formSubmitted) {
-    const enabledFields = step.formConfig?.fields?.filter(f => f.enabled) || []
+    const enabledFields = step.formConfig?.fields?.filter((f) => f.enabled) || []
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">{step.title}</h2>
-          <p className="text-sm text-gray-500 mb-6">Please fill in the following before we begin</p>
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}>
+        <div
+          className="relative bg-white rounded-[20px] border border-surface-border p-10 w-full max-w-[520px]"
+          style={{ boxShadow: 'var(--shadow-raised)' }}
+        >
+          <div className="flex items-center gap-2.5 mb-6">
+            <div
+              className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-[15px]"
+              style={{ background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' }}
+            >
+              h
+            </div>
+            <span className="font-semibold text-[15px] text-ink tracking-[-0.01em]">HireFunnel</span>
+          </div>
+
+          <div className="font-mono text-[11px] uppercase text-grey-35 mb-2" style={{ letterSpacing: '0.12em' }}>
+            Before we begin
+          </div>
+          <h2 className="text-[26px] font-semibold text-ink mb-1.5 tracking-tight2">{step.title}</h2>
+          <p className="text-[14px] text-grey-35 mb-6">We&apos;ll use these details to follow up about your application.</p>
 
           <div className="space-y-4">
             {enabledFields.map((field) => (
               <div key={field.id}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="eyebrow block mb-1.5">
                   {field.label}
-                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                  {field.required && <span style={{ color: 'var(--brand-primary)' }} className="ml-1">*</span>}
                 </label>
                 {field.type === 'textarea' ? (
                   <textarea
                     value={formValues[field.id] || ''}
                     onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })}
                     rows={3}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px]"
                     placeholder={field.label}
                   />
                 ) : field.type === 'radio' && field.options ? (
                   <div className="space-y-2">
                     {field.options.map((opt, j) => (
-                      <label key={j} className={`flex items-center w-full px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${formValues[field.id] === opt ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                        <input type="radio" name={field.id} value={opt} checked={formValues[field.id] === opt} onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })} className="mr-3 accent-[#FF9500]" />
-                        <span className="text-sm text-gray-900">{opt}</span>
+                      <label
+                        key={j}
+                        className={`flex items-center w-full px-3 py-2.5 rounded-[10px] border cursor-pointer transition-all ${
+                          formValues[field.id] === opt
+                            ? 'border-[color:var(--brand-primary)] bg-brand-50'
+                            : 'border-surface-border bg-white hover:border-grey-50'
+                        }`}
+                      >
+                        <input type="radio" name={field.id} value={opt} checked={formValues[field.id] === opt} onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })} className="mr-2.5 accent-[#FF9500]" />
+                        <span className="text-[14px] text-ink">{opt}</span>
                       </label>
                     ))}
                   </div>
@@ -298,12 +322,19 @@ export default function SessionPlayerPage() {
                       const selected = (formValues[field.id] || '').split(',').filter(Boolean)
                       const isChecked = selected.includes(opt)
                       return (
-                        <label key={j} className={`flex items-center w-full px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${isChecked ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <label
+                          key={j}
+                          className={`flex items-center w-full px-3 py-2.5 rounded-[10px] border cursor-pointer transition-all ${
+                            isChecked
+                              ? 'border-[color:var(--brand-primary)] bg-brand-50'
+                              : 'border-surface-border bg-white hover:border-grey-50'
+                          }`}
+                        >
                           <input type="checkbox" checked={isChecked} onChange={() => {
-                            const next = isChecked ? selected.filter(s => s !== opt) : [...selected, opt]
+                            const next = isChecked ? selected.filter((s) => s !== opt) : [...selected, opt]
                             setFormValues({ ...formValues, [field.id]: next.join(',') })
-                          }} className="mr-3 accent-[#FF9500]" />
-                          <span className="text-sm text-gray-900">{opt}</span>
+                          }} className="mr-2.5 accent-[#FF9500]" />
+                          <span className="text-[14px] text-ink">{opt}</span>
                         </label>
                       )
                     })}
@@ -311,7 +342,17 @@ export default function SessionPlayerPage() {
                 ) : field.type === 'button' && field.options ? (
                   <div className="flex flex-wrap gap-2">
                     {field.options.map((opt, j) => (
-                      <button key={j} type="button" onClick={() => setFormValues({ ...formValues, [field.id]: opt })} className={`px-5 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${formValues[field.id] === opt ? 'border-brand-500 bg-brand-500 text-white' : 'border-gray-200 text-gray-900 hover:border-brand-400'}`}>
+                      <button
+                        key={j}
+                        type="button"
+                        onClick={() => setFormValues({ ...formValues, [field.id]: opt })}
+                        className={`px-4 py-2 rounded-[10px] border text-[13px] font-medium transition-all ${
+                          formValues[field.id] === opt
+                            ? 'text-white border-[color:var(--brand-primary)]'
+                            : 'border-surface-border text-ink bg-white hover:border-grey-50'
+                        }`}
+                        style={formValues[field.id] === opt ? { background: 'var(--brand-primary)' } : undefined}
+                      >
                         {opt}
                       </button>
                     ))}
@@ -321,7 +362,7 @@ export default function SessionPlayerPage() {
                     type={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : 'text'}
                     value={formValues[field.id] || ''}
                     onChange={(e) => setFormValues({ ...formValues, [field.id]: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px]"
                     placeholder={field.label}
                   />
                 )}
@@ -331,7 +372,8 @@ export default function SessionPlayerPage() {
 
           <button
             onClick={handleFormSubmit}
-            className="w-full mt-6 py-3 bg-brand-500 text-white rounded-xl font-medium hover:bg-brand-600 transition-colors"
+            className="w-full mt-6 py-3 rounded-[10px] text-white font-semibold text-[14px] transition-colors hover:opacity-90"
+            style={{ background: 'var(--brand-primary)' }}
           >
             Continue
           </button>
@@ -543,13 +585,58 @@ export default function SessionPlayerPage() {
     )
   }
 
+  // Design variant selection. Classic is the default Hirefunnel Candidate Flow
+  // layout — warm off-white, video left, question sidebar right. Cinema and
+  // Paper variants from the design handoff remain deferred behind the flag
+  // NEXT_PUBLIC_CANDIDATE_FLOW_VARIANT (values: 'cinema' | 'paper'). Set nothing
+  // or 'classic' to render the default.
+  // const variant = process.env.NEXT_PUBLIC_CANDIDATE_FLOW_VARIANT ?? 'classic'
+
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}>
+      {/* Classic header — wordmark + company pill + progress + restart. Purely
+          presentational; no behavior change. */}
+      <header className="w-full px-5 pt-5 pb-4">
+        <div className="max-w-[1280px] mx-auto flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-[16px]"
+              style={{ background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' }}
+            >
+              h
+            </div>
+            <span className="font-semibold text-[15px] text-ink tracking-[-0.01em]">HireFunnel</span>
+          </div>
+          {step?.progress && (
+            <div className="flex-1 min-w-[180px] max-w-[320px]">
+              <div className="flex gap-1">
+                {Array.from({ length: step.progress.total }).map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { if (step.stepIds?.[i] && step.stepIds[i] !== step.stepId) navigateToStep(step.stepIds[i]) }}
+                    className="flex-1 h-1.5 rounded-full transition-colors cursor-pointer hover:opacity-80"
+                    style={{
+                      background: i < step.progress!.current ? 'var(--brand-primary)' : 'var(--weak-track)',
+                    }}
+                  />
+                ))}
+              </div>
+              <div className="font-mono text-[10px] uppercase text-grey-35 text-center mt-1.5" style={{ letterSpacing: '0.12em' }}>
+                Step {step.progress.current} of {step.progress.total}
+              </div>
+            </div>
+          )}
+        </div>
+      </header>
+
       {/* Desktop: side-by-side */}
       {isDesktop && (
-      <div className="flex h-screen">
-        {/* Left: Video — from main step or combined step */}
-        <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex flex-1 max-w-[1280px] w-full mx-auto px-5 pb-10 gap-4">
+        {/* Left: Video — warm card wrapper per Classic variant */}
+        <div
+          className="flex-1 flex items-center justify-center overflow-hidden rounded-[20px] border border-surface-border relative"
+          style={{ background: '#0f0e0c', boxShadow: 'var(--shadow-card)' }}
+        >
           {(() => {
             const videoUrl = step.videoUrl || step.combinedStep?.videoUrl
             const videoSegments = step.videoUrl ? step.segments : step.combinedStep?.segments
@@ -565,22 +652,26 @@ export default function SessionPlayerPage() {
                     captionStyle={(step.captionStyle as CaptionStyle) || DEFAULT_CAPTION_STYLE}
                     autoPlay
                     onEnded={handleVideoEnd}
-                    className="rounded-lg shadow-2xl"
-                    videoClassName="max-h-[100vh] w-auto max-w-full"
+                    className="rounded-[20px]"
+                    videoClassName="max-h-[calc(100vh-120px)] w-auto max-w-full"
                   />
                 </div>
               )
             }
             return (
-              <div className="text-white text-center">
-                <h2 className="text-2xl font-semibold">{step.title}</h2>
+              <div className="text-white/90 text-center px-8">
+                <div className="font-mono text-[10px] uppercase text-white/50 mb-2" style={{ letterSpacing: '0.14em' }}>Question</div>
+                <h2 className="text-[22px] font-semibold tracking-tight2">{step.title}</h2>
               </div>
             )
           })()}
         </div>
 
-        {/* Right: Questions — from main step or combined step */}
-        <div className="w-[400px] bg-white flex flex-col justify-center p-8 overflow-y-auto">
+        {/* Right: Questions — warm sidebar card per Classic variant */}
+        <div
+          className="w-[420px] shrink-0 bg-white rounded-[20px] border border-surface-border flex flex-col justify-center p-8 overflow-y-auto"
+          style={{ boxShadow: 'var(--shadow-card)' }}
+        >
           {(() => {
             const cs = step.combinedStep
             const questionStep = cs && (cs.stepType === 'question' || cs.options.length > 0) ? cs : null
@@ -605,41 +696,41 @@ export default function SessionPlayerPage() {
 
             return (
               <>
-                {displayTitle && <h3 className="text-sm font-medium text-gray-400 mb-4 uppercase tracking-wide">{displayTitle}</h3>}
-                {questionStep && displayQuestion && <h3 className="text-lg font-semibold text-gray-900 mb-4">{displayQuestion}</h3>}
+                {displayTitle && (
+                  <div className="font-mono text-[11px] uppercase text-grey-35 mb-3" style={{ letterSpacing: '0.12em' }}>
+                    {displayTitle}
+                  </div>
+                )}
+                {questionStep && displayQuestion && (
+                  <h3 className="text-[22px] font-semibold text-ink mb-5 leading-tight tracking-tight2">{displayQuestion}</h3>
+                )}
                 {questionStep ? (
-                  <div className="space-y-2.5 max-w-md mx-auto">
-                    {questionStep.options.map(opt => (
-                      <button
-                        key={opt.optionId}
-                        onClick={() => submitCombinedOption(opt)}
-                        disabled={submitting || (!videoEnded && !!(step.videoUrl || cs?.videoUrl))}
-                        className={`w-full py-3 px-5 rounded-xl border-2 text-left transition-all border-gray-200 hover:border-brand-500 hover:bg-brand-50 text-gray-900 ${submitting ? 'opacity-50' : ''} ${!videoEnded && (step.videoUrl || cs?.videoUrl) ? 'opacity-40 cursor-not-allowed' : ''}`}
-                      >
-                        <span className="font-medium text-sm">{opt.text}</span>
-                      </button>
-                    ))}
+                  <div className="space-y-2">
+                    {questionStep.options.map((opt) => {
+                      const locked = !videoEnded && !!(step.videoUrl || cs?.videoUrl)
+                      return (
+                        <button
+                          key={opt.optionId}
+                          onClick={() => submitCombinedOption(opt)}
+                          disabled={submitting || locked}
+                          className={`w-full py-3 px-4 rounded-[10px] border text-left text-ink font-medium text-[14px] transition-all ${
+                            locked
+                              ? 'opacity-40 cursor-not-allowed border-surface-border bg-white'
+                              : 'border-surface-border bg-white hover:border-[color:var(--brand-primary)] hover:bg-brand-50'
+                          } ${submitting ? 'opacity-50' : ''}`}
+                        >
+                          {opt.text}
+                        </button>
+                      )
+                    })}
                     {!videoEnded && (step.videoUrl || cs?.videoUrl) && (
-                      <p className="text-center text-sm text-gray-500 mt-2">Watch the video to unlock options</p>
+                      <p className="text-center font-mono text-[10px] uppercase text-grey-50 mt-3" style={{ letterSpacing: '0.12em' }}>
+                        Watch the video to unlock
+                      </p>
                     )}
                   </div>
                 ) : (
                   renderQuestionContent(false)
-                )}
-                {/* Progress bar */}
-                {step.progress && (
-                  <div className="mt-6">
-                    <div className="flex gap-1">
-                      {Array.from({ length: step.progress.total }).map((_, i) => (
-                        <button
-                          key={i}
-                          onClick={() => { if (step.stepIds?.[i] && step.stepIds[i] !== step.stepId) navigateToStep(step.stepIds[i]) }}
-                          className={`flex-1 h-2 rounded-full transition-colors cursor-pointer hover:opacity-80 ${i < step.progress!.current ? 'bg-brand-500' : 'bg-gray-200 hover:bg-gray-300'}`}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-center text-xs mt-1 text-gray-400">Step {step.progress.current} of {step.progress.total}</p>
-                  </div>
                 )}
               </>
             )
