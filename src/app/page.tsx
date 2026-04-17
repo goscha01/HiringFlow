@@ -2,49 +2,108 @@ import Link from 'next/link'
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-white" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
+    <div className="min-h-screen" style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}>
       {/* Navbar */}
-      <nav className="border-b border-[#F1F1F3] sticky top-0 bg-white/95 backdrop-blur-sm z-50">
-        <div className="max-w-[1200px] mx-auto px-6 flex items-center justify-between h-[72px]">
+      <nav className="border-b border-surface-border sticky top-0 bg-white/90 backdrop-blur-sm z-50">
+        <div className="max-w-[1200px] mx-auto px-6 flex items-center justify-between h-[64px]">
           <div className="flex items-center gap-10">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-[40px] h-[40px] bg-[#FF9500] rounded-[8px] flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+            <Link href="/" className="flex items-center gap-2.5">
+              <div
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-[17px]"
+                style={{ background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' }}
+              >
+                h
               </div>
-              <span className="text-xl font-semibold text-[#262626]">HireFunnel</span>
+              <span className="text-[16px] font-semibold text-ink tracking-[-0.01em]">HireFunnel</span>
             </Link>
-            <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-sm text-[#59595A] hover:text-[#262626]">Features</a>
-              <a href="#how-it-works" className="text-sm text-[#59595A] hover:text-[#262626]">How It Works</a>
-              <a href="#pricing" className="text-sm text-[#59595A] hover:text-[#262626]">Pricing</a>
+            <div className="hidden md:flex items-center gap-7">
+              <a href="#features" className="text-[13px] text-grey-35 hover:text-ink">Features</a>
+              <a href="#how-it-works" className="text-[13px] text-grey-35 hover:text-ink">How it works</a>
+              <a href="#pricing" className="text-[13px] text-grey-35 hover:text-ink">Pricing</a>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm text-[#262626] hover:text-[#FF9500]">Sign In</Link>
-            <Link href="/login" className="px-5 py-2.5 bg-[#FF9500] text-white text-sm font-medium rounded-[8px] hover:bg-[#EA8500] transition-colors">Get Started</Link>
+          <div className="flex items-center gap-3">
+            <Link href="/login" className="text-[13px] text-ink hover:text-[color:var(--brand-primary)]">Sign in</Link>
+            <Link
+              href="/register"
+              className="px-4 py-2 rounded-[10px] text-white font-semibold text-[13px] transition-colors"
+              style={{ background: 'var(--brand-primary)' }}
+            >
+              Get started
+            </Link>
           </div>
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="max-w-[1200px] mx-auto px-6 pt-20 pb-16">
-        <div className="max-w-[720px] mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#FFF7ED] rounded-full text-[#FF9500] text-sm font-medium mb-6">
-            <span>For service businesses hiring hourly workers</span>
+      {/* Hero — editorial style per design spec */}
+      <section className="relative overflow-hidden">
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.6]"
+          style={{
+            background: `
+              radial-gradient(ellipse at top left, rgba(255,149,0,0.15), transparent 55%),
+              radial-gradient(ellipse at bottom right, rgba(255,149,0,0.08), transparent 55%),
+              repeating-linear-gradient(135deg, rgba(26,24,21,0.03) 0 1px, transparent 1px 32px)`,
+          }}
+        />
+        <div className="relative max-w-[1200px] mx-auto px-6 pt-20 pb-24">
+          <div className="max-w-[820px]">
+            <div className="font-mono text-[11px] uppercase text-grey-35 mb-4" style={{ letterSpacing: '0.14em' }}>
+              HireFunnel · for service businesses
+            </div>
+            <h1 className="text-[44px] md:text-[64px] font-semibold text-ink leading-[1.05] tracking-tight2 mb-6">
+              Hire people, not{' '}
+              <em className="not-italic relative inline-block">
+                <span style={{ color: 'var(--brand-primary)', fontStyle: 'italic' }}>résumés</span>
+                <span
+                  className="absolute left-0 right-0 bottom-1 h-[6px] -z-10"
+                  style={{ background: 'rgba(255,149,0,0.25)', transform: 'skewX(-8deg)' }}
+                  aria-hidden
+                />
+              </em>
+              .
+            </h1>
+            <p className="text-[17px] md:text-[19px] text-grey-35 leading-relaxed mb-9 max-w-[640px]">
+              Video-first screening that gets you to the signal in minutes, not weeks. Branching flows, automated follow-ups, and booked interviews — all from one tracked link.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Link
+                href="/register"
+                className="px-6 py-3.5 rounded-[10px] text-white font-semibold text-[14px] transition-colors"
+                style={{ background: 'var(--brand-primary)' }}
+              >
+                Start free
+              </Link>
+              <a
+                href="#how-it-works"
+                className="px-6 py-3.5 rounded-[10px] text-ink font-medium text-[14px] border border-surface-border bg-white hover:bg-surface-light transition-colors"
+              >
+                See how it works
+              </a>
+            </div>
+            <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.12em' }}>
+              <span>No credit card</span>
+              <span className="text-grey-60">·</span>
+              <span>Up to 50 candidates / mo free</span>
+              <span className="text-grey-60">·</span>
+              <span>SOC 2 · GDPR</span>
+            </div>
           </div>
-          <h1 className="text-[42px] md:text-[56px] font-bold text-[#262626] leading-[1.15] mb-6">
-            Turn your hiring into a <span className="text-[#FF9500]">system</span> — not chaos
-          </h1>
-          <p className="text-lg md:text-xl text-[#59595A] leading-relaxed mb-10 max-w-[580px] mx-auto">
-            Screen, qualify, and move candidates from first click to hired — automatically.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/login" className="px-8 py-4 bg-[#FF9500] text-white font-semibold rounded-[8px] hover:bg-[#EA8500] transition-colors text-lg">
-              Start Building Your Hiring Funnel
-            </Link>
-            <a href="#how-it-works" className="px-8 py-4 border border-[#E4E4E7] text-[#262626] font-medium rounded-[8px] hover:bg-[#F7F7F8] transition-colors text-lg">
-              See How It Works
-            </a>
+
+          {/* Hero placeholder — editorial card grid */}
+          <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { top: 'Inbound', big: '1,247', sub: 'candidates' },
+              { top: 'Completion', big: '44%', sub: 'auto-screened' },
+              { top: 'Time-to-hire', big: '6 d', sub: 'down from 24' },
+              { top: 'Interviews', big: '9', sub: 'booked this week' },
+            ].map((c) => (
+              <div key={c.top} className="bg-white rounded-[14px] border border-surface-border p-4" style={{ boxShadow: 'var(--shadow-card)' }}>
+                <div className="font-mono text-[10px] uppercase text-grey-35 mb-2" style={{ letterSpacing: '0.1em' }}>{c.top}</div>
+                <div className="text-[28px] font-semibold text-ink leading-none tracking-tight2">{c.big}</div>
+                <div className="text-[11px] text-grey-35 mt-1.5">{c.sub}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

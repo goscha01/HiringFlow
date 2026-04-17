@@ -91,14 +91,17 @@ export default function TrainingPage() {
   // Access denied screen
   if (accessDenied) {
     return (
-      <div className="min-h-screen bg-[#F7F7F8] flex items-center justify-center" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
-        <div className="bg-white rounded-[12px] p-12 max-w-lg text-center border border-[#F1F1F3] shadow-sm">
-          <div className="w-20 h-20 mx-auto mb-6 bg-red-50 rounded-full flex items-center justify-center">
-            <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}>
+        <div className="bg-white rounded-[14px] border border-surface-border p-10 max-w-[480px] text-center" style={{ boxShadow: 'var(--shadow-card)' }}>
+          <div className="w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center" style={{ background: 'var(--danger-bg)' }}>
+            <svg className="w-8 h-8" style={{ color: 'var(--danger-fg)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
           </div>
-          <h1 className="text-[28px] font-semibold text-[#262626] mb-3">Access Unavailable</h1>
-          <p className="text-lg text-[#59595A] mb-4">{accessError}</p>
-          <p className="text-sm text-[#8A8A8C]">If you believe this is an error, please contact the person who sent you the training invitation.</p>
+          <div className="font-mono text-[11px] uppercase text-grey-35 mb-2" style={{ letterSpacing: '0.12em' }}>Access unavailable</div>
+          <h1 className="text-[22px] font-semibold text-ink mb-2 tracking-tight2">This link isn&apos;t active</h1>
+          <p className="text-grey-35 text-[14px] mb-3">{accessError}</p>
+          <p className="text-[12px] text-grey-50">If you believe this is an error, contact the person who sent you the invitation.</p>
         </div>
       </div>
     )
@@ -220,15 +223,65 @@ export default function TrainingPage() {
 
   // ===== LANDING PAGE =====
   if (!started) {
+    const totalLessons = training.sections.reduce((sum, s) => sum + s.contents.length, 0)
+    const totalQuizzes = training.sections.filter((s) => s.quiz).length
+    const orgName = (training.branding as { orgName?: string } | null)?.orgName || ''
     return (
-      <div className="min-h-screen bg-[#F7F7F8] flex flex-col" style={{ fontFamily: '"Be Vietnam Pro", system-ui, sans-serif' }}>
+      <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: 'var(--body-font)' }}>
         <Navbar />
 
-        {/* Hero — title left, description right */}
-        <div className="max-w-[1596px] mx-auto w-full px-6 lg:px-[80px]">
-          <div className="flex flex-col lg:flex-row items-start gap-[100px] py-8 border-b border-[#E4E4E7]">
-            <h1 className="text-[36px] lg:text-[48px] font-semibold text-[#262626] leading-tight lg:flex-1">{training.title}</h1>
-            <p className="text-lg text-[#59595A] leading-relaxed lg:flex-1">{training.description || `Welcome to ${training.title}! This comprehensive program will equip you with the knowledge and skills. Dive in and start learning.`}</p>
+        {/* Hero — deep green gradient with metadata chips */}
+        <div
+          className="relative overflow-hidden text-white"
+          style={{ background: 'linear-gradient(135deg, #1a3a2e 0%, #2a5a46 55%, #3a7a5e 100%)' }}
+        >
+          <div
+            className="absolute inset-0 opacity-[0.08] pointer-events-none"
+            style={{
+              background: `repeating-linear-gradient(45deg, rgba(255,255,255,0.3) 0 1px, transparent 1px 28px), repeating-linear-gradient(-45deg, rgba(255,255,255,0.3) 0 1px, transparent 1px 28px)`,
+            }}
+          />
+          <div className="relative max-w-[1596px] mx-auto w-full px-6 lg:px-[80px] py-14 lg:py-20">
+            {orgName && (
+              <div className="font-mono text-[11px] uppercase text-white/70 mb-3" style={{ letterSpacing: '0.14em' }}>
+                {orgName} · Training
+              </div>
+            )}
+            <h1 className="text-[34px] lg:text-[54px] font-semibold leading-[1.08] tracking-tight2 mb-5 max-w-[900px]">
+              {training.title}
+            </h1>
+            {training.description && (
+              <p className="text-[15px] lg:text-[17px] text-white/80 leading-relaxed max-w-[720px] mb-6">
+                {training.description}
+              </p>
+            )}
+            {/* Meta chips */}
+            <div className="flex flex-wrap gap-2 mt-2">
+              <span className="font-mono text-[10px] uppercase text-white/80 px-2.5 py-1 rounded-full border border-white/20 bg-white/5" style={{ letterSpacing: '0.12em' }}>
+                {training.sections.length} section{training.sections.length === 1 ? '' : 's'}
+              </span>
+              <span className="font-mono text-[10px] uppercase text-white/80 px-2.5 py-1 rounded-full border border-white/20 bg-white/5" style={{ letterSpacing: '0.12em' }}>
+                {totalLessons} lesson{totalLessons === 1 ? '' : 's'}
+              </span>
+              {totalQuizzes > 0 && (
+                <span className="font-mono text-[10px] uppercase text-white/80 px-2.5 py-1 rounded-full border border-white/20 bg-white/5" style={{ letterSpacing: '0.12em' }}>
+                  {totalQuizzes} quiz{totalQuizzes === 1 ? '' : 'zes'}
+                </span>
+              )}
+              {training.passingGrade > 0 && (
+                <span className="font-mono text-[10px] uppercase text-white/80 px-2.5 py-1 rounded-full border border-white/20 bg-white/5" style={{ letterSpacing: '0.12em' }}>
+                  Passing: {training.passingGrade}%
+                </span>
+              )}
+            </div>
+            <div className="mt-8">
+              <button
+                onClick={() => startAtSection(0)}
+                className="px-6 py-3 rounded-[10px] bg-white text-[color:var(--ink)] font-semibold text-[14px] hover:bg-white/90 transition-colors"
+              >
+                Start training
+              </button>
+            </div>
           </div>
         </div>
 

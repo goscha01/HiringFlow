@@ -239,18 +239,21 @@ export default function SessionPlayerPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        <div className="text-white">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#0f0e0c' }}>
+        <div className="font-mono text-[11px] uppercase text-white/60" style={{ letterSpacing: '0.12em' }}>Loading…</div>
       </div>
     )
   }
 
   if (!step) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        <div className="text-white text-center">
-          <h1 className="text-xl font-semibold mb-2">Session Not Found</h1>
-          <p className="text-gray-400">This session may have expired.</p>
+      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: '#0f0e0c' }}>
+        <div className="text-center max-w-md">
+          <div className="font-mono text-[11px] uppercase text-white/50 mb-2" style={{ letterSpacing: '0.12em' }}>
+            Session not found
+          </div>
+          <h1 className="text-[22px] font-semibold text-white mb-2 tracking-tight2">This link has expired</h1>
+          <p className="text-white/60 text-[14px]">Request a fresh invitation from the hiring team.</p>
         </div>
       </div>
     )
