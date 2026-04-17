@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
+import { Button, PageHeader } from '@/components/design'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string }
@@ -224,20 +225,25 @@ export default function AutomationsPage() {
     }
   }
 
-  if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
+  if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Automations</h1>
-          <p className="text-grey-35 mt-1">Trigger emails when candidates complete flows or training</p>
-        </div>
-        <div className="flex gap-3">
-          <Link href="/dashboard/content" className="btn-secondary text-sm">Email Templates</Link>
-          <button onClick={openCreate} className="btn-primary">+ Create Automation</button>
-        </div>
-      </div>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow={`${rules.length} rule${rules.length === 1 ? '' : 's'}`}
+        title="Automations"
+        description="Trigger emails when candidates complete flows, trainings, or interviews."
+        actions={
+          <>
+            <Link href="/dashboard/content" className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-[10px] text-[13px] font-medium text-ink bg-transparent border border-surface-border hover:bg-surface-light transition-colors">
+              Templates
+            </Link>
+            <Button size="sm" onClick={openCreate}>+ New rule</Button>
+          </>
+        }
+      />
+
+      <div className="px-8 py-6">
 
       {rules.length > 0 && <AutomationPipeline
         rules={rules}
@@ -586,6 +592,7 @@ export default function AutomationsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

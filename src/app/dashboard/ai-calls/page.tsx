@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { SubNav } from '../_components/SubNav'
+import { PageHeader } from '@/components/design'
 
 const TRAINING_NAV = [
   { href: '/dashboard/trainings', label: 'Trainings' },
@@ -247,17 +248,19 @@ export default function AICallsPage() {
   const passed = conversations.filter(c => c.call_successful === 'success').length
   const failed = conversations.filter(c => c.call_successful === 'failure').length
 
-  if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
+  if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
   return (
-    <div>
-      <SubNav items={TRAINING_NAV} />
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">AI Calls</h1>
-          <p className="text-grey-35 mt-1">Voice agent conversations and candidate evaluations</p>
-        </div>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow="Voice agents"
+        title="AI Calls"
+        description="Voice agent conversations and candidate evaluations."
+      />
+      <div className="px-8 pt-5">
+        <SubNav items={TRAINING_NAV} />
       </div>
+      <div className="px-8 py-4">
 
       {/* Agent + create link */}
       <div className="bg-white rounded-[12px] border border-surface-border p-5 mb-6">
@@ -634,6 +637,7 @@ export default function AICallsPage() {
           )}
         </>
       )}
+      </div>
     </div>
   )
 }

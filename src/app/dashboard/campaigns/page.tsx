@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { Button, Card, Eyebrow, PageHeader, Stat } from '@/components/design'
 
 interface Flow { id: string; name: string; slug: string; isPublished?: boolean }
 interface AdTemplateItem { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null }
@@ -124,34 +125,21 @@ export default function CampaignsPage() {
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Campaigns</h1>
-          <p className="text-grey-35 mt-1">Manage hiring traffic — ads, sources, and tracked links</p>
-        </div>
-        <button onClick={openCreate} className="btn-primary">+ New Ad</button>
-      </div>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow={`${ads.length} ad${ads.length === 1 ? '' : 's'}`}
+        title="Campaigns"
+        description="Manage hiring traffic — ads, sources, and tracked links."
+        actions={<Button size="sm" onClick={openCreate}>+ New ad</Button>}
+      />
 
+      <div className="px-8 py-4">
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div className="bg-white rounded-[8px] border border-surface-border p-4">
-          <div className="text-[28px] font-bold text-grey-15">{ads.length}</div>
-          <div className="text-xs text-grey-40">Total Ads</div>
-        </div>
-        <div className="bg-white rounded-[8px] border border-surface-border p-4">
-          <div className="text-[28px] font-bold text-green-600">{activeAds}</div>
-          <div className="text-xs text-grey-40">Active</div>
-        </div>
-        <div className="bg-white rounded-[8px] border border-surface-border p-4">
-          <div className="text-[28px] font-bold text-grey-15">{totalSessions}</div>
-          <div className="text-xs text-grey-40">Total Candidates</div>
-        </div>
-        <div className="bg-white rounded-[8px] border border-surface-border p-4">
-          <div className="text-[28px] font-bold text-brand-500">{sourcesUsed}</div>
-          <div className="text-xs text-grey-40">Sources Used</div>
-        </div>
+        <Stat label="Total ads" value={ads.length} />
+        <Stat label="Active" value={activeAds} delta={ads.length > 0 ? `${Math.round((activeAds / ads.length) * 100)}%` : undefined} deltaTone="success" />
+        <Stat label="Total candidates" value={totalSessions} />
+        <Stat label="Sources used" value={sourcesUsed} />
       </div>
 
       {/* Tabs */}
@@ -413,6 +401,7 @@ export default function CampaignsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

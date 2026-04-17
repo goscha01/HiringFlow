@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { GoogleIntegrationCard } from './_GoogleIntegrationCard'
 import { SenderVerificationCard } from './_SenderVerificationCard'
+import { Badge, PageHeader, type BadgeTone } from '@/components/design'
 
 interface Member { id: string; userId: string; email: string; name: string | null; role: string; joinedAt: string }
 interface WorkspaceData {
@@ -99,41 +100,37 @@ export default function SettingsPage() {
     fetchSettings()
   }
 
-  if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
-  if (!data) return <div className="text-center py-12 text-grey-40">Error loading settings</div>
+  if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
+  if (!data) return <div className="py-14 text-center text-[13px] text-[color:var(--danger-fg)]">Error loading settings</div>
+
+  const planTone: BadgeTone = data.plan === 'enterprise' ? 'info' : data.plan === 'pro' ? 'brand' : data.plan === 'starter' ? 'success' : 'neutral'
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Settings</h1>
-          <p className="text-grey-35 mt-1">Manage your workspace configuration</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize ${
-            data.plan === 'enterprise' ? 'bg-purple-100 text-purple-700' :
-            data.plan === 'pro' ? 'bg-blue-100 text-blue-700' :
-            data.plan === 'starter' ? 'bg-green-100 text-green-700' :
-            'bg-gray-100 text-grey-40'
-          }`}>{data.plan} plan</span>
-        </div>
-      </div>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow={data.slug}
+        title="Settings"
+        description="Manage your workspace configuration."
+        actions={<Badge tone={planTone}>{data.plan} plan</Badge>}
+      />
 
+      <div className="px-8 py-4">
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-surface-border">
+      <div className="flex gap-1 mb-6 border-b border-surface-divider">
         {[
-          { key: 'business' as const, label: 'Business Info' },
+          { key: 'business' as const, label: 'Business info' },
           { key: 'team' as const, label: `Team (${data.members.length})` },
-          { key: 'email' as const, label: 'Email Settings' },
+          { key: 'email' as const, label: 'Email' },
           { key: 'providers' as const, label: 'Providers' },
           { key: 'integrations' as const, label: 'Integrations' },
-        ].map(t => (
+        ].map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.key ? 'border-brand-500 text-brand-600' : 'border-transparent text-grey-40 hover:text-grey-20'
+            className={`px-4 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+              tab === t.key ? 'text-ink' : 'border-transparent text-grey-35 hover:text-ink'
             }`}
+            style={tab === t.key ? { borderColor: 'var(--brand-primary)' } : undefined}
           >
             {t.label}
           </button>
@@ -304,6 +301,7 @@ export default function SettingsPage() {
           <GoogleIntegrationCard />
         </div>
       )}
+      </div>
     </div>
   )
 }

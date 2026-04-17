@@ -1,9 +1,14 @@
+/**
+ * Register — matches the refreshed Sign in layout (split-screen + testimonial).
+ */
+
 'use client'
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Button, Eyebrow } from '@/components/design'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -32,7 +37,6 @@ export default function RegisterPage() {
       return
     }
 
-    // Auto-login after registration
     const result = await signIn('credentials', { email, password, redirect: false })
     setLoading(false)
     if (result?.error) setError('Account created but login failed. Please sign in.')
@@ -40,93 +44,135 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col">
-      <div className="bg-brand-500 text-white text-center py-3 text-sm">
-        HireFunnel — Application Flows & Training Platform
+    <div className="min-h-screen grid lg:grid-cols-2" style={{ background: 'var(--bg)' }}>
+      {/* LEFT: form */}
+      <div className="flex flex-col justify-center px-6 py-10 lg:px-16">
+        <div className="w-full max-w-[420px] mx-auto">
+          <div className="flex items-center gap-2.5 mb-8">
+            <div
+              className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white font-bold text-[17px]"
+              style={{ background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' }}
+            >
+              h
+            </div>
+            <span className="font-semibold text-[16px] text-ink tracking-[-0.01em]">HireFunnel</span>
+          </div>
+
+          <Eyebrow size="sm" className="mb-2">Get started</Eyebrow>
+          <h1 className="text-[28px] font-semibold text-ink tracking-tight2 mb-1">Create an account</h1>
+          <p className="text-[14px] text-grey-35 mb-7">Start your hiring funnel in minutes. No credit card needed.</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="px-3 py-2.5 rounded-[10px] text-[12px] font-medium" style={{ background: 'var(--danger-bg)', color: 'var(--danger-fg)' }}>
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="name" className="eyebrow block mb-1.5">Your name</label>
+              <input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px] bg-white"
+                placeholder="Ada Lovelace"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="businessName" className="eyebrow block mb-1.5">Business / workspace</label>
+              <input
+                id="businessName"
+                type="text"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                required
+                className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px] bg-white"
+                placeholder="Northwind Coffee"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="email" className="eyebrow block mb-1.5">Email</label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px] bg-white"
+                placeholder="you@example.com"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="eyebrow block mb-1.5">Password</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={8}
+                className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px] bg-white"
+                placeholder="At least 8 characters"
+              />
+            </div>
+
+            <Button type="submit" disabled={loading} className="w-full !py-3">
+              {loading ? 'Creating account…' : 'Create account'}
+            </Button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-surface-divider flex justify-between text-[12px] text-grey-35">
+            <span>
+              Already have an account? <Link href="/login" className="text-ink hover:text-[color:var(--brand-primary)] font-medium">Sign in</Link>
+            </span>
+            <span className="font-mono" style={{ letterSpacing: '0.04em' }}>© {new Date().getFullYear()}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-4">
-        <div className="w-full max-w-[440px]">
-          <div className="flex justify-center mb-8">
-            <div className="w-[54px] h-[54px] bg-brand-500 rounded-[8px] flex items-center justify-center">
-              <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/>
-              </svg>
+      {/* RIGHT: testimonial panel */}
+      <div
+        className="hidden lg:flex flex-col justify-between p-16 text-white relative overflow-hidden"
+        style={{
+          background: 'linear-gradient(135deg, #1a3a2e 0%, #2a5a46 60%, #3a7a5e 100%)',
+        }}
+      >
+        <div className="absolute inset-0 opacity-[0.08]" style={{
+          background: `repeating-linear-gradient(45deg, rgba(255,255,255,0.3) 0 1px, transparent 1px 28px), repeating-linear-gradient(-45deg, rgba(255,255,255,0.3) 0 1px, transparent 1px 28px)`,
+        }} />
+
+        <div className="relative">
+          <div className="font-mono text-[11px] uppercase text-white/60 mb-1.5" style={{ letterSpacing: '0.12em' }}>
+            Start free
+          </div>
+          <div className="text-[13px] text-white/70">No credit card. Up to 50 candidates / month on the free plan.</div>
+        </div>
+
+        <blockquote className="relative max-w-[420px]">
+          <div className="text-[34px] font-semibold leading-[1.15] tracking-tight2 text-white mb-5">
+            &ldquo;We went from 200 résumés a week to 40 video interviews. Better signal, less busywork.&rdquo;
+          </div>
+          <footer className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center font-semibold text-[13px] text-white">
+              DR
             </div>
-          </div>
+            <div>
+              <div className="text-[13px] font-medium text-white">Diego Ruiz</div>
+              <div className="text-[12px] text-white/60">Hiring Manager · Evercare</div>
+            </div>
+          </footer>
+        </blockquote>
 
-          <div className="bg-white rounded-lg border border-surface-border p-10">
-            <h1 className="text-2xl font-semibold text-grey-15 text-center mb-2">Create Account</h1>
-            <p className="text-grey-35 text-center mb-8">Start your hiring funnel in minutes</p>
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {error && (
-                <div className="bg-red-50 text-red-600 px-4 py-3 rounded-[8px] text-sm border border-red-200">
-                  {error}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Business Name</label>
-                <input
-                  type="text"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
-                  placeholder="Your company name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Your Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-3 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
-                  placeholder="John Doe"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
-                  placeholder="you@company.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  className="w-full px-4 py-3 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500 text-grey-15 placeholder-grey-50"
-                  placeholder="Min 8 characters"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || !email || !password || !businessName}
-                className="w-full btn-primary py-3.5 text-base disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Creating account...' : 'Create Account'}
-              </button>
-            </form>
-
-            <p className="text-center text-grey-40 text-sm mt-6">
-              Already have an account? <Link href="/login" className="text-brand-500 hover:underline">Sign in</Link>
-            </p>
-          </div>
+        <div className="relative font-mono text-[10px] uppercase text-white/40 flex gap-6" style={{ letterSpacing: '0.14em' }}>
+          <span>SOC 2</span>
+          <span>GDPR</span>
+          <span>Encrypted at rest</span>
         </div>
       </div>
     </div>
