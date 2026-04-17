@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Hirefunnel — Full Product Canvas</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&family=Fraunces:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<style>
+  :root {
+    --brand-primary: #FF9500;
+    --brand-dim: #FFF3DF;
+    --ink: #1a1815;
+    --bg: #FAF8F5;
+    --card: #FFFFFF;
+    --body-font: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+    --display-font: 'Be Vietnam Pro', system-ui, sans-serif;
+    --mono-font: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --btn-radius: 10px;
+  }
+  html, body, #root { height: 100%; margin: 0; }
+  body { background: #f0eee9; color: #1a1815; font-family: var(--body-font); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  button { font-family: inherit; }
+  a { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="mock-data.jsx"></script>
+<script type="text/babel" src="ui.jsx"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="screens-part1.jsx"></script>
+<script type="text/babel" src="screens-part2.jsx"></script>
+
+<script type="text/babel">
+const { useEffect } = React;
+
+// Artboard wrapper — scales screen to the design width we render at.
+function Artboard({ label, width = 1280, height = 820, children }) {
+  return (
+    <DCArtboard label={label} width={width} height={height}>
+      <div style={{ width, height, overflow: "hidden", background: "var(--bg)" }}>
+        {children}
+      </div>
+    </DCArtboard>
+  );
+}
+
+// Mobile frame
+function Phone({ label, children }) {
+  return (
+    <DCArtboard label={label} width={390} height={820}>
+      <div style={{ width: 390, height: 820, overflow: "hidden", background: "#000",
+        borderRadius: 40, border: "8px solid #1a1815", padding: 4, position: "relative" }}>
+        <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)",
+          width: 100, height: 24, background: "#000", borderRadius: 12, zIndex: 10 }} />
+        <div style={{ width: "100%", height: "100%", borderRadius: 32, overflow: "hidden", background: "var(--bg)" }}>
+          {children}
+        </div>
+      </div>
+    </DCArtboard>
+  );
+}
+
+const P1 = window.SCREENS_PART1;
+const P2 = window.SCREENS_PART2;
+
+function App() {
+  return (
+    <DesignCanvas>
+      {/* Cover / intro */}
+      <div style={{ padding: "0 60px 60px", maxWidth: 1200 }}>
+        <div style={{ fontFamily: "var(--mono-font)", fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(60,50,40,0.6)", marginBottom: 16 }}>
+          Hirefunnel · v0.3 · 14 surfaces
+        </div>
+        <div style={{ fontSize: 56, fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.05, marginBottom: 18, color: "rgba(40,30,20,0.92)" }}>
+          Hirefunnel — Full product canvas
+        </div>
+        <div style={{ fontSize: 17, color: "rgba(60,50,40,0.7)", maxWidth: 680, lineHeight: 1.5 }}>
+          All the screens you'll want to style before we ship. Grouped by area. Scroll/pan to explore, pinch to zoom.
+          The <b>candidate flow</b> lives in a separate file (<code>Hirefunnel Candidate Flow.html</code>) with its own three variants and Tweaks panel.
+        </div>
+      </div>
+
+      <DCSection title="Admin — Home & pipeline" subtitle="Where recruiters spend their day.">
+        <Artboard label="Dashboard · /app"><P1.ScreenDashboard /></Artboard>
+        <Artboard label="Candidates · /app/candidates (pipeline view)"><P1.ScreenCandidates /></Artboard>
+        <Artboard label="Scheduling · /app/scheduling"><P2.ScreenScheduling /></Artboard>
+      </DCSection>
+
+      <DCSection title="Admin — Analytics" subtitle="The priority screen. Funnel health across flows.">
+        <Artboard label="Analytics · /app/analytics" width={1440} height={880}><P1.ScreenAnalytics /></Artboard>
+        <DCPostIt top={-8} left={1460} rotate={3} width={220}>
+          Prev 30d delta badges in warm green/red. Funnel bars show exact drop-off count inside the bar. Spark trends per flow — small but scannable.
+        </DCPostIt>
+      </DCSection>
+
+      <DCSection title="Admin — Flow authoring" subtitle="Build, brand, and review the branching interview.">
+        <Artboard label="Flows list · /app/flows"><P1.ScreenFlows /></Artboard>
+        <Artboard label="Flow builder · /app/flows/[id]/schema" width={1440} height={820}><P1.ScreenFlowBuilder /></Artboard>
+        <Artboard label="Branding · /app/flows/[id]/branding" width={1440} height={820}><P2.ScreenBranding /></Artboard>
+        <Artboard label="Submissions viewer · /app/flows/[id]/submissions" width={1440} height={820}><P1.ScreenSubmissions /></Artboard>
+      </DCSection>
+
+      <DCSection title="Admin — Content & trainings" subtitle="Video library and self-paced training courses.">
+        <Artboard label="Videos · /app/videos"><P2.ScreenVideos /></Artboard>
+        <Artboard label="Trainings list · /app/trainings"><P2.ScreenTrainings /></Artboard>
+        <Artboard label="Training editor · /app/trainings/[id]" width={1440} height={820}><P2.ScreenTrainingEditor /></Artboard>
+      </DCSection>
+
+      <DCSection title="Public pages" subtitle="What candidates see — unauthenticated.">
+        <Artboard label="Marketing · hirefunnel.co" width={1280} height={940}><P2.ScreenMarketing /></Artboard>
+        <Artboard label="Public training · /t/[slug]" width={1280} height={940}><P2.ScreenPublicTraining /></Artboard>
+        <Artboard label="Sign in · /auth" width={1280} height={820}><P2.ScreenAuth /></Artboard>
+      </DCSection>
+
+      <DCSection title="Platform admin" subtitle="Internal Hirefunnel staff-only console.">
+        <Artboard label="Organizations · /platform" width={1280} height={820}><P2.ScreenPlatformAdmin /></Artboard>
+        <DCPostIt top={-8} left={1300} rotate={-2} width={220}>
+          Dark top-bar so internal-only screens feel different from customer workspaces. Impersonate button is very prominent on purpose.
+        </DCPostIt>
+      </DCSection>
+
+      <DCSection title="Candidate flow — see separate file" subtitle="The interactive prototype with 3 variants lives in 'Hirefunnel Candidate Flow.html'.">
+        <DCArtboard label="Click to open →" width={560} height={260}>
+          <a href="Hirefunnel Candidate Flow.html" style={{
+            display: "flex", width: "100%", height: "100%",
+            alignItems: "center", justifyContent: "center",
+            flexDirection: "column", gap: 12,
+            background: "linear-gradient(135deg, #FFF3DF, #fff)",
+            textDecoration: "none", color: "#1a1815",
+          }}>
+            <div style={{ fontFamily: "var(--mono-font)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#59595A" }}>
+              Interactive prototype
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 600, letterSpacing: "-0.01em" }}>
+              Candidate Flow →
+            </div>
+            <div style={{ fontSize: 13, color: "#59595A" }}>
+              3 variants · Classic · Cinema · Paper
+            </div>
+          </a>
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

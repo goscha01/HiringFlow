@@ -1,40 +1,111 @@
-@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Design tokens — mirrors Design/design_handoff_hirefunnel/README.md.
+     Kept as CSS vars so inline styles in the legacy codebase continue to
+     work and can be migrated to Tailwind classes incrementally. */
+  --brand-primary: #FF9500;
+  --brand-dim:     #FFF3DF;
+  --brand-fg:      #C2710A;
+
+  --ink:     #1a1815;
+  --bg:      #FAF8F5;
+  --card:    #FFFFFF;
+  --border:  #EDE6D9;
+  --divider: #F1EBE1;
+  --dim:     #59595A;
+  --muted:   #808080;
+  --weak-track: #F7F3EB;
+
+  --success-bg: #E6F4EA; --success-fg: #1F6A3A;
+  --warn-bg:    #FEF2D0; --warn-fg:    #8A6500;
+  --danger-bg:  #FDE4E1; --danger-fg:  #A93A2C;
+  --info-bg:    #E6EFF8; --info-fg:    #2E5A88;
+  --neutral-bg: #F1EBE1; --neutral-fg: #59595A;
+
+  --body-font:    'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+  --display-font: 'Be Vietnam Pro', system-ui, sans-serif;
+  --mono-font:    'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --btn-radius:  10px;
+  --card-radius: 14px;
+
+  --shadow-card:   0 2px 6px rgba(26,24,21,0.06);
+  --shadow-raised: 0 10px 30px -10px rgba(26,24,21,0.15);
+  --shadow-brand:  0 4px 10px rgba(255,149,0,0.25);
+}
+
 @layer base {
+  html, body { background: var(--bg); }
   body {
-    @apply font-sans text-grey-15 antialiased;
+    @apply font-sans antialiased;
+    color: var(--ink);
   }
 }
 
 @layer components {
-  /* Figma-style buttons */
+  /* Buttons — new sizing from the design kit. Legacy call sites keep working;
+     radius and colors now match the refreshed system. */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-brand-500 text-white font-medium rounded-[8px] hover:bg-brand-600 transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-500 text-white font-semibold text-[13px] rounded-[10px] hover:bg-brand-600 transition-colors;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-surface-light border border-surface-border text-grey-15 font-medium rounded-[8px] hover:bg-surface transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-transparent border border-surface-border text-ink font-medium text-[13px] rounded-[10px] hover:bg-surface-light transition-colors;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-3 text-grey-15 font-normal rounded-[8px] hover:bg-surface transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-grey-35 font-medium text-[13px] rounded-[10px] hover:bg-surface-light transition-colors;
   }
 
-  /* Section containers */
+  /* Section containers — card style per design system */
   .section-card {
-    @apply bg-white rounded-lg p-8 lg:p-[50px];
+    @apply bg-white rounded-xl border border-surface-border p-8;
   }
   .section-heading {
-    @apply text-2xl font-semibold text-grey-15;
+    @apply text-2xl font-semibold text-ink tracking-tight2;
   }
   .section-paragraph {
-    @apply text-lg text-grey-35 leading-relaxed;
+    @apply text-base text-grey-35 leading-relaxed;
   }
 
-  /* Feature number from Benefits */
-  .feature-number {
-    @apply text-[50px] font-extrabold text-grey-15 leading-none;
+  /* Eyebrow — mono uppercase above titles / on cards */
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase text-grey-35;
+    letter-spacing: 0.12em;
   }
+  .eyebrow-sm {
+    @apply font-mono text-[10px] uppercase text-grey-35;
+    letter-spacing: 0.1em;
+  }
+
+  /* Display heading */
+  .h-display {
+    @apply text-[26px] font-semibold text-ink tracking-tight2;
+    line-height: 1.1;
+  }
+
+  /* Feature number — retained for legacy marketing sections */
+  .feature-number {
+    @apply text-[50px] font-extrabold text-ink leading-none;
+  }
+
+  /* Status badges — match the design-kit Badge component */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold uppercase whitespace-nowrap;
+    letter-spacing: 0.04em;
+  }
+  .badge::before {
+    content: '';
+    @apply w-1.5 h-1.5 rounded-full opacity-80;
+    background: currentColor;
+  }
+  .badge-neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
+  .badge-brand   { background: var(--brand-dim);  color: var(--brand-fg);   }
+  .badge-success { background: var(--success-bg); color: var(--success-fg); }
+  .badge-warn    { background: var(--warn-bg);    color: var(--warn-fg);    }
+  .badge-danger  { background: var(--danger-bg);  color: var(--danger-fg);  }
+  .badge-info    { background: var(--info-bg);    color: var(--info-fg);    }
 }
