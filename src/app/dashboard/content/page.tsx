@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { SubNav } from '../_components/SubNav'
 import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
+import { Badge, Button, PageHeader } from '@/components/design'
 
 const ASSETS_NAV = [
   { href: '/dashboard/content', label: 'Templates' },
@@ -111,31 +112,38 @@ export default function ContentPage() {
   const filteredAdTemplates = sourceFilter === 'all' ? adTemplates : adTemplates.filter(t => t.source === sourceFilter)
   const filteredAdDefaults = sourceFilter === 'all' ? AD_DEFAULTS : AD_DEFAULTS.filter(d => d.source === sourceFilter)
 
-  if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
+  if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
   return (
-    <div>
-      <h1 className="text-[36px] font-semibold text-grey-15 mb-1">Assets</h1>
-      <p className="text-grey-35 mb-6">Reusable templates and media for your flows and campaigns</p>
-      <SubNav items={ASSETS_NAV} />
-      <div className="flex items-center justify-between mb-6">
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow={`${emailTemplates.length + adTemplates.length} template${emailTemplates.length + adTemplates.length === 1 ? '' : 's'}`}
+        title="Assets"
+        description="Reusable templates and media for your flows and campaigns."
+        actions={
+          <>
+            <Button variant="secondary" size="sm" onClick={async () => {
+              const res = await fetch('/api/email-templates/seed', { method: 'POST' })
+              const d = await res.json().catch(() => ({}))
+              if (res.ok) {
+                alert(`Added ${d.created} default template${d.created === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} already existed)` : ''}.`)
+                refreshEmails()
+              } else { alert('Failed to seed defaults') }
+            }}>+ Defaults</Button>
+            <Button variant="secondary" size="sm" onClick={() => openCreateEmail()}>+ Email</Button>
+            <Button size="sm" onClick={() => openCreateAd()}>+ Ad</Button>
+          </>
+        }
+      />
+      <div className="px-8 pt-5">
+        <SubNav items={ASSETS_NAV} />
+      </div>
+      <div className="px-8 py-4">
+      <div className="flex items-end justify-between mb-4">
         <div>
-          <h2 className="text-xl font-semibold text-grey-15">Templates</h2>
-          <p className="text-grey-35 text-sm mt-1">Email templates (SMS templates coming soon)</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={async () => {
-            const res = await fetch('/api/email-templates/seed', { method: 'POST' })
-            const d = await res.json().catch(() => ({}))
-            if (res.ok) {
-              alert(`Added ${d.created} default template${d.created === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} already existed)` : ''}.`)
-              refreshEmails()
-            } else {
-              alert('Failed to seed defaults')
-            }
-          }} className="btn-secondary text-sm">Add all defaults</button>
-          <button onClick={() => openCreateEmail()} className="btn-secondary text-sm">+ Email Template</button>
-          <button onClick={() => openCreateAd()} className="btn-primary text-sm">+ Ad Template</button>
+          <div className="eyebrow mb-0.5">Templates</div>
+          <div className="text-[15px] font-semibold text-ink">Emails &amp; job ads</div>
+          <p className="text-grey-35 text-[12px] mt-0.5">Click a default to start, or build from scratch.</p>
         </div>
       </div>
 
@@ -296,6 +304,7 @@ export default function ContentPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

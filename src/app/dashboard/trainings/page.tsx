@@ -1,8 +1,15 @@
+/**
+ * Trainings list — refreshed 3-col grid with large gradient cover (fallback
+ * when no coverImage) + sections / enrolled count, matching
+ * Design/design_handoff_hirefunnel.
+ */
+
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { SubNav } from '../_components/SubNav'
+import { Badge, Button, Card, Eyebrow, PageHeader } from '@/components/design'
 
 const TRAINING_NAV = [
   { href: '/dashboard/trainings', label: 'Trainings' },
@@ -48,7 +55,7 @@ export default function TrainingsPage() {
         const { url } = await res.json()
         setNewCoverImage(url)
       }
-    } catch {}
+    } catch { /* ignore */ }
     setUploadingCover(false)
     if (coverInputRef.current) coverInputRef.current.value = ''
   }
@@ -86,54 +93,127 @@ export default function TrainingsPage() {
     fetchTrainings()
   }
 
-  if (loading) return <div className="text-center py-12 text-gray-500">Loading...</div>
+  if (loading) {
+    return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
+  }
 
   return (
-    <div>
-      <SubNav items={TRAINING_NAV} />
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Trainings</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="btn-primary text-sm"
-        >
-          + New Training
-        </button>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow={`${trainings.length} training${trainings.length === 1 ? '' : 's'}`}
+        title="Trainings"
+        description="Course programs for onboarding, compliance, and up-skilling."
+        actions={<Button size="sm" onClick={() => setShowCreate(true)}>+ New training</Button>}
+      />
+
+      <div className="px-8 pt-5">
+        <SubNav items={TRAINING_NAV} />
+      </div>
+
+      <div className="px-8 py-4">
+        {trainings.length === 0 ? (
+          <Card padding={48} className="text-center">
+            <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-xl flex items-center justify-center">
+              <svg className="w-8 h-8" style={{ color: 'var(--brand-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+            </div>
+            <h2 className="text-[20px] font-semibold text-ink mb-2">No trainings yet</h2>
+            <p className="text-grey-35 mb-5 text-[14px]">Create your first training program.</p>
+            <Button size="sm" onClick={() => setShowCreate(true)}>+ New training</Button>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {trainings.map((t) => {
+              const paid = (t.pricing as { type: string })?.type === 'paid'
+              const price = (t.pricing as { price?: number })?.price || 0
+              const limitType = (t.timeLimit as { type: string })?.type
+              return (
+                <Card key={t.id} padding={0} className="overflow-hidden group">
+                  <Link href={`/dashboard/trainings/${t.id}`}>
+                    {t.coverImage ? (
+                      <img src={t.coverImage} alt={t.title} className="w-full h-40 object-cover" />
+                    ) : (
+                      <div
+                        className="w-full h-40 relative"
+                        style={{
+                          background: `
+                            linear-gradient(135deg, rgba(255,149,0,0.22), rgba(255,149,0,0.08)),
+                            repeating-linear-gradient(45deg, rgba(26,24,21,0.04) 0 14px, transparent 14px 28px)`,
+                        }}
+                      >
+                        <div className="absolute bottom-3 left-3">
+                          <Eyebrow size="xs">{t.sections.length} section{t.sections.length === 1 ? '' : 's'} · {t._count.enrollments} enrolled</Eyebrow>
+                        </div>
+                      </div>
+                    )}
+                  </Link>
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <Link href={`/dashboard/trainings/${t.id}`} className="text-[15px] font-semibold text-ink hover:text-[color:var(--brand-primary)] leading-snug">
+                        {t.title}
+                      </Link>
+                      <div className="flex gap-1 shrink-0">
+                        {t.accessMode === 'invitation_only' && <Badge tone="info">Gated</Badge>}
+                        <Badge tone={t.isPublished ? 'success' : 'warn'}>{t.isPublished ? 'Published' : 'Draft'}</Badge>
+                      </div>
+                    </div>
+                    {t.description && <p className="text-[12px] text-grey-35 line-clamp-2 mb-3">{t.description}</p>}
+                    <div className="flex items-center justify-between text-[11px] text-grey-35 font-mono pt-3 border-t border-surface-divider">
+                      <span>{t.sections.length} sections · {t._count.enrollments} enrolled</span>
+                      <span className="flex items-center gap-2">
+                        <span>{paid ? `$${price}` : 'Free'}</span>
+                        <span className="text-grey-50">·</span>
+                        <span>{limitType === 'unlimited' ? 'No limit' : limitType}</span>
+                      </span>
+                    </div>
+                    <div className="pt-3 flex justify-end">
+                      <button onClick={() => deleteTraining(t.id)} className="text-[11px] text-[color:var(--danger-fg)] hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Create modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">New Training</h2>
+          <div className="bg-white rounded-xl border border-surface-border shadow-raised p-7 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <Eyebrow size="xs" className="mb-1.5">New training</Eyebrow>
+            <h2 className="text-[20px] font-semibold text-ink mb-4">Create a training program</h2>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Training Title</label>
+                <div className="eyebrow mb-1.5">Title</div>
                 <input
                   type="text"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="e.g. Onboarding Program"
-                  className="w-full px-3 py-2 border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 text-[13px] text-ink"
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cover Image</label>
+                <div className="eyebrow mb-1.5">Cover image</div>
                 {newCoverImage ? (
                   <div className="relative">
-                    <img src={newCoverImage} alt="Cover" className="w-full h-32 object-cover rounded-lg" />
+                    <img src={newCoverImage} alt="Cover" className="w-full h-32 object-cover rounded-[10px]" />
                     <button onClick={() => setNewCoverImage(null)} className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full text-xs flex items-center justify-center hover:bg-black/70">&times;</button>
                   </div>
                 ) : (
-                  <label className="block w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-brand-400 transition-colors flex items-center justify-center">
+                  <label className="block w-full h-28 border-2 border-dashed border-surface-border rounded-[10px] cursor-pointer hover:border-brand-500/60 transition-colors flex items-center justify-center">
                     <div className="text-center">
-                      <svg className="w-8 h-8 mx-auto text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-7 h-7 mx-auto text-grey-50 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      <span className="text-xs text-gray-500">{uploadingCover ? 'Uploading...' : 'Upload cover image'}</span>
+                      <span className="text-[11px] text-grey-35">{uploadingCover ? 'Uploading…' : 'Upload cover image'}</span>
                     </div>
                     <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" disabled={uploadingCover} />
                   </label>
@@ -141,17 +221,17 @@ export default function TrainingsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Time Limit</label>
+                <div className="eyebrow mb-1.5">Time limit</div>
                 <div className="flex gap-2">
-                  {(['unlimited', 'days', 'calendar'] as const).map((t) => (
+                  {(['unlimited', 'days', 'calendar'] as const).map((v) => (
                     <button
-                      key={t}
-                      onClick={() => setNewTimeLimit({ type: t })}
-                      className={`flex-1 py-2 text-xs capitalize rounded-lg border ${
-                        newTimeLimit.type === t ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'
+                      key={v}
+                      onClick={() => setNewTimeLimit({ type: v })}
+                      className={`flex-1 py-2 text-[12px] capitalize rounded-[10px] border ${
+                        newTimeLimit.type === v ? 'border-brand-500 bg-brand-50 text-[color:var(--brand-fg)]' : 'border-surface-border text-grey-35 bg-white hover:bg-surface-light'
                       }`}
                     >
-                      {t}
+                      {v}
                     </button>
                   ))}
                 </div>
@@ -162,41 +242,30 @@ export default function TrainingsPage() {
                     value={newTimeLimit.value || ''}
                     onChange={(e) => setNewTimeLimit({ type: 'days', value: Number(e.target.value) })}
                     placeholder="Number of days"
-                    className="w-full mt-2 px-3 py-2 border border-surface-border rounded-[8px] text-sm"
-                  />
-                )}
-                {newTimeLimit.type === 'calendar' && (
-                  <input
-                    type="date"
-                    onChange={(e) => setNewTimeLimit({ type: 'calendar', value: undefined, ...({ date: e.target.value } as Record<string, string>) })}
-                    className="w-full mt-2 px-3 py-2 border border-surface-border rounded-[8px] text-sm"
+                    className="w-full mt-2 px-3 py-2 border border-surface-border rounded-[10px] text-[13px]"
                   />
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Pricing</label>
+                <div className="eyebrow mb-1.5">Pricing</div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setNewPricing({ type: 'free' })}
-                    className={`flex-1 py-2 text-xs rounded-lg border ${
-                      newPricing.type === 'free' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'
+                    className={`flex-1 py-2 text-[12px] rounded-[10px] border ${
+                      newPricing.type === 'free' ? 'border-brand-500 bg-brand-50 text-[color:var(--brand-fg)]' : 'border-surface-border text-grey-35 bg-white hover:bg-surface-light'
                     }`}
-                  >
-                    Free
-                  </button>
+                  >Free</button>
                   <button
                     onClick={() => setNewPricing({ type: 'paid', price: 0 })}
-                    className={`flex-1 py-2 text-xs rounded-lg border ${
-                      newPricing.type === 'paid' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'
+                    className={`flex-1 py-2 text-[12px] rounded-[10px] border ${
+                      newPricing.type === 'paid' ? 'border-brand-500 bg-brand-50 text-[color:var(--brand-fg)]' : 'border-surface-border text-grey-35 bg-white hover:bg-surface-light'
                     }`}
-                  >
-                    Paid
-                  </button>
+                  >Paid</button>
                 </div>
                 {newPricing.type === 'paid' && (
                   <div className="flex items-center gap-2 mt-2">
-                    <span className="text-sm text-gray-500">$</span>
+                    <span className="text-[13px] text-grey-50">$</span>
                     <input
                       type="number"
                       min={0}
@@ -204,75 +273,20 @@ export default function TrainingsPage() {
                       value={newPricing.price || ''}
                       onChange={(e) => setNewPricing({ type: 'paid', price: Number(e.target.value) })}
                       placeholder="Price"
-                      className="flex-1 px-3 py-2 border border-surface-border rounded-[8px] text-sm"
+                      className="flex-1 px-3 py-2 border border-surface-border rounded-[10px] text-[13px]"
                     />
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowCreate(false)} className="btn-secondary flex-1 py-2.5 text-sm">
-                Cancel
-              </button>
-              <button onClick={createTraining} disabled={creating || !newTitle.trim()} className="btn-primary flex-1 py-2.5 text-sm disabled:opacity-50">
-                {creating ? 'Creating...' : 'Create Training'}
-              </button>
+            <div className="flex gap-2 mt-6 justify-end">
+              <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
+              <Button onClick={createTraining} disabled={creating || !newTitle.trim()}>
+                {creating ? 'Creating…' : 'Create training'}
+              </Button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Training cards */}
-      {trainings.length === 0 ? (
-        <div className="bg-white rounded-lg border border-surface-border p-12 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">No trainings yet</h2>
-          <p className="text-gray-500 mb-4">Create your first training program</p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm">
-            + New Training
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {trainings.map((t) => (
-            <div key={t.id} className="bg-white rounded-lg border border-surface-border overflow-hidden hover:shadow-md transition-shadow">
-              {t.coverImage && (
-                <Link href={`/dashboard/trainings/${t.id}`}>
-                  <img src={t.coverImage} alt={t.title} className="w-full h-36 object-cover" />
-                </Link>
-              )}
-              <Link href={`/dashboard/trainings/${t.id}`} className="block p-5">
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="font-semibold text-gray-900 text-sm">{t.title}</h3>
-                  <div className="flex gap-1">
-                    {t.accessMode === 'invitation_only' && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">Gated</span>
-                    )}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      t.isPublished ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {t.isPublished ? 'Published' : 'Draft'}
-                    </span>
-                  </div>
-                </div>
-                {t.description && <p className="text-xs text-gray-500 mb-3 line-clamp-2">{t.description}</p>}
-                <div className="flex items-center gap-3 text-xs text-gray-400">
-                  <span>{t.sections.length} sections</span>
-                  <span>{t._count.enrollments} enrolled</span>
-                  <span>{(t.pricing as { type: string })?.type === 'paid' ? `$${(t.pricing as { price?: number })?.price || 0}` : 'Free'}</span>
-                  <span>{(t.timeLimit as { type: string })?.type === 'unlimited' ? 'No limit' : (t.timeLimit as { type: string })?.type}</span>
-                </div>
-              </Link>
-              <div className="border-t border-gray-100 px-5 py-2 flex justify-end">
-                <button onClick={() => deleteTraining(t.id)} className="text-xs text-red-500 hover:text-red-700">Delete</button>
-              </div>
-            </div>
-          ))}
         </div>
       )}
     </div>

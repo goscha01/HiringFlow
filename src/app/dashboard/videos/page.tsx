@@ -1,8 +1,15 @@
+/**
+ * Videos library — refreshed 3-column grid matching
+ * Design/design_handoff_hirefunnel screens-part2. Dark gradient thumb with
+ * play overlay and duration pill, filename in mono, delete on hover.
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
 import { uploadVideoFile } from '@/lib/upload-client'
 import { SubNav } from '../_components/SubNav'
+import { Badge, Button, Card, Eyebrow, PageHeader } from '@/components/design'
 
 const ASSETS_NAV = [
   { href: '/dashboard/content', label: 'Templates' },
@@ -12,8 +19,11 @@ const ASSETS_NAV = [
 interface Video {
   id: string
   filename: string
+  displayName?: string
+  summary?: string
   mimeType: string
   sizeBytes: number
+  durationSeconds?: number | null
   createdAt: string
   url: string
 }
@@ -25,22 +35,29 @@ interface UploadProgress {
   error?: string
 }
 
+function fmtFileSize(bytes: number) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+function fmtDuration(s?: number | null) {
+  if (!s || !isFinite(s)) return null
+  const m = Math.floor(s / 60)
+  const sec = Math.round(s % 60)
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
 export default function VideosPage() {
   const [videos, setVideos] = useState<Video[]>([])
   const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
   const [uploads, setUploads] = useState<UploadProgress[]>([])
+  const [playing, setPlaying] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchVideos()
-  }, [])
+  useEffect(() => { fetchVideos() }, [])
 
   const fetchVideos = async () => {
     const res = await fetch('/api/videos')
-    if (res.ok) {
-      const data = await res.json()
-      setVideos(data)
-    }
+    if (res.ok) setVideos(await res.json())
   }
 
   const deleteVideo = async (id: string) => {
@@ -51,27 +68,15 @@ export default function VideosPage() {
 
   const uploadSingleFile = async (file: File, index: number): Promise<Video | null> => {
     try {
-      setUploads((prev) =>
-        prev.map((u, i) => (i === index ? { ...u, status: 'uploading' } : u))
-      )
-
+      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'uploading' } : u)))
       const result = await uploadVideoFile(file, (progress) => {
-        setUploads((prev) =>
-          prev.map((u, i) => (i === index ? { ...u, progress, status: 'uploading' } : u))
-        )
+        setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress, status: 'uploading' } : u)))
       })
-
-      setUploads((prev) =>
-        prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u))
-      )
-
-      // Refresh video list to get the DB record with proper ID
+      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u)))
       await fetchVideos()
       return result as unknown as Video
     } catch {
-      setUploads((prev) =>
-        prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u))
-      )
+      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u)))
       return null
     }
   }
@@ -79,147 +84,132 @@ export default function VideosPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
-
     setUploading(true)
-    setError('')
-
-    // Initialize upload progress for all files
-    const initialProgress: UploadProgress[] = files.map((f) => ({
-      filename: f.name,
-      progress: 0,
-      status: 'pending',
-    }))
-    setUploads(initialProgress)
-
-    // Upload files sequentially to avoid overwhelming the server
-    const uploadedVideos: Video[] = []
+    const initial: UploadProgress[] = files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' }))
+    setUploads(initial)
+    const uploaded: Video[] = []
     for (let i = 0; i < files.length; i++) {
-      const video = await uploadSingleFile(files[i], i)
-      if (video) {
-        uploadedVideos.push(video)
-      }
+      const v = await uploadSingleFile(files[i], i)
+      if (v) uploaded.push(v)
     }
-
-    // Add all successfully uploaded videos to the list
-    if (uploadedVideos.length > 0) {
-      setVideos((prev) => [...uploadedVideos, ...prev])
-    }
-
+    if (uploaded.length > 0) setVideos((prev) => [...uploaded, ...prev])
     setUploading(false)
     e.target.value = ''
-
-    // Clear upload progress after a delay
-    setTimeout(() => {
-      setUploads([])
-    }, 3000)
-  }
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+    setTimeout(() => setUploads([]), 3000)
   }
 
   return (
-    <div>
-      <h1 className="text-[36px] font-semibold text-grey-15 mb-1">Assets</h1>
-      <p className="text-grey-35 mb-6">Reusable templates and media for your flows and campaigns</p>
-      <SubNav items={ASSETS_NAV} />
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-xl font-semibold text-grey-15">Media</h2>
-          <p className="text-grey-35 text-sm mt-1">Short videos for screening flows and long videos for trainings</p>
-        </div>
-        <label className="bg-brand-500 text-white px-4 py-2 rounded-md hover:bg-brand-600 cursor-pointer transition-colors">
-          {uploading ? 'Uploading...' : 'Upload Videos'}
-          <input
-            type="file"
-            accept="video/*"
-            multiple
-            onChange={handleUpload}
-            disabled={uploading}
-            className="hidden"
-          />
-        </label>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow={`${videos.length} video${videos.length === 1 ? '' : 's'}`}
+        title="Assets"
+        description="Reusable templates and media for your flows and campaigns."
+        actions={
+          <label className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-[10px] text-white font-semibold text-[13px] cursor-pointer" style={{ background: 'var(--brand-primary)' }}>
+            {uploading ? 'Uploading…' : '+ Upload video'}
+            <input type="file" accept="video/*" multiple onChange={handleUpload} disabled={uploading} className="hidden" />
+          </label>
+        }
+      />
+
+      <div className="px-8 pt-5">
+        <SubNav items={ASSETS_NAV} />
       </div>
 
-      {/* Upload Progress */}
-      {uploads.length > 0 && (
-        <div className="mb-6 space-y-2">
-          {uploads.map((upload, idx) => (
-            <div key={idx} className="bg-white rounded-lg shadow p-4">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="truncate font-medium text-gray-700">{upload.filename}</span>
-                <span className="ml-2 text-gray-500">
-                  {upload.status === 'success' && 'Done'}
-                  {upload.status === 'error' && 'Failed'}
-                  {upload.status === 'uploading' && `${upload.progress}%`}
-                  {upload.status === 'pending' && 'Waiting...'}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    upload.status === 'error'
-                      ? 'bg-red-500'
-                      : upload.status === 'success'
-                      ? 'bg-green-500'
-                      : 'bg-brand-500'
-                  }`}
-                  style={{ width: `${upload.progress}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-md mb-4">
-          {error}
-        </div>
-      )}
-
-      {videos.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-          No videos uploaded yet. Upload your first video to get started.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {videos.map((video) => (
-            <div key={video.id} className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="aspect-video bg-black">
-                <video
-                  src={video.url}
-                  className="w-full h-full object-contain"
-                  controls
-                  preload="metadata"
-                />
-              </div>
-              <div className="p-4">
-                <h3 className="font-medium text-gray-900 truncate" title={video.filename}>
-                  {(video as any).displayName || video.filename}
-                </h3>
-                {(video as any).summary && (
-                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">{(video as any).summary}</p>
-                )}
-                <div className="flex items-center justify-between mt-2">
-                  <p className="text-sm text-gray-500">
-                    {formatFileSize(video.sizeBytes)} &middot;{' '}
-                    {new Date(video.createdAt).toLocaleDateString()}
-                  </p>
-                  <button
-                    onClick={() => deleteVideo(video.id)}
-                    className="text-red-500 hover:text-red-700 text-sm"
-                  >
-                    Delete
-                  </button>
+      <div className="px-8 py-4">
+        {/* Upload Progress */}
+        {uploads.length > 0 && (
+          <div className="mb-5 space-y-2">
+            {uploads.map((u, idx) => (
+              <Card key={idx} padding={12}>
+                <div className="flex justify-between text-[12px] mb-1.5">
+                  <span className="truncate font-medium text-ink">{u.filename}</span>
+                  <span className="ml-2 font-mono text-grey-35">
+                    {u.status === 'success' && 'Done'}
+                    {u.status === 'error' && 'Failed'}
+                    {u.status === 'uploading' && `${u.progress}%`}
+                    {u.status === 'pending' && 'Waiting…'}
+                  </span>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--weak-track)' }}>
+                  <div
+                    className="h-full transition-all duration-300"
+                    style={{
+                      width: `${u.progress}%`,
+                      background:
+                        u.status === 'error' ? 'var(--danger-fg)' :
+                        u.status === 'success' ? 'var(--success-fg)' :
+                        'var(--brand-primary)',
+                    }}
+                  />
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {videos.length === 0 ? (
+          <Card padding={48} className="text-center">
+            <Eyebrow size="xs" className="mb-2">Nothing yet</Eyebrow>
+            <h2 className="text-[18px] font-semibold text-ink mb-1.5">No videos uploaded</h2>
+            <p className="text-grey-35 text-[13px]">Upload your first video to start building flows.</p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+            {videos.map((v) => {
+              const duration = fmtDuration(v.durationSeconds)
+              const isPlaying = playing === v.id
+              return (
+                <Card key={v.id} padding={0} className="overflow-hidden group">
+                  <div
+                    className="aspect-video relative cursor-pointer"
+                    style={{
+                      background: isPlaying ? '#000' : 'linear-gradient(135deg, #2a2826 0%, #1a1815 100%)',
+                    }}
+                    onClick={() => setPlaying(isPlaying ? null : v.id)}
+                  >
+                    {isPlaying ? (
+                      <video src={v.url} className="w-full h-full object-contain" controls autoPlay />
+                    ) : (
+                      <>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                            <svg className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                          </div>
+                        </div>
+                        {duration && (
+                          <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-[4px] font-mono text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)', letterSpacing: '0.04em' }}>
+                            {duration}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="p-3.5">
+                    <div className="font-mono text-[11px] text-ink truncate mb-1" title={v.filename} style={{ letterSpacing: '0.02em' }}>
+                      {v.displayName || v.filename}
+                    </div>
+                    {v.summary && (
+                      <p className="text-[11px] text-grey-35 line-clamp-2 mb-2">{v.summary}</p>
+                    )}
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono text-grey-35">
+                        {fmtFileSize(v.sizeBytes)} · {new Date(v.createdAt).toLocaleDateString()}
+                      </span>
+                      <button
+                        onClick={() => deleteVideo(v.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-[color:var(--danger-fg)] hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

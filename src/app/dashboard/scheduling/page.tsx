@@ -1,7 +1,14 @@
+/**
+ * Scheduling — configs + logged meetings. Visual refresh on the existing
+ * two-section layout. Design's week-grid calendar isn't applied (data is
+ * config-link-oriented, not availability-oriented).
+ */
+
 'use client'
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { Badge, Button, Card, Eyebrow, PageHeader } from '@/components/design'
 
 interface SchedulingConfig {
   id: string; name: string; provider: string; schedulingUrl: string
@@ -41,11 +48,9 @@ export default function SchedulingPage() {
   const openCreate = () => {
     setEditing(null); setName(''); setUrl(''); setIsDefault(configs.length === 0); setShowModal(true)
   }
-
   const openEdit = (c: SchedulingConfig) => {
     setEditing(c); setName(c.name); setUrl(c.schedulingUrl); setIsDefault(c.isDefault); setShowModal(true)
   }
-
   const save = async () => {
     if (!name.trim() || !url.trim()) return
     setSaving(true)
@@ -57,208 +62,201 @@ export default function SchedulingPage() {
     }
     setSaving(false); setShowModal(false); refresh()
   }
-
   const toggle = async (c: SchedulingConfig) => {
     await fetch(`/api/scheduling/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: !c.isActive }) })
     refresh()
   }
-
   const setDefault = async (c: SchedulingConfig) => {
     await fetch(`/api/scheduling/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isDefault: true }) })
     refresh()
   }
-
   const remove = async (id: string) => {
     if (!confirm('Delete this scheduling config?')) return
     await fetch(`/api/scheduling/${id}`, { method: 'DELETE' }); refresh()
   }
 
-  const isValidCalendlyUrl = (u: string) => {
-    try { const parsed = new URL(u); return parsed.hostname.includes('calendly.com') } catch { return false }
-  }
-
-  if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
+  if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Scheduling</h1>
-          <p className="text-grey-35 mt-1">Manage Calendly interview booking links</p>
-        </div>
-        <button onClick={openCreate} className="btn-primary">+ Add Calendly Link</button>
-      </div>
+    <div className="-mx-6 lg:-mx-[132px]">
+      <PageHeader
+        eyebrow="Calendly links & meetings"
+        title="Scheduling"
+        description="Booking links you send to candidates and meetings logged by Calendar sync."
+        actions={<Button size="sm" onClick={openCreate}>+ Add link</Button>}
+      />
 
-      {configs.length === 0 ? (
-        <div className="section-card text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-[8px] flex items-center justify-center">
-            <svg className="w-8 h-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+      <div className="px-8 py-6 space-y-6">
+        {/* Configs */}
+        <section>
+          <div className="flex items-end justify-between mb-3">
+            <div>
+              <Eyebrow size="xs" className="mb-0.5">Booking links</Eyebrow>
+              <div className="text-[15px] font-semibold text-ink">Calendly configurations</div>
+            </div>
+            <div className="font-mono text-[11px] text-grey-35">{configs.length} total</div>
           </div>
-          <h2 className="text-xl font-semibold text-grey-15 mb-2">No scheduling links yet</h2>
-          <p className="text-grey-35 mb-4">Add your Calendly booking link to start scheduling candidates</p>
-          <button onClick={openCreate} className="btn-primary">+ Add Calendly Link</button>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
-          <table className="min-w-full">
-            <thead>
-              <tr className="border-b border-surface-border bg-surface">
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Name</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Provider</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">URL</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Invites</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Default</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Status</th>
-                <th className="px-5 py-3 text-right text-xs font-medium text-grey-40 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-border">
-              {configs.map((c) => (
-                <tr key={c.id} className="hover:bg-surface-light">
-                  <td className="px-5 py-4 text-sm font-medium text-grey-15">{c.name}</td>
-                  <td className="px-5 py-4">
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-medium capitalize">{c.provider}</span>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-grey-35 max-w-[250px] truncate">
-                    <a href={c.schedulingUrl} target="_blank" rel="noopener noreferrer" className="hover:text-brand-500 underline">
-                      {c.schedulingUrl}
-                    </a>
-                  </td>
-                  <td className="px-5 py-4 text-sm font-medium text-grey-15">{c._count.events}</td>
-                  <td className="px-5 py-4">
-                    {c.isDefault ? (
-                      <span className="text-xs px-2.5 py-1 rounded-full bg-brand-50 text-brand-600 font-medium">Default</span>
-                    ) : (
-                      <button onClick={() => setDefault(c)} className="text-xs text-grey-40 hover:text-brand-500">Set default</button>
-                    )}
-                  </td>
-                  <td className="px-5 py-4">
-                    <button onClick={() => toggle(c)} className={`text-xs px-2.5 py-1 rounded-full font-medium ${c.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-grey-40'}`}>
-                      {c.isActive ? 'Active' : 'Paused'}
-                    </button>
-                  </td>
-                  <td className="px-5 py-4 text-right space-x-3">
-                    <button onClick={() => openEdit(c)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
-                    <button onClick={() => remove(c.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
-      {/* Scheduled Meetings */}
-      <div className="mt-10">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-xl font-semibold text-grey-15">Scheduled Meetings</h2>
-            <p className="text-sm text-grey-35 mt-0.5">Candidates with a logged interview time</p>
-          </div>
-          <span className="text-xs text-grey-40">{meetings.length} total</span>
-        </div>
-        {meetings.length === 0 ? (
-          <div className="section-card text-center py-10 text-sm text-grey-40">
-            No meetings logged yet. Use &quot;Log meeting&quot; on a candidate&apos;s page to add one, or wait for automatic detection via Calendar sync.
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b border-surface-border bg-surface">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Candidate</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">When</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Link</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Config</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Source</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border">
-                {meetings.map((m) => {
-                  const when = m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt)
-                  const isPast = when.getTime() < Date.now()
-                  return (
-                    <tr key={m.id} className="hover:bg-surface-light">
-                      <td className="px-5 py-4 text-sm">
-                        <Link href={`/dashboard/candidates/${m.session.id}`} className="font-medium text-grey-15 hover:text-brand-500">
-                          {m.session.candidateName || m.session.candidateEmail || 'Anonymous'}
-                        </Link>
-                        {m.session.candidateEmail && m.session.candidateName && (
-                          <div className="text-xs text-grey-40">{m.session.candidateEmail}</div>
-                        )}
+          {configs.length === 0 ? (
+            <Card padding={40} className="text-center">
+              <Eyebrow size="xs" className="mb-2">Nothing yet</Eyebrow>
+              <h2 className="text-[18px] font-semibold text-ink mb-1.5">No scheduling links yet</h2>
+              <p className="text-grey-35 mb-4 text-[13px]">Add your Calendly booking link to start scheduling candidates.</p>
+              <Button size="sm" onClick={openCreate}>+ Add Calendly link</Button>
+            </Card>
+          ) : (
+            <Card padding={0} className="overflow-hidden">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr style={{ background: 'var(--surface-light, #FCFAF6)' }}>
+                    {['Name', 'Provider', 'URL', 'Invites', 'Default', 'Status', 'Actions'].map((h, i) => (
+                      <th
+                        key={h}
+                        className={`px-4 py-2.5 font-mono text-[10px] uppercase text-grey-35 border-b border-surface-divider ${i === 6 ? 'text-right' : 'text-left'}`}
+                        style={{ letterSpacing: '0.1em' }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {configs.map((c) => (
+                    <tr key={c.id} className="border-b border-surface-divider last:border-0 hover:bg-surface-light">
+                      <td className="px-4 py-3 font-medium text-ink">{c.name}</td>
+                      <td className="px-4 py-3"><Badge tone="info">{c.provider}</Badge></td>
+                      <td className="px-4 py-3 max-w-[260px] truncate">
+                        <a href={c.schedulingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-grey-35 hover:text-ink underline">
+                          {c.schedulingUrl.replace(/^https?:\/\//, '')}
+                        </a>
                       </td>
-                      <td className="px-5 py-4 text-sm text-grey-20">
-                        {when.toLocaleString()}
-                        {isPast && <span className="ml-2 text-xs text-grey-40">(past)</span>}
+                      <td className="px-4 py-3 font-mono text-ink">{c._count.events}</td>
+                      <td className="px-4 py-3">
+                        {c.isDefault
+                          ? <Badge tone="brand">Default</Badge>
+                          : <button onClick={() => setDefault(c)} className="text-[11px] text-grey-35 hover:text-ink">Set default</button>}
                       </td>
-                      <td className="px-5 py-4 text-sm text-grey-35 max-w-[220px] truncate">
-                        {m.metadata?.meetingUrl ? (
-                          <a href={m.metadata.meetingUrl} target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline">
-                            {m.metadata.meetingUrl.replace(/^https?:\/\//, '')}
-                          </a>
-                        ) : '—'}
+                      <td className="px-4 py-3">
+                        <button onClick={() => toggle(c)}>
+                          <Badge tone={c.isActive ? 'success' : 'neutral'}>{c.isActive ? 'Active' : 'Paused'}</Badge>
+                        </button>
                       </td>
-                      <td className="px-5 py-4 text-sm text-grey-35">{m.schedulingConfig?.name || '—'}</td>
-                      <td className="px-5 py-4">
-                        <span className={`text-xs px-2 py-1 rounded ${m.metadata?.source === 'manual' ? 'bg-gray-100 text-grey-40' : 'bg-green-50 text-green-700'}`}>
-                          {m.metadata?.source || 'auto'}
-                        </span>
+                      <td className="px-4 py-3 text-right space-x-3">
+                        <button onClick={() => openEdit(c)} className="text-[11px] text-grey-35 hover:text-ink">Edit</button>
+                        <button onClick={() => remove(c.id)} className="text-[11px] text-[color:var(--danger-fg)] hover:underline">Delete</button>
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </section>
+
+        {/* Scheduled Meetings */}
+        <section>
+          <div className="flex items-end justify-between mb-3">
+            <div>
+              <Eyebrow size="xs" className="mb-0.5">Booked</Eyebrow>
+              <div className="text-[15px] font-semibold text-ink">Scheduled meetings</div>
+            </div>
+            <div className="font-mono text-[11px] text-grey-35">{meetings.length} total</div>
           </div>
-        )}
+
+          {meetings.length === 0 ? (
+            <Card padding={32} className="text-center text-[13px] text-grey-35">
+              No meetings logged yet. Use <span className="font-medium text-ink">Log meeting</span> on a candidate&apos;s page, or let Calendar sync pick them up automatically.
+            </Card>
+          ) : (
+            <Card padding={0} className="overflow-hidden">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr style={{ background: 'var(--surface-light, #FCFAF6)' }}>
+                    {['Candidate', 'When', 'Link', 'Config', 'Source'].map((h) => (
+                      <th key={h} className="px-4 py-2.5 font-mono text-[10px] uppercase text-grey-35 border-b border-surface-divider text-left" style={{ letterSpacing: '0.1em' }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {meetings.map((m) => {
+                    const when = m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt)
+                    const isPast = when.getTime() < Date.now()
+                    return (
+                      <tr key={m.id} className="border-b border-surface-divider last:border-0 hover:bg-surface-light">
+                        <td className="px-4 py-3">
+                          <Link href={`/dashboard/candidates/${m.session.id}`} className="font-medium text-ink hover:text-[color:var(--brand-primary)]">
+                            {m.session.candidateName || m.session.candidateEmail || 'Anonymous'}
+                          </Link>
+                          {m.session.candidateEmail && m.session.candidateName && (
+                            <div className="text-[11px] text-grey-35">{m.session.candidateEmail}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-[12px] text-ink">
+                          {when.toLocaleString()}
+                          {isPast && <span className="ml-2 text-[10px] text-grey-50 uppercase" style={{ letterSpacing: '0.08em' }}>past</span>}
+                        </td>
+                        <td className="px-4 py-3 max-w-[220px] truncate">
+                          {m.metadata?.meetingUrl ? (
+                            <a href={m.metadata.meetingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-[color:var(--brand-primary)] hover:underline">
+                              {m.metadata.meetingUrl.replace(/^https?:\/\//, '')}
+                            </a>
+                          ) : <span className="text-grey-50">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-grey-35">{m.schedulingConfig?.name || '—'}</td>
+                        <td className="px-4 py-3">
+                          <Badge tone={m.metadata?.source === 'manual' ? 'neutral' : 'success'}>
+                            {m.metadata?.source || 'auto'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </section>
       </div>
 
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
-          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[520px]" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-xl font-semibold text-grey-15 mb-6">{editing ? 'Edit Scheduling Link' : 'Add Scheduling Link'}</h2>
+          <div className="bg-white rounded-xl border border-surface-border shadow-raised p-7 w-full max-w-[560px]" onClick={(e) => e.stopPropagation()}>
+            <Eyebrow size="xs" className="mb-1.5">{editing ? 'Edit' : 'New'}</Eyebrow>
+            <h2 className="text-[20px] font-semibold text-ink mb-5">{editing ? 'Edit scheduling link' : 'Add scheduling link'}</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. General Interview" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <div className="eyebrow mb-1.5">Name</div>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. General Interview" className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-ink text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Provider</label>
-                <div className="px-4 py-3 border border-surface-border rounded-[8px] bg-surface text-grey-35 text-sm">
-                  Calendly
-                </div>
+                <div className="eyebrow mb-1.5">Provider</div>
+                <div className="px-3 py-2 border border-surface-border rounded-[10px] bg-surface-light text-grey-35 text-[13px]">Calendly</div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Calendly URL</label>
-                <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://calendly.com/your-name/interview" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                {url && !isValidCalendlyUrl(url) && (
-                  <p className="text-xs text-amber-600 mt-1">URL should be a calendly.com link</p>
-                )}
-                <div className="mt-2 p-3 bg-surface rounded-[8px] border border-surface-border">
-                  <p className="text-xs font-medium text-grey-20 mb-1.5">Where to find your Calendly link</p>
-                  <ol className="text-xs text-grey-35 space-y-1 list-decimal list-inside">
-                    <li>Sign in at <a href="https://calendly.com" target="_blank" rel="noopener noreferrer" className="text-brand-500 underline">calendly.com</a> (free plan works).</li>
-                    <li>Go to <span className="font-medium">Event Types</span> and open the event you want candidates to book (e.g. &quot;Interview&quot;).</li>
-                    <li>Click <span className="font-medium">Copy link</span> — the URL looks like <code className="bg-white px-1 py-0.5 rounded border border-surface-border">https://calendly.com/your-name/interview</code>.</li>
-                    <li>Paste it above.</li>
-                  </ol>
-                  <p className="text-xs text-grey-40 mt-2">Tip: make sure the event is <span className="font-medium">active</span> in Calendly, otherwise candidates will see a &quot;not available&quot; page.</p>
-                </div>
+                <div className="eyebrow mb-1.5">Calendly URL</div>
+                <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://calendly.com/your-name/interview" className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-ink text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
               </div>
-              <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2.5 cursor-pointer">
                 <button
+                  type="button"
                   onClick={() => setIsDefault(!isDefault)}
-                  className={`w-10 h-5 rounded-full transition-colors relative ${isDefault ? 'bg-brand-500' : 'bg-gray-300'}`}
+                  className="w-10 h-5 rounded-full transition-colors relative"
+                  style={{ background: isDefault ? 'var(--brand-primary)' : '#D1CFCA' }}
+                  aria-pressed={isDefault}
                 >
                   <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${isDefault ? 'left-5' : 'left-0.5'}`} />
                 </button>
-                <span className="text-sm text-grey-20">Set as default scheduling link</span>
-              </div>
+                <span className="text-[13px] text-ink">Set as default scheduling link</span>
+              </label>
             </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={save} disabled={saving || !name.trim() || !url.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
+            <div className="flex gap-2 mt-6 justify-end">
+              <Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
+              <Button onClick={save} disabled={saving || !name.trim() || !url.trim()}>
+                {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
+              </Button>
             </div>
           </div>
         </div>
