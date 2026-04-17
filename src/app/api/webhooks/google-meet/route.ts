@@ -188,7 +188,9 @@ export async function POST(request: NextRequest) {
           eventType: 'meeting_started',
           metadata: { interviewMeetingId: meeting.id, at: at.toISOString() },
         })
-        fireMeetingLifecycleAutomations(meeting.sessionId, 'meeting_started').catch(() => {})
+        await fireMeetingLifecycleAutomations(meeting.sessionId, 'meeting_started').catch((err) => {
+          console.error('[Meet webhook] meeting_started automations failed:', err)
+        })
         break
       }
       case 'google.workspace.meet.conference.v2.ended': {
@@ -199,7 +201,9 @@ export async function POST(request: NextRequest) {
           eventType: 'meeting_ended',
           metadata: { interviewMeetingId: meeting.id, at: at.toISOString() },
         })
-        fireMeetingLifecycleAutomations(meeting.sessionId, 'meeting_ended').catch(() => {})
+        await fireMeetingLifecycleAutomations(meeting.sessionId, 'meeting_ended').catch((err) => {
+          console.error('[Meet webhook] meeting_ended automations failed:', err)
+        })
         break
       }
       case 'google.workspace.meet.recording.v2.fileGenerated': {
@@ -216,7 +220,9 @@ export async function POST(request: NextRequest) {
             eventType: 'recording_ready',
             metadata: { interviewMeetingId: meeting.id, driveFileId },
           })
-          fireMeetingLifecycleAutomations(meeting.sessionId, 'recording_ready').catch(() => {})
+          await fireMeetingLifecycleAutomations(meeting.sessionId, 'recording_ready').catch((err) => {
+            console.error('[Meet webhook] recording_ready automations failed:', err)
+          })
         }
         break
       }
@@ -229,7 +235,9 @@ export async function POST(request: NextRequest) {
             eventType: 'transcript_ready',
             metadata: { interviewMeetingId: meeting.id, driveFileId: docId },
           })
-          fireMeetingLifecycleAutomations(meeting.sessionId, 'transcript_ready').catch(() => {})
+          await fireMeetingLifecycleAutomations(meeting.sessionId, 'transcript_ready').catch((err) => {
+            console.error('[Meet webhook] transcript_ready automations failed:', err)
+          })
         }
         break
       }
