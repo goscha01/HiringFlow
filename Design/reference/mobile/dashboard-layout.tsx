@@ -1,13 +1,14 @@
 /**
- * Dashboard chrome. Responsive:
- *   - Desktop: 60px TopNav with horizontal tab row, main container
- *     max-w-[1596px] with 132px side padding at lg.
- *   - Mobile (< md): TopNav collapses to logo + search icon + avatar +
- *     hamburger. The hamburger opens MobileNav — a right-side drawer
- *     containing the full tab list, user card, and a Sign out footer.
- *     Horizontal swipe on <main> routes to the neighbouring tab (handled
- *     by SwipeTabs). Flow builder is opted out of swipe because it owns
- *     its own horizontal drag.
+ * Patched dashboard layout — paste into src/app/dashboard/layout.tsx.
+ *
+ * Changes vs the current layout:
+ * - Wraps <main> in <SwipeTabs> so horizontal swipe on mobile routes to the
+ *   adjacent tab with spring physics.
+ * - Passes `mobilePattern` to TopNav so the drawer/bottom/pills choice is
+ *   explicit and easy to change in one spot.
+ * - Moves "Sign out" into the mobile drawer footer so it's reachable.
+ * - Reserves bottom padding when the 'bottom' pattern is in use so content
+ *   isn't hidden behind the tab bar.
  */
 
 'use client'
@@ -31,14 +32,16 @@ const NAV_ITEMS: TopNavItem[] = [
   { href: '/dashboard/settings', label: 'Settings' },
 ]
 
-// Routes that own their own horizontal drag (flow builder canvas, training
-// editor drag-reorder). Swipe-to-switch-tab is disabled inside them.
-const SWIPE_DISABLED = ['/dashboard/flows/', '/dashboard/trainings/']
+// Swipe gets confused inside the flow builder (it has its own canvas drags),
+// so we opt that route out.
+const SWIPE_DISABLED = ['/dashboard/flows/']
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || ''
   const { data: session } = useSession()
-  const user = session?.user as { name?: string; email?: string; workspaceName?: string; isSuperAdmin?: boolean } | undefined
+  const user = session?.user as {
+    name?: string; email?: string; workspaceName?: string; isSuperAdmin?: boolean
+  } | undefined
   const workspaceName = user?.workspaceName || ''
   const isSuperAdmin = user?.isSuperAdmin || false
 
@@ -56,7 +59,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <TopNav
         items={NAV_ITEMS}
         workspaceName={workspaceName}
-        user={{ name: user?.name, email: user?.email, avatarUrl: null }}
+        user={{ name: user?.name, avatarUrl: null }}
+        mobilePattern={MOBILE_PATTERN}
         mobileFooter={signOutBtn}
         cta={
           <div className="flex items-center gap-2">
@@ -64,7 +68,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <Link
                 href="/platform-admin"
                 className="font-mono text-[10px] uppercase px-2.5 py-1 rounded-full border"
-                style={{ letterSpacing: '0.1em', color: 'var(--warn-fg)', background: 'var(--warn-bg)', borderColor: 'transparent' }}
+                style={{
+                  letterSpacing: '0.1em',
+                  color: 'var(--warn-fg)',
+                  background: 'var(--warn-bg)',
+                  borderColor: 'transparent',
+                }}
               >
                 Platform
               </Link>
@@ -78,7 +87,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <main
           className={`flex-1 w-full max-w-[1596px] mx-auto px-4 md:px-6 lg:px-[132px] py-6 md:py-8 ${
             pathname.endsWith('/builder') ? 'pt-0' : ''
-          }`}
+          } ${MOBILE_PATTERN === 'bottom' ? 'pb-24 md:pb-8' : ''}`}
         >
           {children}
         </main>

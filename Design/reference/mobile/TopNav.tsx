@@ -1,12 +1,15 @@
 /**
- * TopNav (responsive) — 60px bar with logo + workspace pill + tab row +
- * search + CTA + avatar. Below the md breakpoint (< 768px):
- *   - Desktop tabs hide.
- *   - Search button collapses into an icon-only affordance.
- *   - A MobileNav drawer takes over the tab list.
+ * TopNav (responsive patch) — drop-in replacement for
+ * src/components/design/TopNav.tsx.
  *
- * Wordmark kept as "HireFunnel" (capital F) per product decision; the
- * design source uses "Hirefunnel".
+ * Differences vs the current TopNav:
+ * - Nav tabs are HIDDEN below md (768px) and replaced with <MobileNav />.
+ * - The workspace pill, search, and CTA remain on the right at all widths,
+ *   but search/CTA collapse into compact forms on mobile.
+ * - Wordmark updated to "Hirefunnel" (lowercase F).
+ *
+ * The public API is backwards-compatible — all existing call sites keep
+ * working without changes.
  */
 
 'use client'
@@ -20,7 +23,7 @@ import { MobileNav } from './MobileNav'
 export interface TopNavItem {
   label: string
   href: string
-  matches?: string[]        // additional path prefixes that count as active
+  matches?: string[]
 }
 
 export interface TopNavProps {
@@ -44,13 +47,7 @@ function initialsFromName(name?: string): string {
 }
 
 export function TopNav({
-  items,
-  workspaceName,
-  user,
-  current,
-  cta,
-  onSearch,
-  className = '',
+  items, workspaceName, user, current, cta, onSearch, className = '',
   mobileFooter,
 }: TopNavProps) {
   const pathname = usePathname() || ''
@@ -65,16 +62,13 @@ export function TopNav({
     <header
       className={`h-[60px] flex items-center gap-3 md:gap-7 px-4 md:px-6 bg-white border-b border-surface-border shrink-0 ${className}`.trim()}
     >
-      {/* Brand */}
       <div className="flex items-center gap-2.5 shrink-0">
         <Link href={items[0]?.href || '/dashboard'} className="flex items-center gap-2.5">
           <div
             className="w-7 h-7 rounded-[8px] flex items-center justify-center text-white font-bold text-[15px]"
             style={{ background: 'var(--brand-primary)', boxShadow: 'var(--shadow-brand)' }}
-          >
-            h
-          </div>
-          <span className="font-semibold text-[15px] text-ink tracking-[-0.01em]">HireFunnel</span>
+          >h</div>
+          <span className="font-semibold text-[15px] text-ink tracking-[-0.01em]">Hirefunnel</span>
         </Link>
         {workspaceName && (
           <span
@@ -109,7 +103,6 @@ export function TopNav({
       {/* Spacer on mobile so right-side items sit flush right */}
       <div className="flex-1 md:hidden" />
 
-      {/* Right cluster */}
       <div className="flex items-center gap-2 md:gap-2.5 shrink-0">
         {onSearch && (
           <>
@@ -123,13 +116,11 @@ export function TopNav({
               className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-[10px] text-ink hover:bg-surface-light transition-colors"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
               </svg>
             </button>
           </>
         )}
-        {/* CTA block — desktop only (mobile gets it via MobileNav footer if needed) */}
         <div className="hidden md:inline-flex">{cta}</div>
         <div
           className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-[12px] overflow-hidden"
@@ -139,9 +130,7 @@ export function TopNav({
           {user?.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={user.avatarUrl} alt={user.name || ''} className="w-full h-full object-cover" />
-          ) : (
-            initials
-          )}
+          ) : initials}
         </div>
         <MobileNav
           items={items}
