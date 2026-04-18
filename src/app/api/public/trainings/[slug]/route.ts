@@ -78,6 +78,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     branding: training.branding,
     passingGrade: training.passingGrade,
     accessMode: training.accessMode,
+    sectionOrder: training.sectionOrder,
     enrollmentId,
     enrollmentStatus,
     enrollmentProgress,
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     sections: training.sections.map((s) => ({
       id: s.id,
       title: s.title,
+      kind: s.kind,
       contents: s.contents.map((c) => ({
         id: c.id,
         type: c.type,

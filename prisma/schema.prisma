@@ -386,6 +386,7 @@ model Training {
   passingGrade  Int               @default(80) @map("passing_grade")
   isPublished   Boolean           @default(false) @map("is_published")
   accessMode    String            @default("public") @map("access_mode")
+  sectionOrder  String            @default("sequential") @map("section_order")
   branding      Json?
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
@@ -402,6 +403,7 @@ model TrainingSection {
   trainingId  String             @map("training_id")
   training    Training           @relation(fields: [trainingId], references: [id], onDelete: Cascade)
   title       String
+  kind        String             @default("video")
   sortOrder   Int                @default(0) @map("sort_order")
   createdAt   DateTime           @default(now()) @map("created_at")
   contents    TrainingContent[]

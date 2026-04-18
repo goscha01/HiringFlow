@@ -37,11 +37,10 @@ interface Quiz { id: string; title: string; requiredPassing: boolean; passingGra
 interface Section {
   id: string
   title: string
+  kind: 'video' | 'quiz'
   sortOrder: number
   contents: Content[]
   quiz: Quiz | null
-  // Gate + enrollment stats are derived client-side in this pass — not
-  // persisted. When the API grows those fields we drop the derivation.
 }
 interface Training {
   id: string
@@ -51,6 +50,7 @@ interface Training {
   coverImage: string | null
   isPublished: boolean
   passingGrade: number
+  sectionOrder: 'sequential' | 'any'
   sections: Section[]
 }
 
@@ -67,14 +67,6 @@ const videoContent = (sec: Section): Content | null =>
   sec.contents.find((c) => c.type === 'video') ?? null
 const textContent = (sec: Section): Content | null =>
   sec.contents.find((c) => c.type === 'text') ?? null
-
-type Gate = 'none' | 'watch' | 'quiz'
-const deriveGate = (sec: Section): Gate => {
-  if (sec.quiz && sec.quiz.requiredPassing) return 'quiz'
-  const vc = videoContent(sec)
-  if (vc?.requiredWatch) return 'watch'
-  return 'none'
-}
 
 // ───────────────────────── Main component ─────────────────────────
 
@@ -159,11 +151,11 @@ export default function TrainingEditorPage() {
     refresh()
   }
 
-  const addSection = async () => {
+  const addSection = async (kind: 'video' | 'quiz' = 'video') => {
     const res = await fetch(`/api/trainings/${trainingId}/sections`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'New section' }),
+      body: JSON.stringify({ kind, title: kind === 'quiz' ? 'New quiz' : 'New section' }),
     })
     if (res.ok) {
       const created = await res.json().catch(() => null)
@@ -300,11 +292,6 @@ export default function TrainingEditorPage() {
     flashSaved()
     refresh()
   }
-  const deleteQuiz = async (sectionId: string) => {
-    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/quiz`, { method: 'DELETE' })
-    flashSaved()
-    refresh()
-  }
 
   // ─────── Keyboard shortcuts ───────
 
@@ -406,14 +393,19 @@ export default function TrainingEditorPage() {
               <div className="text-center py-10 px-2">
                 <div className="text-[13px] font-medium text-ink mb-1.5">Your course is empty</div>
                 <p className="text-[12px] text-grey-35 mb-4">Add your first section to get started.</p>
-                <Button size="sm" onClick={addSection}>+ Add section</Button>
+                <div className="flex flex-col gap-2">
+                  <Button size="sm" onClick={() => addSection('video')}>+ Video section</Button>
+                  <Button size="sm" variant="secondary" onClick={() => addSection('quiz')}>+ Quiz section</Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-1">
                 {training.sections.map((s, idx) => {
                   const isActive = viewMode === 'section' && activeSectionId === s.id
                   const vc = videoContent(s)
-                  const dur = fmtDuration(vc?.video?.durationSeconds ?? null)
+                  const subtitle = s.kind === 'quiz'
+                    ? `Quiz · ${s.quiz?.questions.length ?? 0} Q`
+                    : fmtDuration(vc?.video?.durationSeconds ?? null)
                   const isDropTargetAbove = dropTarget?.id === s.id && dropTarget.edge === 'above'
                   const isDropTargetBelow = dropTarget?.id === s.id && dropTarget.edge === 'below'
                   return (
@@ -469,7 +461,7 @@ export default function TrainingEditorPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-[13px] font-medium text-ink truncate">{s.title}</div>
-                          <div className="font-mono text-[11px] text-grey-35 truncate" style={{ letterSpacing: '0.02em' }}>{dur}</div>
+                          <div className="font-mono text-[11px] text-grey-35 truncate" style={{ letterSpacing: '0.02em' }}>{subtitle}</div>
                         </div>
                         {/* Drag handle — visible on hover */}
                         <svg
@@ -495,12 +487,20 @@ export default function TrainingEditorPage() {
             )}
 
             {training.sections.length > 0 && (
-              <button
-                onClick={addSection}
-                className="mt-3 w-full text-left px-3 py-2 rounded-[8px] text-[12px] font-medium text-grey-35 hover:text-ink hover:bg-surface-weak transition-colors"
-              >
-                + Add section
-              </button>
+              <div className="mt-3 flex gap-1.5">
+                <button
+                  onClick={() => addSection('video')}
+                  className="flex-1 px-2.5 py-2 rounded-[8px] text-[12px] font-medium text-grey-35 hover:text-ink hover:bg-surface-weak transition-colors text-left"
+                >
+                  + Video
+                </button>
+                <button
+                  onClick={() => addSection('quiz')}
+                  className="flex-1 px-2.5 py-2 rounded-[8px] text-[12px] font-medium text-grey-35 hover:text-ink hover:bg-surface-weak transition-colors text-left"
+                >
+                  + Quiz
+                </button>
+              </div>
             )}
           </div>
         </aside>
@@ -513,20 +513,24 @@ export default function TrainingEditorPage() {
               onUpdate={patchTraining}
               onChooseSection={(id) => { setActiveSectionId(id); setViewMode('section') }}
             />
+          ) : activeSection.kind === 'quiz' ? (
+            <QuizSectionEditorPane
+              key={activeSection.id}
+              section={activeSection}
+              sectionNumber={training.sections.findIndex((s) => s.id === activeSection.id) + 1}
+              onRenameSection={(title) => debouncedSaveTitle(activeSection.id, title)}
+              onCreateQuiz={() => createQuiz(activeSection.id)}
+              onQuizAction={(data) => quizAction(activeSection.id, data)}
+            />
           ) : (
             <SectionEditorPane
               key={activeSection.id}
               section={activeSection}
               sectionNumber={training.sections.findIndex((s) => s.id === activeSection.id) + 1}
-              videos={videos}
               onRenameSection={(title) => debouncedSaveTitle(activeSection.id, title)}
               onDescriptionChange={(text) => debouncedSaveDescription(activeSection.id, text)}
-              onAttachVideo={(videoId) => upsertContent(activeSection.id, { type: 'video', videoId })}
               onUploadVideo={(file, onProgress) => uploadAndAttach(activeSection.id, file, onProgress)}
               onRemoveVideo={() => removeVideoFromSection(activeSection.id)}
-              onCreateQuiz={() => createQuiz(activeSection.id)}
-              onQuizAction={(data) => quizAction(activeSection.id, data)}
-              onDeleteQuiz={() => deleteQuiz(activeSection.id)}
             />
           )}
         </section>
@@ -538,13 +542,9 @@ export default function TrainingEditorPage() {
               section={activeSection}
               videos={videos}
               onAttachVideo={(videoId) => upsertContent(activeSection.id, { type: 'video', videoId })}
-              onSetRequiredWatch={(req) => upsertContent(activeSection.id, { type: 'video', requiredWatch: req })}
-              onToggleQuizGate={async (enabled) => {
-                if (enabled && !activeSection.quiz) await createQuiz(activeSection.id)
-                if (activeSection.quiz) await quizAction(activeSection.id, { requiredPassing: enabled })
-              }}
+              onSetQuizPassingGrade={(grade) => quizAction(activeSection.id, { passingGrade: grade })}
               onDeleteSection={async () => {
-                if (!confirm(`Delete section ${training.sections.findIndex((s) => s.id === activeSection.id) + 1}? This removes its video & quiz data.`)) return
+                if (!confirm(`Delete section ${training.sections.findIndex((s) => s.id === activeSection.id) + 1}?`)) return
                 await removeSection(activeSection.id)
               }}
             />
@@ -605,7 +605,11 @@ function CourseSettingsPane({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-medium text-ink truncate">{s.title}</div>
-                  <div className="font-mono text-[11px] text-grey-35 truncate">{fmtDuration(videoContent(s)?.video?.durationSeconds ?? null)}</div>
+                  <div className="font-mono text-[11px] text-grey-35 truncate">
+                    {s.kind === 'quiz'
+                      ? `Quiz · ${s.quiz?.questions.length ?? 0} Q`
+                      : fmtDuration(videoContent(s)?.video?.durationSeconds ?? null)}
+                  </div>
                 </div>
               </button>
             ))}
@@ -643,27 +647,17 @@ function CourseSettingsPane({
 function SectionEditorPane({
   section,
   sectionNumber,
-  videos,
   onRenameSection,
   onDescriptionChange,
-  onAttachVideo,
   onUploadVideo,
   onRemoveVideo,
-  onCreateQuiz,
-  onQuizAction,
-  onDeleteQuiz,
 }: {
   section: Section
   sectionNumber: number
-  videos: Video[]
   onRenameSection: (title: string) => void
   onDescriptionChange: (text: string) => void
-  onAttachVideo: (videoId: string) => void
   onUploadVideo: (file: File, onProgress: (p: number) => void) => Promise<void>
   onRemoveVideo: () => void
-  onCreateQuiz: () => void
-  onQuizAction: (data: Record<string, unknown>) => void
-  onDeleteQuiz: () => void
 }) {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -776,23 +770,38 @@ function SectionEditorPane({
         />
       </div>
 
-      {/* ─── Quiz block ─── */}
+    </div>
+  )
+}
+
+function QuizSectionEditorPane({
+  section,
+  sectionNumber,
+  onRenameSection,
+  onCreateQuiz,
+  onQuizAction,
+}: {
+  section: Section
+  sectionNumber: number
+  onRenameSection: (title: string) => void
+  onCreateQuiz: () => void
+  onQuizAction: (data: Record<string, unknown>) => void
+}) {
+  return (
+    <div className="p-8 lg:p-10 max-w-[720px] mx-auto">
+      <Eyebrow size="xs" className="mb-1">
+        Section {sectionNumber} · Quiz
+      </Eyebrow>
+      <InlineEditableHeading value={section.title} onChange={onRenameSection} />
       {section.quiz ? (
-        <QuizBlock
-          quiz={section.quiz}
-          onQuizAction={onQuizAction}
-          onDelete={onDeleteQuiz}
-        />
+        <QuizBlock quiz={section.quiz} onQuizAction={onQuizAction} />
       ) : (
         <button
           onClick={onCreateQuiz}
           className="w-full text-left p-4 rounded-[14px] border border-dashed border-surface-border hover:border-[color:var(--brand-primary)] hover:bg-brand-50/40 transition-colors"
         >
-          <div className="font-mono text-[10px] uppercase text-grey-35 mb-1" style={{ letterSpacing: '0.12em' }}>
-            Optional
-          </div>
-          <div className="text-[14px] font-medium text-ink">+ Add a quiz to gate this section</div>
-          <div className="text-[12px] text-grey-35 mt-0.5">Candidates must pass before moving on.</div>
+          <div className="text-[14px] font-medium text-ink">+ Create quiz</div>
+          <div className="text-[12px] text-grey-35 mt-0.5">Add questions candidates must pass to complete this section.</div>
         </button>
       )}
     </div>
@@ -836,41 +845,30 @@ function InlineEditableHeading({ value, onChange }: { value: string; onChange: (
 function QuizBlock({
   quiz,
   onQuizAction,
-  onDelete,
 }: {
   quiz: Quiz
   onQuizAction: (data: Record<string, unknown>) => void
-  onDelete: () => void
 }) {
   return (
     <div className="bg-white border border-surface-border rounded-[14px] p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <Eyebrow size="xs" className="mb-0.5">Quiz</Eyebrow>
+          <Eyebrow size="xs" className="mb-0.5">Questions</Eyebrow>
           <div className="text-[14px] font-semibold text-ink">
             {quiz.questions.length} question{quiz.questions.length === 1 ? '' : 's'}
           </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onQuizAction({ action: 'addQuestion', question: { questionText: 'New question', questionType: 'single', options: [{ text: 'Option A', isCorrect: true }, { text: 'Option B', isCorrect: false }] } })}
-            className="text-[12px] font-medium text-grey-35 hover:text-ink"
-          >
-            + Add question
-          </button>
-          <button
-            onClick={() => { if (confirm('Delete quiz? All questions will be lost.')) onDelete() }}
-            className="text-[12px] font-medium hover:underline"
-            style={{ color: 'var(--danger-fg)' }}
-          >
-            Delete
-          </button>
-        </div>
+        <button
+          onClick={() => onQuizAction({ action: 'add_question', questionText: 'New question', questionType: 'single', options: [{ text: 'Option A', isCorrect: true }, { text: 'Option B', isCorrect: false }] })}
+          className="text-[12px] font-medium text-grey-35 hover:text-ink"
+        >
+          + Add question
+        </button>
       </div>
 
       {quiz.questions.length === 0 ? (
         <div className="text-center py-6 text-[13px] text-grey-35">
-          No questions yet. Add one to gate this section.
+          No questions yet. Add one to complete this quiz section.
         </div>
       ) : (
         <div className="space-y-4">
@@ -880,11 +878,11 @@ function QuizBlock({
                 <div className="font-mono text-[11px] text-grey-50 pt-2 w-6" style={{ letterSpacing: '0.08em' }}>Q{i + 1}</div>
                 <input
                   defaultValue={q.questionText}
-                  onBlur={(e) => { if (e.target.value !== q.questionText) onQuizAction({ action: 'updateQuestion', questionId: q.id, questionText: e.target.value }) }}
+                  onBlur={(e) => { if (e.target.value !== q.questionText) onQuizAction({ action: 'update_question', questionId: q.id, questionText: e.target.value }) }}
                   className="flex-1 px-3 py-1.5 bg-transparent border-b border-surface-border text-[14px] text-ink focus:outline-none focus:border-[color:var(--brand-primary)]"
                 />
                 <button
-                  onClick={() => onQuizAction({ action: 'deleteQuestion', questionId: q.id })}
+                  onClick={() => onQuizAction({ action: 'delete_question', questionId: q.id })}
                   className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[18px] px-2"
                   title="Delete question"
                 >
@@ -895,16 +893,16 @@ function QuizBlock({
                 {q.options.map((opt, oi) => (
                   <div key={oi} className="flex items-center gap-2">
                     <input
-                      type={q.questionType === 'multi' ? 'checkbox' : 'radio'}
+                      type={q.questionType === 'multiselect' ? 'checkbox' : 'radio'}
                       checked={opt.isCorrect}
                       onChange={() => {
                         const next = q.options.map((o, j) => ({
                           ...o,
-                          isCorrect: q.questionType === 'multi'
+                          isCorrect: q.questionType === 'multiselect'
                             ? (j === oi ? !o.isCorrect : o.isCorrect)
                             : (j === oi),
                         }))
-                        onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                        onQuizAction({ action: 'update_question', questionId: q.id, options: next })
                       }}
                       className="accent-[color:var(--brand-primary)]"
                     />
@@ -913,14 +911,14 @@ function QuizBlock({
                       onBlur={(e) => {
                         if (e.target.value === opt.text) return
                         const next = q.options.map((o, j) => (j === oi ? { ...o, text: e.target.value } : o))
-                        onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                        onQuizAction({ action: 'update_question', questionId: q.id, options: next })
                       }}
                       className="flex-1 px-2 py-1 text-[13px] text-ink bg-transparent border-b border-surface-border focus:outline-none focus:border-[color:var(--brand-primary)]"
                     />
                     <button
                       onClick={() => {
                         const next = q.options.filter((_, j) => j !== oi)
-                        onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                        onQuizAction({ action: 'update_question', questionId: q.id, options: next })
                       }}
                       className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[14px] w-6"
                       title="Remove option"
@@ -932,7 +930,7 @@ function QuizBlock({
                 <button
                   onClick={() => {
                     const next = [...q.options, { text: `Option ${String.fromCharCode(65 + q.options.length)}`, isCorrect: false }]
-                    onQuizAction({ action: 'updateQuestion', questionId: q.id, options: next })
+                    onQuizAction({ action: 'update_question', questionId: q.id, options: next })
                   }}
                   className="text-[11px] font-mono uppercase text-grey-35 hover:text-ink"
                   style={{ letterSpacing: '0.08em' }}
@@ -954,99 +952,87 @@ function SectionSettingsPane({
   section,
   videos,
   onAttachVideo,
-  onSetRequiredWatch,
-  onToggleQuizGate,
+  onSetQuizPassingGrade,
   onDeleteSection,
 }: {
   section: Section
   videos: Video[]
   onAttachVideo: (videoId: string) => void
-  onSetRequiredWatch: (required: boolean) => void
-  onToggleQuizGate: (enabled: boolean) => void
+  onSetQuizPassingGrade: (grade: number) => void
   onDeleteSection: () => void
 }) {
   const vc = videoContent(section)
-  const gate = deriveGate(section)
+  const isQuiz = section.kind === 'quiz'
 
   return (
     <div className="p-5">
-      <Eyebrow size="xs" className="mb-3">Section settings</Eyebrow>
+      <Eyebrow size="xs" className="mb-3">
+        {isQuiz ? 'Quiz section' : 'Video section'}
+      </Eyebrow>
 
-      <Field label="Video source">
-        <select
-          value={vc?.videoId || ''}
-          onChange={(e) => e.target.value && onAttachVideo(e.target.value)}
-          className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-        >
-          <option value="">None attached</option>
-          {videos.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.displayName || v.filename}
-              {v.durationSeconds ? ` · ${fmtDuration(v.durationSeconds)}` : ''}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field label="Gate">
-        <div className="inline-flex w-full rounded-[10px] bg-surface-weak p-0.5">
-          {([
-            { v: 'none' as const, l: 'None' },
-            { v: 'watch' as const, l: 'Watch' },
-            { v: 'quiz' as const, l: 'Quiz' },
-          ]).map((o) => (
-            <button
-              key={o.v}
-              onClick={() => {
-                if (o.v === 'none') { onSetRequiredWatch(false); onToggleQuizGate(false) }
-                if (o.v === 'watch') { onSetRequiredWatch(true); onToggleQuizGate(false) }
-                if (o.v === 'quiz') { onSetRequiredWatch(false); onToggleQuizGate(true) }
-              }}
-              className={`flex-1 px-2 py-1.5 text-[12px] font-medium rounded-[8px] transition-colors ${
-                gate === o.v ? 'bg-white text-ink shadow-sm' : 'text-grey-35 hover:text-ink'
-              }`}
+      {isQuiz ? (
+        <>
+          <Field label="Passing grade">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                defaultValue={section.quiz?.passingGrade ?? 80}
+                onBlur={(e) => {
+                  const n = Number(e.target.value)
+                  if (section.quiz && n !== section.quiz.passingGrade) onSetQuizPassingGrade(n)
+                }}
+                className="w-20 px-2.5 py-1.5 border border-surface-border rounded-[10px] text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                disabled={!section.quiz}
+              />
+              <span className="font-mono text-[11px] text-grey-50">%</span>
+            </div>
+          </Field>
+          <Field label="Questions">
+            <div className="font-mono text-[13px] text-ink">
+              {section.quiz?.questions.length ?? 0}
+            </div>
+            {!section.quiz?.questions.length && (
+              <div className="mt-1.5 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.08em' }}>
+                Add ≥1 question to publish
+              </div>
+            )}
+          </Field>
+        </>
+      ) : (
+        <>
+          <Field label="Video source">
+            <select
+              value={vc?.videoId || ''}
+              onChange={(e) => e.target.value && onAttachVideo(e.target.value)}
+              className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
             >
-              {o.l}
-            </button>
-          ))}
-        </div>
-        <div className="mt-1.5 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.08em' }}>
-          {gate === 'quiz' && !section.quiz?.questions.length ? 'Add ≥1 question to publish' : ''}
-        </div>
-      </Field>
+              <option value="">None attached</option>
+              {videos.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.displayName || v.filename}
+                  {v.durationSeconds ? ` · ${fmtDuration(v.durationSeconds)}` : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Estimated duration">
+            <div className="font-mono text-[13px] text-ink">
+              {fmtDuration(vc?.video?.durationSeconds ?? null)}
+            </div>
+          </Field>
+        </>
+      )}
 
-      <Field label="Quiz">
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <button
-            type="button"
-            onClick={() => onToggleQuizGate(!section.quiz)}
-            className="w-10 h-5 rounded-full transition-colors relative"
-            style={{ background: section.quiz ? 'var(--brand-primary)' : '#D1CFCA' }}
-          >
-            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${section.quiz ? 'left-5' : 'left-0.5'}`} />
-          </button>
-          <span className="text-[13px] text-ink">
-            {section.quiz ? 'Enabled' : 'Disabled'}
-          </span>
-        </label>
-      </Field>
-
-      <Field label="Estimated duration">
-        <div className="font-mono text-[13px] text-ink">
-          {fmtDuration(vc?.video?.durationSeconds ?? null)}
-        </div>
-      </Field>
-
-      {/* Enrollment group — placeholder stats (API doesn't return yet) */}
       <div className="mt-6 mb-3"><Eyebrow size="xs">Enrollment</Eyebrow></div>
       <div className="grid grid-cols-2 gap-2">
         <MiniStat label="Enrolled" value="—" />
         <MiniStat label="Completed" value="—" />
         <MiniStat label="Avg. time" value="—" />
-        {gate === 'quiz' && <MiniStat label="Quiz pass rate" value="—" />}
+        {isQuiz && <MiniStat label="Quiz pass rate" value="—" />}
       </div>
 
-      {/* Delete */}
       <div className="mt-6 pt-5 border-t border-surface-divider">
         <button
           onClick={onDeleteSection}
@@ -1143,6 +1129,30 @@ function CourseSettingsRightPane({
         </div>
       </Field>
 
+      <Field label="Section order">
+        <div className="inline-flex w-full rounded-[10px] bg-surface-weak p-0.5">
+          {([
+            { v: 'sequential' as const, l: 'Sequential' },
+            { v: 'any' as const, l: 'Any order' },
+          ]).map((o) => (
+            <button
+              key={o.v}
+              onClick={() => onUpdate({ sectionOrder: o.v } as Partial<Training>)}
+              className={`flex-1 px-2 py-1.5 text-[12px] font-medium rounded-[8px] transition-colors ${
+                training.sectionOrder === o.v ? 'bg-white text-ink shadow-sm' : 'text-grey-35 hover:text-ink'
+              }`}
+            >
+              {o.l}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.08em' }}>
+          {training.sectionOrder === 'sequential'
+            ? 'Candidates finish each section before unlocking the next'
+            : 'Candidates can start any section in any order'}
+        </div>
+      </Field>
+
       <Field label="Status">
         <Badge tone={training.isPublished ? 'success' : 'brand'}>
           {training.isPublished ? 'Published' : 'Draft'}
@@ -1184,18 +1194,21 @@ function computePreflight(training: Training): PreflightCheck[] {
   const checks: PreflightCheck[] = []
   for (let i = 0; i < training.sections.length; i++) {
     const s = training.sections[i]
-    const hasVideo = !!videoContent(s)?.videoId
-    checks.push({
-      label: `Section ${i + 1} has a video`,
-      ok: hasVideo,
-      blocking: true,
-      sectionHint: hasVideo ? undefined : s.title,
-    })
-    if (s.quiz && s.quiz.requiredPassing) {
+    if (s.kind === 'quiz') {
+      const count = s.quiz?.questions.length ?? 0
       checks.push({
         label: `Section ${i + 1} quiz has ≥1 question`,
-        ok: s.quiz.questions.length >= 1,
+        ok: count >= 1,
         blocking: true,
+        sectionHint: count >= 1 ? undefined : s.title,
+      })
+    } else {
+      const hasVideo = !!videoContent(s)?.videoId
+      checks.push({
+        label: `Section ${i + 1} has a video`,
+        ok: hasVideo,
+        blocking: true,
+        sectionHint: hasVideo ? undefined : s.title,
       })
     }
   }

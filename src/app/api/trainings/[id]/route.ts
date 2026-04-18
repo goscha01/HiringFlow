@@ -45,7 +45,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (!training) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = await request.json()
-  const { title, description, coverImage, timeLimit, pricing, passingGrade, isPublished, branding, accessMode } = body
+  const { title, description, coverImage, timeLimit, pricing, passingGrade, isPublished, branding, accessMode, sectionOrder } = body
 
   const updated = await prisma.training.update({
     where: { id: params.id },
@@ -59,6 +59,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(isPublished !== undefined && { isPublished }),
       ...(branding !== undefined && { branding }),
       ...(accessMode !== undefined && { accessMode }),
+      ...(sectionOrder !== undefined && { sectionOrder: sectionOrder === 'any' ? 'any' : 'sequential' }),
     },
   })
 

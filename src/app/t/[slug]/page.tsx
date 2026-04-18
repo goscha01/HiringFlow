@@ -8,8 +8,8 @@ interface ContentItem { id: string; type: string; videoUrl: string | null; video
 interface QuizOption { index: number; text: string }
 interface QuizQuestion { id: string; questionText: string; questionType: string; options: QuizOption[] }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: QuizQuestion[] }
-interface Section { id: string; title: string; contents: ContentItem[]; quiz: Quiz | null }
-interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; candidateName: string | null; candidateEmail: string | null; sections: Section[] }
+interface Section { id: string; title: string; kind: 'video' | 'quiz'; contents: ContentItem[]; quiz: Quiz | null }
+interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; sectionOrder: 'sequential' | 'any'; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; candidateName: string | null; candidateEmail: string | null; sections: Section[] }
 interface QuizResult { questionId: string; isCorrect: boolean; correctIndices: number[]; hints: (string | null)[] }
 
 export default function TrainingPage() {
@@ -127,15 +127,28 @@ export default function TrainingPage() {
 
   const goNext = () => {
     setVideoEnded(false)
-    if (section && contentIdx < section.contents.length - 1) { setContentIdx(contentIdx + 1) }
-    else if (section?.quiz && mode === 'content') { setMode('quiz'); setQuizAnswers({}); setQuizResults(null) }
-    else if (sectionIdx < training.sections.length - 1) {
-      // Mark current section as completed if no quiz (sections with quiz get marked on quiz pass)
-      if (!section?.quiz) markSectionComplete(section.id)
-      setSectionIdx(sectionIdx + 1); setContentIdx(0); setMode('content'); setQuizAnswers({}); setQuizResults(null)
+    if (!section) return
+    // Advance within a video-kind section's lesson list
+    if (section.kind === 'video' && contentIdx < section.contents.length - 1) {
+      setContentIdx(contentIdx + 1)
+      return
     }
-    else {
-      if (!section?.quiz) markSectionComplete(section.id)
+    // Video sections complete by reaching the last lesson. Quiz sections are marked on pass in submitQuiz.
+    if (section.kind === 'video') markSectionComplete(section.id)
+
+    // Any-order mode: return to landing after finishing any section
+    if (training.sectionOrder === 'any') {
+      setStarted(false)
+      return
+    }
+
+    const nextIdx = sectionIdx + 1
+    if (nextIdx < training.sections.length) {
+      const nextKind = training.sections[nextIdx].kind
+      setSectionIdx(nextIdx); setContentIdx(0)
+      setMode(nextKind === 'quiz' ? 'quiz' : 'content')
+      setQuizAnswers({}); setQuizResults(null)
+    } else {
       setCompleted(true)
       markCompleted()
     }
@@ -157,7 +170,13 @@ export default function TrainingPage() {
     setSubmittingQuiz(false)
   }
 
-  const startAtSection = (si: number) => { setSectionIdx(si); setContentIdx(0); setMode('content'); setStarted(true) }
+  const startAtSection = (si: number) => {
+    const s = training?.sections[si]
+    const initialMode: 'content' | 'quiz' = s?.kind === 'quiz' ? 'quiz' : 'content'
+    setSectionIdx(si); setContentIdx(0); setMode(initialMode)
+    setQuizAnswers({}); setQuizResults(null)
+    setStarted(true)
+  }
 
   // ===== NAVBAR (candidate context, no menu, no auth) =====
   const candidateInitial = training.candidateName?.trim().charAt(0).toUpperCase() || training.candidateEmail?.trim().charAt(0).toUpperCase() || ''
@@ -280,10 +299,13 @@ export default function TrainingPage() {
             </div>
             <div className="mt-8">
               <button
-                onClick={() => startAtSection(0)}
+                onClick={() => {
+                  const firstIncomplete = training.sections.findIndex((x) => !completedSections.includes(x.id))
+                  startAtSection(firstIncomplete === -1 ? 0 : firstIncomplete)
+                }}
                 className="px-6 py-3 rounded-[10px] bg-white text-[color:var(--ink)] font-semibold text-[14px] hover:bg-white/90 transition-colors"
               >
-                Start training
+                {completedSections.length > 0 && completedSections.length < training.sections.length ? 'Continue training' : 'Start training'}
               </button>
             </div>
           </div>
@@ -389,61 +411,83 @@ export default function TrainingPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-16 gap-y-12">
             {training.sections.map((s, si) => {
               const isSectionCompleted = completedSections.includes(s.id)
+              const firstIncompleteIdx = training.sections.findIndex((x) => !completedSections.includes(x.id))
+              const isLocked = training.sectionOrder === 'sequential'
+                && !isSectionCompleted
+                && firstIncompleteIdx !== -1
+                && si > firstIncompleteIdx
               return (
-              <div key={s.id}>
+              <div key={s.id} className={isLocked ? 'opacity-50' : ''}>
                 {/* Big number */}
                 <div className="text-center mb-4 relative">
                   <span className="text-[80px] lg:text-[100px] font-bold text-[#262626] leading-none">{String(si + 1).padStart(2, '0')}</span>
                   {isSectionCompleted && (
                     <span className="absolute top-2 right-2 text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">Completed</span>
                   )}
+                  {isLocked && (
+                    <span className="absolute top-2 right-2 text-xs px-2 py-1 bg-[#F1F1F3] text-[#59595A] rounded-full font-medium">Locked</span>
+                  )}
                 </div>
                 {/* Section title */}
                 <h3 className="text-lg font-semibold text-[#262626] mb-4 border-b border-[#E4E4E7] pb-3">{s.title}</h3>
-                {/* Lesson rows */}
+                {/* Body: quiz-kind shows Take Quiz; video-kind lists lessons */}
                 <div className="space-y-0">
-                  {s.contents.map((c, ci) => {
-                    const isActive = activeLesson?.sectionIdx === si && activeLesson?.contentIdx === ci
-                    return (
+                  {s.kind === 'quiz' && s.quiz ? (
                     <button
-                      key={c.id}
-                      onClick={() => setActiveLesson({ sectionIdx: si, contentIdx: ci })}
-                      className={`w-full flex items-center justify-between py-4 border-b text-left transition-colors group ${
-                        isActive
-                          ? 'bg-[#FFF7ED] border-[#FFEDD5] -mx-3 px-3 rounded-[8px]'
-                          : 'border-[#F1F1F3] hover:bg-[#F7F7F8]'
-                      }`}
-                    >
-                      <div>
-                        <div className={`text-sm font-medium ${isActive ? 'text-[#FF9500]' : 'text-[#262626] group-hover:text-[#FF9500]'}`}>
-                          {c.videoName || c.textContent?.slice(0, 50) || `${c.type === 'video' ? 'Video' : 'Text'} Lesson`}
-                        </div>
-                        <div className="text-xs text-[#59595A] mt-0.5">Lesson {String(ci + 1).padStart(2, '0')}</div>
-                      </div>
-                      <span className={`text-xs px-3 py-1.5 rounded-[8px] flex items-center gap-1.5 flex-shrink-0 ${
-                        isActive
-                          ? 'bg-[#FF9500] text-white'
-                          : 'border border-[#F1F1F3] text-[#59595A]'
-                      }`}>
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        {c.type === 'video' ? '1 Hour' : '45 Minutes'}
-                      </span>
-                    </button>
-                    )
-                  })}
-                  {s.quiz && (
-                    <button
-                      onClick={() => startAtSection(si)}
-                      className="w-full flex items-center justify-between py-4 border-b border-[#F1F1F3] text-left hover:bg-[#FFF7ED] transition-colors"
+                      onClick={() => { if (!isLocked) startAtSection(si) }}
+                      disabled={isLocked}
+                      className="w-full flex items-center justify-between py-4 border-b border-[#F1F1F3] text-left hover:bg-[#FFF7ED] transition-colors disabled:hover:bg-transparent disabled:cursor-not-allowed"
                     >
                       <div>
                         <div className="text-sm font-medium text-[#FF9500]">{s.quiz.title}</div>
-                        <div className="text-xs text-[#59595A] mt-0.5">Quiz · {s.quiz.questions.length} questions</div>
+                        <div className="text-xs text-[#59595A] mt-0.5">Quiz · {s.quiz.questions.length} question{s.quiz.questions.length === 1 ? '' : 's'}</div>
                       </div>
                       <span className="text-xs px-3 py-1.5 bg-[#FF9500] text-white rounded-[8px]">
-                        Take Quiz
+                        {isSectionCompleted ? 'Retake' : 'Take Quiz'}
                       </span>
                     </button>
+                  ) : (
+                    <>
+                      {s.contents.map((c, ci) => {
+                        const isActive = activeLesson?.sectionIdx === si && activeLesson?.contentIdx === ci
+                        return (
+                        <button
+                          key={c.id}
+                          onClick={() => { if (!isLocked) setActiveLesson({ sectionIdx: si, contentIdx: ci }) }}
+                          disabled={isLocked}
+                          className={`w-full flex items-center justify-between py-4 border-b text-left transition-colors group disabled:cursor-not-allowed ${
+                            isActive
+                              ? 'bg-[#FFF7ED] border-[#FFEDD5] -mx-3 px-3 rounded-[8px]'
+                              : 'border-[#F1F1F3] hover:bg-[#F7F7F8]'
+                          }`}
+                        >
+                          <div>
+                            <div className={`text-sm font-medium ${isActive ? 'text-[#FF9500]' : 'text-[#262626] group-hover:text-[#FF9500]'}`}>
+                              {c.videoName || c.textContent?.slice(0, 50) || `${c.type === 'video' ? 'Video' : 'Text'} Lesson`}
+                            </div>
+                            <div className="text-xs text-[#59595A] mt-0.5">Lesson {String(ci + 1).padStart(2, '0')}</div>
+                          </div>
+                          <span className={`text-xs px-3 py-1.5 rounded-[8px] flex items-center gap-1.5 flex-shrink-0 ${
+                            isActive
+                              ? 'bg-[#FF9500] text-white'
+                              : 'border border-[#F1F1F3] text-[#59595A]'
+                          }`}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {c.type === 'video' ? '1 Hour' : '45 Minutes'}
+                          </span>
+                        </button>
+                        )
+                      })}
+                      {s.contents.length > 0 && (
+                        <button
+                          onClick={() => { if (!isLocked) startAtSection(si) }}
+                          disabled={isLocked}
+                          className="w-full mt-4 px-4 py-2.5 bg-[#FF9500] text-white font-medium text-sm rounded-[8px] hover:bg-[#EA8500] disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSectionCompleted ? 'Review section' : 'Start section'}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -521,7 +565,11 @@ export default function TrainingPage() {
               <div className="flex items-center justify-between pt-6 border-t border-[#F1F1F3]">
                 <span className="text-sm text-[#59595A]">{contentIdx + 1} / {section.contents.length}</span>
                 <button onClick={goNext} disabled={content.type === 'video' && content.requiredWatch && !videoEnded} className="px-6 py-3 bg-[#FF9500] text-white font-medium rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40">
-                  {contentIdx < section.contents.length - 1 ? 'Next' : section.quiz ? 'Take Quiz' : sectionIdx < training.sections.length - 1 ? 'Next Section' : 'Complete'}
+                  {contentIdx < section.contents.length - 1
+                    ? 'Next'
+                    : training.sectionOrder === 'any'
+                      ? 'Finish section'
+                      : sectionIdx < training.sections.length - 1 ? 'Next Section' : 'Complete'}
                 </button>
               </div>
             </div>
@@ -575,7 +623,11 @@ export default function TrainingPage() {
                     <p className="text-sm text-[#59595A] mb-6">{quizResults.correct} of {quizResults.total} correct</p>
                     <div className="flex justify-center gap-3">
                       <button onClick={() => { setQuizAnswers({}); setQuizResults(null) }} className="px-6 py-3 border border-[#F1F1F3] text-[#262626] rounded-[8px] hover:bg-[#F7F7F8]">Retry</button>
-                      <button onClick={goNext} className="px-6 py-3 bg-[#FF9500] text-white rounded-[8px] hover:bg-[#EA8500]">{sectionIdx < training.sections.length - 1 ? 'Next Section' : 'Complete'}</button>
+                      <button onClick={goNext} disabled={!quizResults.passed} className="px-6 py-3 bg-[#FF9500] text-white rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40 disabled:cursor-not-allowed">
+                        {training.sectionOrder === 'any'
+                          ? 'Back to sections'
+                          : sectionIdx < training.sections.length - 1 ? 'Next Section' : 'Complete'}
+                      </button>
                     </div>
                   </div>
                 ) : (
