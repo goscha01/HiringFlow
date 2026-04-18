@@ -28,21 +28,25 @@ export function triggerVideoAnalysis(
     .catch(() => { if (onError) onError('Network error during analysis') })
 }
 
+export type VideoKind = 'interview' | 'training'
+
 export async function uploadVideoFile(
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  kind: VideoKind = 'training'
 ): Promise<UploadResult> {
   if (IS_VERCEL) {
-    return uploadViaBlob(file, onProgress)
+    return uploadViaBlob(file, onProgress, kind)
   }
-  return uploadViaApi(file, onProgress)
+  return uploadViaApi(file, onProgress, kind)
 }
 
 // Production: get presigned S3 URL, upload directly from browser
 // No file data goes through our server — unlimited file size
 async function uploadViaBlob(
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  kind: VideoKind = 'training'
 ): Promise<UploadResult> {
   onProgress?.(5)
 
@@ -94,6 +98,7 @@ async function uploadViaBlob(
       sizeBytes: file.size,
       storageKey: key,
       analyze: true,
+      kind,
     }),
   })
 
@@ -115,12 +120,14 @@ async function uploadViaBlob(
 // Development: upload via API route (local filesystem)
 function uploadViaApi(
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  kind: VideoKind = 'training'
 ): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     const formData = new FormData()
     formData.append('video', file)
+    formData.append('kind', kind)
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {

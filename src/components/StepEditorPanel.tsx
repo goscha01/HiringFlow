@@ -214,7 +214,7 @@ export default function StepEditorPanel({
     try {
       const result = await uploadVideoFile(file, (progress) => {
         setUploadProgress(progress)
-      })
+      }, 'interview')
 
       if (result.id) {
         const video = { id: result.id, filename: result.filename, url: result.url }

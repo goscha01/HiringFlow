@@ -87,7 +87,7 @@ export default function FlowBuilderPage() {
   }
 
   const fetchVideos = async () => {
-    const res = await fetch('/api/videos')
+    const res = await fetch('/api/videos?kind=interview')
     if (res.ok) {
       const data = await res.json()
       setVideos(data)
@@ -218,7 +218,7 @@ export default function FlowBuilderPage() {
     setStepVideoProgress(0)
     try {
       const { uploadVideoFile } = await import('@/lib/upload-client')
-      const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p))
+      const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p), 'interview')
       if (result.id) {
         setAddStepVideoId(result.id)
         setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
@@ -1055,7 +1055,7 @@ export default function FlowBuilderPage() {
                               <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
                                 const file = e.target.files?.[0]; if (!file) return
                                 const { uploadVideoFile } = await import('@/lib/upload-client')
-                                const result = await uploadVideoFile(file)
+                                const result = await uploadVideoFile(file, undefined, 'interview')
                                 if (result.id) {
                                   setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
                                   updateStep(popupStep.id, { videoId: result.id })
@@ -1504,7 +1504,7 @@ export default function FlowBuilderPage() {
                             setUploadingStepVideo(true); setStepVideoProgress(0)
                             try {
                               const { uploadVideoFile } = await import('@/lib/upload-client')
-                              const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p))
+                              const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p), 'interview')
                               if (result.id) {
                                 setAddStepVideoId(result.id)
                                 setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])

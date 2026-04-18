@@ -63,6 +63,7 @@ model Workspace {
 
   members           WorkspaceMember[]
   videos            Video[]
+  pictures          Picture[]
   flows             Flow[]
   ads               Ad[]
   sessions          Session[]
@@ -217,11 +218,28 @@ model Video {
   summary         String?
   bulletPoints    String[]   @default([]) @map("bullet_points")
   displayName     String?    @map("display_name")
+  kind            String     @default("training")
   createdAt       DateTime   @default(now()) @map("created_at")
   steps           FlowStep[]
   trainingContents TrainingContent[]
 
   @@map("videos")
+}
+
+model Picture {
+  id              String     @id @default(uuid())
+  workspaceId     String     @map("workspace_id")
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id])
+  createdById     String     @map("created_by_id")
+  filename        String
+  storageKey      String     @map("storage_key")
+  url             String
+  mimeType        String     @map("mime_type")
+  sizeBytes       Int        @map("size_bytes")
+  displayName     String?    @map("display_name")
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  @@map("pictures")
 }
 
 // ============ FLOWS ============

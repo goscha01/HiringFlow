@@ -3,15 +3,17 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { saveVideoFile, getVideoUrl } from '@/lib/storage'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
+  const kindParam = request.nextUrl.searchParams.get('kind')
+  const kind = kindParam === 'interview' || kindParam === 'training' ? kindParam : null
+
   const videos = await prisma.video.findMany({
-    where: { workspaceId: ws.workspaceId },
+    where: { workspaceId: ws.workspaceId, ...(kind && { kind }) },
     orderBy: { createdAt: 'desc' },
   })
-  console.log('[GET /api/videos] found', videos.length, 'videos for workspace', ws.workspaceId)
 
   const videosWithUrls = videos.map((video) => ({
     ...video,
@@ -31,6 +33,8 @@ export async function POST(request: NextRequest) {
     // Support both single 'video' and multiple 'videos' fields
     const singleFile = formData.get('video') as File | null
     const multipleFiles = formData.getAll('videos') as File[]
+    const kindField = formData.get('kind')
+    const kind = kindField === 'interview' ? 'interview' : 'training'
 
     const files = singleFile ? [singleFile] : multipleFiles
 
@@ -58,6 +62,7 @@ export async function POST(request: NextRequest) {
             storageKey,
             mimeType,
             sizeBytes,
+            kind,
           },
         })
 

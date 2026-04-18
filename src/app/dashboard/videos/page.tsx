@@ -1,20 +1,17 @@
-/**
- * Videos library — refreshed 3-column grid matching
- * Design/design_handoff_hirefunnel screens-part2. Dark gradient thumb with
- * play overlay and duration pill, filename in mono, delete on hover.
- */
-
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { uploadVideoFile } from '@/lib/upload-client'
 import { SubNav } from '../_components/SubNav'
-import { Badge, Button, Card, Eyebrow, PageHeader } from '@/components/design'
+import { Card, Eyebrow, PageHeader } from '@/components/design'
 
 const ASSETS_NAV = [
   { href: '/dashboard/content', label: 'Templates' },
   { href: '/dashboard/videos', label: 'Media' },
 ]
+
+type VideoKind = 'interview' | 'training'
+type Tab = VideoKind | 'pictures'
 
 interface Video {
   id: string
@@ -24,8 +21,19 @@ interface Video {
   mimeType: string
   sizeBytes: number
   durationSeconds?: number | null
+  kind: VideoKind
   createdAt: string
   url: string
+}
+
+interface Picture {
+  id: string
+  filename: string
+  displayName?: string | null
+  url: string
+  mimeType: string
+  sizeBytes: number
+  createdAt: string
 }
 
 interface UploadProgress {
@@ -47,17 +55,29 @@ function fmtDuration(s?: number | null) {
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
-export default function VideosPage() {
+export default function MediaPage() {
+  const [tab, setTab] = useState<Tab>('training')
   const [videos, setVideos] = useState<Video[]>([])
+  const [pictures, setPictures] = useState<Picture[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploads, setUploads] = useState<UploadProgress[]>([])
   const [playing, setPlaying] = useState<string | null>(null)
 
-  useEffect(() => { fetchVideos() }, [])
-
-  const fetchVideos = async () => {
+  const fetchVideos = useCallback(async () => {
     const res = await fetch('/api/videos')
     if (res.ok) setVideos(await res.json())
+  }, [])
+  const fetchPictures = useCallback(async () => {
+    const res = await fetch('/api/pictures')
+    if (res.ok) setPictures(await res.json())
+  }, [])
+
+  useEffect(() => { fetchVideos(); fetchPictures() }, [fetchVideos, fetchPictures])
+
+  const counts = {
+    interview: videos.filter((v) => v.kind === 'interview').length,
+    training: videos.filter((v) => v.kind === 'training').length,
+    pictures: pictures.length,
   }
 
   const deleteVideo = async (id: string) => {
@@ -65,59 +85,122 @@ export default function VideosPage() {
     setVideos((prev) => prev.filter((v) => v.id !== id))
     await fetch(`/api/videos/${id}`, { method: 'DELETE' })
   }
+  const reclassifyVideo = async (id: string, kind: VideoKind) => {
+    setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, kind } : v)))
+    await fetch(`/api/videos/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind }),
+    })
+  }
 
-  const uploadSingleFile = async (file: File, index: number): Promise<Video | null> => {
+  const deletePicture = async (id: string) => {
+    if (!confirm('Delete this image?')) return
+    setPictures((prev) => prev.filter((p) => p.id !== id))
+    await fetch(`/api/pictures/${id}`, { method: 'DELETE' })
+  }
+
+  const uploadSingleVideo = async (file: File, index: number, kind: VideoKind) => {
     try {
       setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'uploading' } : u)))
-      const result = await uploadVideoFile(file, (progress) => {
+      await uploadVideoFile(file, (progress) => {
         setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress, status: 'uploading' } : u)))
-      })
+      }, kind)
       setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u)))
-      await fetchVideos()
-      return result as unknown as Video
     } catch {
       setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u)))
-      return null
     }
   }
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>, kind: VideoKind) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
     setUploading(true)
-    const initial: UploadProgress[] = files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' }))
-    setUploads(initial)
-    const uploaded: Video[] = []
-    for (let i = 0; i < files.length; i++) {
-      const v = await uploadSingleFile(files[i], i)
-      if (v) uploaded.push(v)
-    }
-    if (uploaded.length > 0) setVideos((prev) => [...uploaded, ...prev])
+    setUploads(files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' })))
+    for (let i = 0; i < files.length; i++) await uploadSingleVideo(files[i], i, kind)
+    await fetchVideos()
     setUploading(false)
     e.target.value = ''
     setTimeout(() => setUploads([]), 3000)
   }
 
+  const uploadSinglePicture = async (file: File, index: number) => {
+    try {
+      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'uploading', progress: 20 } : u)))
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/pictures', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error('Upload failed')
+      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u)))
+    } catch {
+      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u)))
+    }
+  }
+
+  const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    setUploading(true)
+    setUploads(files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' })))
+    for (let i = 0; i < files.length; i++) await uploadSinglePicture(files[i], i)
+    await fetchPictures()
+    setUploading(false)
+    e.target.value = ''
+    setTimeout(() => setUploads([]), 3000)
+  }
+
+  const tabs: Array<{ k: Tab; l: string; count: number; hint: string }> = [
+    { k: 'interview', l: 'Interview videos', count: counts.interview, hint: 'Short clips used in flow steps (usually under a minute).' },
+    { k: 'training', l: 'Training videos', count: counts.training, hint: 'Longer videos used as training lessons.' },
+    { k: 'pictures', l: 'Pictures', count: counts.pictures, hint: 'Cover images and other artwork.' },
+  ]
+
+  const uploadButton = tab === 'pictures' ? (
+    <label className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-[10px] text-white font-semibold text-[13px] cursor-pointer" style={{ background: 'var(--brand-primary)' }}>
+      {uploading ? 'Uploading…' : '+ Upload image'}
+      <input type="file" accept="image/*" multiple onChange={handlePictureUpload} disabled={uploading} className="hidden" />
+    </label>
+  ) : (
+    <label className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-[10px] text-white font-semibold text-[13px] cursor-pointer" style={{ background: 'var(--brand-primary)' }}>
+      {uploading ? 'Uploading…' : tab === 'interview' ? '+ Upload interview video' : '+ Upload training video'}
+      <input type="file" accept="video/*" multiple onChange={(e) => handleVideoUpload(e, tab as VideoKind)} disabled={uploading} className="hidden" />
+    </label>
+  )
+
+  const activeHint = tabs.find((t) => t.k === tab)?.hint ?? ''
+  const totalItems = counts.interview + counts.training + counts.pictures
+
   return (
     <div className="-mx-6 lg:-mx-[132px]">
       <PageHeader
-        eyebrow={`${videos.length} video${videos.length === 1 ? '' : 's'}`}
+        eyebrow={`${totalItems} item${totalItems === 1 ? '' : 's'}`}
         title="Assets"
-        description="Reusable templates and media for your flows and campaigns."
-        actions={
-          <label className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-[10px] text-white font-semibold text-[13px] cursor-pointer" style={{ background: 'var(--brand-primary)' }}>
-            {uploading ? 'Uploading…' : '+ Upload video'}
-            <input type="file" accept="video/*" multiple onChange={handleUpload} disabled={uploading} className="hidden" />
-          </label>
-        }
+        description="Reusable templates and media for your flows, campaigns, and trainings."
+        actions={uploadButton}
       />
 
       <div className="px-8 pt-5">
         <SubNav items={ASSETS_NAV} />
       </div>
 
+      <div className="px-8 pt-4">
+        <div className="inline-flex gap-1 rounded-[10px] bg-surface-weak p-1">
+          {tabs.map((t) => (
+            <button
+              key={t.k}
+              onClick={() => setTab(t.k)}
+              className={`px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-colors ${
+                tab === t.k ? 'bg-white text-ink shadow-sm' : 'text-grey-35 hover:text-ink'
+              }`}
+            >
+              {t.l} <span className="ml-1 font-mono text-[11px] text-grey-50">{t.count}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[12px] text-grey-35">{activeHint}</p>
+      </div>
+
       <div className="px-8 py-4">
-        {/* Upload Progress */}
         {uploads.length > 0 && (
           <div className="mb-5 space-y-2">
             {uploads.map((u, idx) => (
@@ -132,8 +215,7 @@ export default function VideosPage() {
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--weak-track)' }}>
-                  <div
-                    className="h-full transition-all duration-300"
+                  <div className="h-full transition-all duration-300"
                     style={{
                       width: `${u.progress}%`,
                       background:
@@ -148,56 +230,29 @@ export default function VideosPage() {
           </div>
         )}
 
-        {videos.length === 0 ? (
-          <Card padding={48} className="text-center">
-            <Eyebrow size="xs" className="mb-2">Nothing yet</Eyebrow>
-            <h2 className="text-[18px] font-semibold text-ink mb-1.5">No videos uploaded</h2>
-            <p className="text-grey-35 text-[13px]">Upload your first video to start building flows.</p>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-            {videos.map((v) => {
-              const duration = fmtDuration(v.durationSeconds)
-              const isPlaying = playing === v.id
-              return (
-                <Card key={v.id} padding={0} className="overflow-hidden group">
-                  <div
-                    className="aspect-video relative cursor-pointer"
-                    style={{
-                      background: isPlaying ? '#000' : 'linear-gradient(135deg, #2a2826 0%, #1a1815 100%)',
-                    }}
-                    onClick={() => setPlaying(isPlaying ? null : v.id)}
-                  >
-                    {isPlaying ? (
-                      <video src={v.url} className="w-full h-full object-contain" controls autoPlay />
-                    ) : (
-                      <>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
-                            <svg className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                          </div>
-                        </div>
-                        {duration && (
-                          <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-[4px] font-mono text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)', letterSpacing: '0.04em' }}>
-                            {duration}
-                          </div>
-                        )}
-                      </>
-                    )}
+        {tab === 'pictures' ? (
+          pictures.length === 0 ? (
+            <Card padding={48} className="text-center">
+              <Eyebrow size="xs" className="mb-2">Nothing yet</Eyebrow>
+              <h2 className="text-[18px] font-semibold text-ink mb-1.5">No images uploaded</h2>
+              <p className="text-grey-35 text-[13px]">Upload images to use as training cover art or branding.</p>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5">
+              {pictures.map((p) => (
+                <Card key={p.id} padding={0} className="overflow-hidden group">
+                  <div className="aspect-square bg-surface-weak relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.url} alt={p.displayName || p.filename} className="w-full h-full object-cover" />
                   </div>
-                  <div className="p-3.5">
-                    <div className="font-mono text-[11px] text-ink truncate mb-1" title={v.filename} style={{ letterSpacing: '0.02em' }}>
-                      {v.displayName || v.filename}
+                  <div className="p-3">
+                    <div className="font-mono text-[11px] text-ink truncate mb-1" title={p.filename}>
+                      {p.displayName || p.filename}
                     </div>
-                    {v.summary && (
-                      <p className="text-[11px] text-grey-35 line-clamp-2 mb-2">{v.summary}</p>
-                    )}
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-mono text-grey-35">
-                        {fmtFileSize(v.sizeBytes)} · {new Date(v.createdAt).toLocaleDateString()}
-                      </span>
+                      <span className="font-mono text-grey-35">{fmtFileSize(p.sizeBytes)}</span>
                       <button
-                        onClick={() => deleteVideo(v.id)}
+                        onClick={() => deletePicture(p.id)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity text-[color:var(--danger-fg)] hover:underline"
                       >
                         Delete
@@ -205,10 +260,89 @@ export default function VideosPage() {
                     </div>
                   </div>
                 </Card>
-              )
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          )
+        ) : (() => {
+          const filtered = videos.filter((v) => v.kind === tab)
+          if (filtered.length === 0) {
+            return (
+              <Card padding={48} className="text-center">
+                <Eyebrow size="xs" className="mb-2">Nothing yet</Eyebrow>
+                <h2 className="text-[18px] font-semibold text-ink mb-1.5">
+                  No {tab === 'interview' ? 'interview' : 'training'} videos uploaded
+                </h2>
+                <p className="text-grey-35 text-[13px]">
+                  {tab === 'interview'
+                    ? 'Upload short video clips to use in flow steps.'
+                    : 'Upload longer videos to use as training lessons.'}
+                </p>
+              </Card>
+            )
+          }
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+              {filtered.map((v) => {
+                const duration = fmtDuration(v.durationSeconds)
+                const isPlaying = playing === v.id
+                return (
+                  <Card key={v.id} padding={0} className="overflow-hidden group">
+                    <div
+                      className="aspect-video relative cursor-pointer"
+                      style={{ background: isPlaying ? '#000' : 'linear-gradient(135deg, #2a2826 0%, #1a1815 100%)' }}
+                      onClick={() => setPlaying(isPlaying ? null : v.id)}
+                    >
+                      {isPlaying ? (
+                        <video src={v.url} className="w-full h-full object-contain" controls autoPlay />
+                      ) : (
+                        <>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                              <svg className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                            </div>
+                          </div>
+                          {duration && (
+                            <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-[4px] font-mono text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)', letterSpacing: '0.04em' }}>
+                              {duration}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <div className="p-3.5">
+                      <div className="font-mono text-[11px] text-ink truncate mb-1" title={v.filename} style={{ letterSpacing: '0.02em' }}>
+                        {v.displayName || v.filename}
+                      </div>
+                      {v.summary && (
+                        <p className="text-[11px] text-grey-35 line-clamp-2 mb-2">{v.summary}</p>
+                      )}
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-mono text-grey-35">
+                          {fmtFileSize(v.sizeBytes)} · {new Date(v.createdAt).toLocaleDateString()}
+                        </span>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); reclassifyVideo(v.id, v.kind === 'interview' ? 'training' : 'interview') }}
+                            className="text-grey-35 hover:text-ink"
+                            title={`Move to ${v.kind === 'interview' ? 'training' : 'interview'}`}
+                          >
+                            Move
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteVideo(v.id) }}
+                            className="text-[color:var(--danger-fg)] hover:underline"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

@@ -7,11 +7,13 @@ export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
-  const { url, filename, mimeType, sizeBytes, analyze } = await request.json()
+  const { url, filename, mimeType, sizeBytes, analyze, kind } = await request.json()
 
   if (!url) {
     return NextResponse.json({ error: 'Missing blob URL' }, { status: 400 })
   }
+
+  const safeKind = kind === 'interview' ? 'interview' : 'training'
 
   const video = await prisma.video.create({
     data: {
@@ -21,6 +23,7 @@ export async function POST(request: NextRequest) {
       storageKey: url,
       mimeType: mimeType || 'video/mp4',
       sizeBytes: sizeBytes || 0,
+      kind: safeKind,
     },
   })
 

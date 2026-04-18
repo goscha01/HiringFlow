@@ -102,7 +102,7 @@ export default function TrainingEditorPage() {
   const loadAll = useCallback(async () => {
     const [t, v] = await Promise.all([
       fetch(`/api/trainings/${trainingId}`).then((r) => r.json()),
-      fetch('/api/videos').then((r) => r.json()),
+      fetch('/api/videos?kind=training').then((r) => r.json()),
     ])
     setTraining(t)
     setVideos(
@@ -263,7 +263,7 @@ export default function TrainingEditorPage() {
       alert('Please upload a video file (MP4, MOV, WebM)')
       return
     }
-    const result = await uploadVideoFile(file, onProgress)
+    const result = await uploadVideoFile(file, onProgress, 'training')
     if (result.id) {
       setVideos((prev) => [
         { id: result.id!, filename: result.filename, url: result.url, displayName: null, durationSeconds: null },

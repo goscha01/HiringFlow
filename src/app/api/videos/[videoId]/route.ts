@@ -20,6 +20,32 @@ export async function GET(
   return NextResponse.json(video)
 }
 
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { videoId: string } }
+) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
+  const video = await prisma.video.findFirst({
+    where: { id: params.videoId, workspaceId: ws.workspaceId },
+  })
+  if (!video) return NextResponse.json({ error: 'Video not found' }, { status: 404 })
+
+  const body = await request.json()
+  const kind = body.kind === 'interview' || body.kind === 'training' ? body.kind : undefined
+  const displayName = typeof body.displayName === 'string' ? body.displayName : undefined
+
+  const updated = await prisma.video.update({
+    where: { id: video.id },
+    data: {
+      ...(kind !== undefined && { kind }),
+      ...(displayName !== undefined && { displayName }),
+    },
+  })
+  return NextResponse.json(updated)
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { videoId: string } }
