@@ -542,6 +542,7 @@ export default function TrainingEditorPage() {
               section={activeSection}
               videos={videos}
               onAttachVideo={(videoId) => upsertContent(activeSection.id, { type: 'video', videoId })}
+              onSetRequiredWatch={(req) => upsertContent(activeSection.id, { type: 'video', requiredWatch: req })}
               onSetQuizPassingGrade={(grade) => quizAction(activeSection.id, { passingGrade: grade })}
               onDeleteSection={async () => {
                 if (!confirm(`Delete section ${training.sections.findIndex((s) => s.id === activeSection.id) + 1}?`)) return
@@ -952,12 +953,14 @@ function SectionSettingsPane({
   section,
   videos,
   onAttachVideo,
+  onSetRequiredWatch,
   onSetQuizPassingGrade,
   onDeleteSection,
 }: {
   section: Section
   videos: Video[]
   onAttachVideo: (videoId: string) => void
+  onSetRequiredWatch: (required: boolean) => void
   onSetQuizPassingGrade: (grade: number) => void
   onDeleteSection: () => void
 }) {
@@ -1016,6 +1019,27 @@ function SectionSettingsPane({
                 </option>
               ))}
             </select>
+          </Field>
+          <Field label="Watch full video">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <button
+                type="button"
+                onClick={() => onSetRequiredWatch(!(vc?.requiredWatch ?? true))}
+                disabled={!vc}
+                className="w-10 h-5 rounded-full transition-colors relative disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: (vc?.requiredWatch ?? true) ? 'var(--brand-primary)' : '#D1CFCA' }}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${(vc?.requiredWatch ?? true) ? 'left-5' : 'left-0.5'}`} />
+              </button>
+              <span className="text-[13px] text-ink">
+                {(vc?.requiredWatch ?? true) ? 'Required' : 'Optional'}
+              </span>
+            </label>
+            <div className="mt-1.5 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.08em' }}>
+              {(vc?.requiredWatch ?? true)
+                ? 'Candidate must finish the video before continuing'
+                : 'Candidate can skip the video'}
+            </div>
           </Field>
           <Field label="Estimated duration">
             <div className="font-mono text-[13px] text-ink">
