@@ -369,7 +369,7 @@ export default function TrainingEditorPage() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => window.open(`/t/${training.slug}`, '_blank')}
+              onClick={() => window.open(`/t/${training.slug}?preview=1`, '_blank')}
             >
               Preview
             </Button>

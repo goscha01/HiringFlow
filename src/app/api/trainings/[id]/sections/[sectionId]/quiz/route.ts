@@ -77,6 +77,19 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ success: true })
   }
 
+  // Metadata update (no action): title / requiredPassing / passingGrade
+  if (body.title !== undefined || body.requiredPassing !== undefined || body.passingGrade !== undefined) {
+    const updated = await prisma.trainingQuiz.update({
+      where: { sectionId: params.sectionId },
+      data: {
+        ...(body.title !== undefined && { title: body.title }),
+        ...(body.requiredPassing !== undefined && { requiredPassing: body.requiredPassing }),
+        ...(body.passingGrade !== undefined && { passingGrade: body.passingGrade }),
+      },
+    })
+    return NextResponse.json(updated)
+  }
+
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
 }
 

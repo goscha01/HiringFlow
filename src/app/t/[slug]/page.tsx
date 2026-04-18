@@ -17,6 +17,7 @@ export default function TrainingPage() {
   const searchParams = useSearchParams()
   const slug = params.slug as string
   const token = searchParams.get('token')
+  const preview = searchParams.get('preview')
 
   const [training, setTraining] = useState<TrainingData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -35,8 +36,11 @@ export default function TrainingPage() {
   const [completedSections, setCompletedSections] = useState<string[]>([])
 
   useEffect(() => {
-    const url = token
-      ? `/api/public/trainings/${slug}?token=${token}`
+    const qs = new URLSearchParams()
+    if (token) qs.set('token', token)
+    if (preview) qs.set('preview', preview)
+    const url = qs.toString()
+      ? `/api/public/trainings/${slug}?${qs.toString()}`
       : `/api/public/trainings/${slug}`
     fetch(url)
       .then(async r => {
@@ -60,7 +64,7 @@ export default function TrainingPage() {
         }
         setLoading(false)
       })
-  }, [slug, token])
+  }, [slug, token, preview])
 
   // Save progress to backend
   const saveProgress = useCallback(async (sections: string[]) => {

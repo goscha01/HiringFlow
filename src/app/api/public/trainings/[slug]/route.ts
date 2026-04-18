@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
 import { validateAccessToken, getOrCreateEnrollment } from '@/lib/training-access'
+import { getWorkspaceSession } from '@/lib/auth'
 
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
   const training = await prisma.training.findUnique({
@@ -17,7 +18,21 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     },
   })
 
-  if (!training || !training.isPublished) {
+  if (!training) {
+    return NextResponse.json({ error: 'Training not found' }, { status: 404 })
+  }
+
+  // Preview mode: owner/admin can view unpublished or invitation-only trainings via dashboard session.
+  const isPreview = request.nextUrl.searchParams.get('preview') === '1'
+  let isOwnerPreview = false
+  if (isPreview) {
+    const ws = await getWorkspaceSession()
+    if (ws && (ws.isSuperAdmin || ws.workspaceId === training.workspaceId)) {
+      isOwnerPreview = true
+    }
+  }
+
+  if (!training.isPublished && !isOwnerPreview) {
     return NextResponse.json({ error: 'Training not found' }, { status: 404 })
   }
 
@@ -29,7 +44,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
   let candidateName: string | null = null
   let candidateEmail: string | null = null
 
-  if (training.accessMode === 'invitation_only') {
+  if (training.accessMode === 'invitation_only' && !isOwnerPreview) {
     if (!token) {
       return NextResponse.json({ error: 'Access token required', code: 'TOKEN_REQUIRED' }, { status: 403 })
     }
