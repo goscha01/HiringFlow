@@ -19,25 +19,53 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
   onEnded?: () => void
   className?: string
 }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   const maxWatchedRef = useRef(0)
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !requiredWatch) return
+    maxWatchedRef.current = 0
+
+    const onTimeUpdate = () => {
+      if (v.currentTime > maxWatchedRef.current + 0.5) {
+        v.currentTime = maxWatchedRef.current
+      } else if (v.currentTime > maxWatchedRef.current) {
+        maxWatchedRef.current = v.currentTime
+      }
+    }
+    const onSeeking = () => {
+      if (v.currentTime > maxWatchedRef.current + 0.5) {
+        v.currentTime = maxWatchedRef.current
+      }
+    }
+    const onLoadedMetadata = () => { maxWatchedRef.current = 0 }
+    const onRateChange = () => {
+      if (v.playbackRate > 1) v.playbackRate = 1
+    }
+
+    v.addEventListener('timeupdate', onTimeUpdate)
+    v.addEventListener('seeking', onSeeking)
+    v.addEventListener('seeked', onSeeking)
+    v.addEventListener('loadedmetadata', onLoadedMetadata)
+    v.addEventListener('ratechange', onRateChange)
+    return () => {
+      v.removeEventListener('timeupdate', onTimeUpdate)
+      v.removeEventListener('seeking', onSeeking)
+      v.removeEventListener('seeked', onSeeking)
+      v.removeEventListener('loadedmetadata', onLoadedMetadata)
+      v.removeEventListener('ratechange', onRateChange)
+    }
+  }, [requiredWatch, src])
+
   return (
     <video
+      ref={videoRef}
       src={src}
       controls
-      controlsList={requiredWatch ? 'nodownload noplaybackrate' : 'nodownload'}
+      controlsList={requiredWatch ? 'nodownload noplaybackrate noremoteplayback' : 'nodownload'}
+      disablePictureInPicture={requiredWatch}
       autoPlay={autoPlay}
-      onLoadedMetadata={() => { maxWatchedRef.current = 0 }}
-      onTimeUpdate={(e) => {
-        const t = e.currentTarget.currentTime
-        if (t > maxWatchedRef.current) maxWatchedRef.current = t
-      }}
-      onSeeking={(e) => {
-        if (!requiredWatch) return
-        const v = e.currentTarget
-        if (v.currentTime > maxWatchedRef.current + 0.5) {
-          v.currentTime = maxWatchedRef.current
-        }
-      }}
       onEnded={onEnded}
       className={className}
     />
