@@ -12,6 +12,38 @@ interface Section { id: string; title: string; kind: 'video' | 'quiz'; contents:
 interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; sectionOrder: 'sequential' | 'any'; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; candidateName: string | null; candidateEmail: string | null; sections: Section[] }
 interface QuizResult { questionId: string; isCorrect: boolean; correctIndices: number[]; hints: (string | null)[] }
 
+function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
+  src: string
+  requiredWatch: boolean
+  autoPlay?: boolean
+  onEnded?: () => void
+  className?: string
+}) {
+  const maxWatchedRef = useRef(0)
+  return (
+    <video
+      src={src}
+      controls
+      controlsList={requiredWatch ? 'nodownload noplaybackrate' : 'nodownload'}
+      autoPlay={autoPlay}
+      onLoadedMetadata={() => { maxWatchedRef.current = 0 }}
+      onTimeUpdate={(e) => {
+        const t = e.currentTarget.currentTime
+        if (t > maxWatchedRef.current) maxWatchedRef.current = t
+      }}
+      onSeeking={(e) => {
+        if (!requiredWatch) return
+        const v = e.currentTarget
+        if (v.currentTime > maxWatchedRef.current + 0.5) {
+          v.currentTime = maxWatchedRef.current
+        }
+      }}
+      onEnded={onEnded}
+      className={className}
+    />
+  )
+}
+
 export default function TrainingPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -34,8 +66,6 @@ export default function TrainingPage() {
   const [completed, setCompleted] = useState(false)
   const [activeLesson, setActiveLesson] = useState<{ sectionIdx: number; contentIdx: number } | null>(null)
   const [completedSections, setCompletedSections] = useState<string[]>([])
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const maxWatchedRef = useRef(0)
 
   useEffect(() => {
     const qs = new URLSearchParams()
@@ -320,10 +350,10 @@ export default function TrainingPage() {
               const al = training.sections[activeLesson.sectionIdx]?.contents[activeLesson.contentIdx]
               if (al?.type === 'video' && al.videoUrl) {
                 return (
-                  <video
+                  <LessonVideo
                     key={`${activeLesson.sectionIdx}-${activeLesson.contentIdx}`}
                     src={al.videoUrl}
-                    controls
+                    requiredWatch={al.requiredWatch}
                     autoPlay
                     className="w-full h-[300px] lg:h-[480px] object-contain bg-black"
                   />
@@ -558,25 +588,11 @@ export default function TrainingPage() {
             <div className="bg-white rounded-[12px] p-8 border border-[#F1F1F3]">
               {content.type === 'video' && content.videoUrl ? (
                 <div className="mb-6">
-                  <video
+                  <LessonVideo
                     key={content.id}
-                    ref={videoRef}
                     src={content.videoUrl}
-                    controls
-                    controlsList={content.requiredWatch ? 'nodownload noplaybackrate' : 'nodownload'}
+                    requiredWatch={content.requiredWatch}
                     autoPlay={content.autoplayNext}
-                    onLoadedMetadata={() => { maxWatchedRef.current = 0 }}
-                    onTimeUpdate={(e) => {
-                      const t = e.currentTarget.currentTime
-                      if (t > maxWatchedRef.current) maxWatchedRef.current = t
-                    }}
-                    onSeeking={(e) => {
-                      if (!content.requiredWatch) return
-                      const v = e.currentTarget
-                      if (v.currentTime > maxWatchedRef.current + 0.5) {
-                        v.currentTime = maxWatchedRef.current
-                      }
-                    }}
                     onEnded={() => setVideoEnded(true)}
                     className="w-full rounded-[8px]"
                   />
