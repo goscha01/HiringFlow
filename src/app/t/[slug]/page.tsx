@@ -4,7 +4,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { type BrandingConfig, mergeBranding } from '@/lib/branding'
 
-interface ContentItem { id: string; type: string; videoUrl: string | null; videoName: string | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
+interface ContentItem { id: string; type: string; videoUrl: string | null; videoName: string | null; videoDurationSeconds: number | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
+
+function fmtLessonTime(seconds?: number | null): string {
+  if (!seconds || !isFinite(seconds) || seconds <= 0) return '—'
+  const min = Math.max(1, Math.round(seconds / 60))
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
 interface QuizOption { index: number; text: string }
 interface QuizQuestion { id: string; questionText: string; questionType: string; options: QuizOption[] }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: QuizQuestion[] }
@@ -522,7 +531,7 @@ export default function TrainingPage() {
                     >
                       <div>
                         <div className="text-sm font-medium text-[#FF9500]">{s.quiz.title}</div>
-                        <div className="text-xs text-[#59595A] mt-0.5">Quiz · {s.quiz.questions.length} question{s.quiz.questions.length === 1 ? '' : 's'}</div>
+                        <div className="text-xs text-[#59595A] mt-0.5">Quiz · {s.quiz.questions.length} question{s.quiz.questions.length === 1 ? '' : 's'} · {Math.max(1, s.quiz.questions.length)} min</div>
                       </div>
                       <span className="text-xs px-3 py-1.5 bg-[#FF9500] text-white rounded-[8px]">
                         {isSectionCompleted ? 'Retake' : 'Take Quiz'}
@@ -555,7 +564,7 @@ export default function TrainingPage() {
                               : 'border border-[#F1F1F3] text-[#59595A]'
                           }`}>
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            {c.type === 'video' ? '1 Hour' : '45 Minutes'}
+                            {c.type === 'video' ? fmtLessonTime(c.videoDurationSeconds) : '—'}
                           </span>
                         </button>
                         )

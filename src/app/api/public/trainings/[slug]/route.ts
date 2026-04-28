@@ -93,6 +93,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
         type: c.type,
         videoUrl: c.video ? getVideoUrl(c.video.storageKey) : null,
         videoName: c.video?.displayName || c.video?.filename || null,
+        videoDurationSeconds: c.video?.durationSeconds ?? null,
         requiredWatch: c.requiredWatch,
         autoplayNext: c.autoplayNext,
         textContent: c.textContent,
