@@ -105,6 +105,18 @@ export default function CandidatesPage() {
     })
   }
 
+  const deleteCandidate = async (c: Candidate) => {
+    const name = c.candidateName || c.candidateEmail || 'this candidate'
+    if (!confirm(`Delete ${name}? This permanently removes their answers, video submissions, training progress, and scheduled interviews. This cannot be undone.`)) return
+    const prev = candidates
+    setCandidates((cur) => cur.filter((x) => x.id !== c.id))
+    const res = await fetch(`/api/candidates/${c.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      setCandidates(prev)
+      alert('Failed to delete candidate')
+    }
+  }
+
   // Group candidates into the four kanban columns.
   const grouped = useMemo(() => {
     const g: Record<Column, Candidate[]> = { new: [], in_progress: [], hired: [], rejected: [] }
@@ -252,6 +264,14 @@ export default function CandidatesPage() {
                                 → {COLUMN_META[t.column].label}
                               </button>
                             ))}
+                            <button
+                              onClick={() => deleteCandidate(c)}
+                              className="font-mono text-[9px] uppercase px-2 py-1 rounded-[6px] border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                              style={{ letterSpacing: '0.08em' }}
+                              title="Delete candidate"
+                            >
+                              ✕
+                            </button>
                           </div>
                         </div>
                       )

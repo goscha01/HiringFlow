@@ -86,3 +86,29 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   return NextResponse.json({ id: updated.id, pipelineStatus: updated.pipelineStatus, outcome: updated.outcome })
 }
+
+// Delete a candidate (Session) and all owned records.
+// Cascades handle: SessionAnswer, CandidateSubmission, SchedulingEvent, InterviewMeeting.
+// Non-cascading FKs (TrainingEnrollment.sessionId, TrainingAccessToken.candidateId,
+// AICall.sessionId) and the FK-less AutomationExecution.sessionId are cleaned up
+// explicitly so the delete doesn't fail and we don't leave orphan rows.
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
+  const session = await prisma.session.findFirst({
+    where: { id: params.id, workspaceId: ws.workspaceId },
+    select: { id: true },
+  })
+  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  await prisma.$transaction([
+    prisma.aICall.updateMany({ where: { sessionId: params.id }, data: { sessionId: null } }),
+    prisma.trainingEnrollment.deleteMany({ where: { sessionId: params.id } }),
+    prisma.trainingAccessToken.deleteMany({ where: { candidateId: params.id } }),
+    prisma.automationExecution.deleteMany({ where: { sessionId: params.id } }),
+    prisma.session.delete({ where: { id: params.id } }),
+  ])
+
+  return NextResponse.json({ success: true })
+}

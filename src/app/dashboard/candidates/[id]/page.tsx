@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { InterviewPanel } from './_InterviewPanel'
 
@@ -53,10 +53,12 @@ const PIPELINE_STEPS = [
 
 export default function CandidateDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const id = params.id as string
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'answers' | 'submissions' | 'timeline'>('answers')
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetch(`/api/candidates/${id}`).then(r => r.json()).then(d => { setCandidate(d); setLoading(false) })
@@ -78,6 +80,20 @@ export default function CandidateDetailPage() {
       body: JSON.stringify({ outcome, pipelineStatus: outcome === 'passed' ? 'passed' : outcome === 'failed' ? 'failed' : undefined }),
     })
     setCandidate(prev => prev ? { ...prev, outcome, ...(outcome === 'passed' ? { pipelineStatus: 'passed' } : outcome === 'failed' ? { pipelineStatus: 'failed' } : {}) } : null)
+  }
+
+  const deleteCandidate = async () => {
+    if (!candidate) return
+    const name = candidate.candidateName || candidate.candidateEmail || 'this candidate'
+    if (!confirm(`Delete ${name}? This permanently removes their answers, video submissions, training progress, and scheduled interviews. This cannot be undone.`)) return
+    setDeleting(true)
+    const res = await fetch(`/api/candidates/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      router.push('/dashboard/candidates')
+    } else {
+      setDeleting(false)
+      alert('Failed to delete candidate')
+    }
   }
 
   const [showLogMeeting, setShowLogMeeting] = useState(false)
@@ -196,6 +212,13 @@ export default function CandidateDetailPage() {
             {candidate.outcome !== 'failed' && (
               <button onClick={() => updateOutcome('failed')} className="text-xs px-3 py-1.5 rounded-[6px] bg-red-100 text-red-700 hover:bg-red-200 font-medium">Fail</button>
             )}
+            <button
+              onClick={deleteCandidate}
+              disabled={deleting}
+              className="text-xs px-3 py-1.5 rounded-[6px] bg-red-600 text-white hover:bg-red-700 font-medium disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
           </div>
         </div>
         <div className="flex gap-1">
