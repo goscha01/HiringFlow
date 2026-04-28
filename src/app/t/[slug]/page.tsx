@@ -21,40 +21,63 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const maxWatchedRef = useRef(0)
+  const endedFiredRef = useRef(false)
+  const onEndedRef = useRef(onEnded)
+  useEffect(() => { onEndedRef.current = onEnded }, [onEnded])
 
   useEffect(() => {
     const v = videoRef.current
-    if (!v || !requiredWatch) return
+    if (!v) return
     maxWatchedRef.current = 0
+    endedFiredRef.current = false
+
+    const fireEndedOnce = () => {
+      if (endedFiredRef.current) return
+      endedFiredRef.current = true
+      onEndedRef.current?.()
+    }
 
     const onTimeUpdate = () => {
-      if (v.currentTime > maxWatchedRef.current + 0.5) {
+      if (requiredWatch && v.currentTime > maxWatchedRef.current + 0.5) {
         v.currentTime = maxWatchedRef.current
-      } else if (v.currentTime > maxWatchedRef.current) {
+        return
+      }
+      if (v.currentTime > maxWatchedRef.current) {
         maxWatchedRef.current = v.currentTime
+      }
+      const dur = v.duration
+      if (Number.isFinite(dur) && dur > 0 && maxWatchedRef.current >= dur - 0.5) {
+        fireEndedOnce()
       }
     }
     const onSeeking = () => {
+      if (!requiredWatch) return
       if (v.currentTime > maxWatchedRef.current + 0.5) {
         v.currentTime = maxWatchedRef.current
       }
     }
-    const onLoadedMetadata = () => { maxWatchedRef.current = 0 }
-    const onRateChange = () => {
-      if (v.playbackRate > 1) v.playbackRate = 1
+    const onLoadedMetadata = () => {
+      maxWatchedRef.current = 0
+      endedFiredRef.current = false
     }
+    const onRateChange = () => {
+      if (requiredWatch && v.playbackRate > 1) v.playbackRate = 1
+    }
+    const onNativeEnded = () => fireEndedOnce()
 
     v.addEventListener('timeupdate', onTimeUpdate)
     v.addEventListener('seeking', onSeeking)
     v.addEventListener('seeked', onSeeking)
     v.addEventListener('loadedmetadata', onLoadedMetadata)
     v.addEventListener('ratechange', onRateChange)
+    v.addEventListener('ended', onNativeEnded)
     return () => {
       v.removeEventListener('timeupdate', onTimeUpdate)
       v.removeEventListener('seeking', onSeeking)
       v.removeEventListener('seeked', onSeeking)
       v.removeEventListener('loadedmetadata', onLoadedMetadata)
       v.removeEventListener('ratechange', onRateChange)
+      v.removeEventListener('ended', onNativeEnded)
     }
   }, [requiredWatch, src])
 
@@ -66,7 +89,6 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
       controlsList={requiredWatch ? 'nodownload noplaybackrate noremoteplayback' : 'nodownload'}
       disablePictureInPicture={requiredWatch}
       autoPlay={autoPlay}
-      onEnded={onEnded}
       className={className}
     />
   )
