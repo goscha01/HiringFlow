@@ -646,14 +646,14 @@ export default function TrainingPage() {
                     onEnded={() => setVideoEnded(true)}
                     className="w-full rounded-[8px]"
                   />
-                  {content.requiredWatch && !videoEnded && <p className="text-sm mt-3 text-center text-[#59595A]">Watch the video to continue (skipping ahead is disabled)</p>}
+                  {!videoEnded && <p className="text-sm mt-3 text-center text-[#59595A]">{content.requiredWatch ? 'Watch the video to continue (skipping ahead is disabled)' : 'Watch the video to continue'}</p>}
                 </div>
               ) : content.type === 'text' && content.textContent ? (
                 <div className="prose prose-lg max-w-none text-[#262626] whitespace-pre-wrap mb-6">{content.textContent}</div>
               ) : null}
               <div className="flex items-center justify-between pt-6 border-t border-[#F1F1F3]">
                 <span className="text-sm text-[#59595A]">{contentIdx + 1} / {section.contents.length}</span>
-                <button onClick={goNext} disabled={content.type === 'video' && content.requiredWatch && !videoEnded} className="px-6 py-3 bg-[#FF9500] text-white font-medium rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40">
+                <button onClick={goNext} disabled={content.type === 'video' && !videoEnded} className="px-6 py-3 bg-[#FF9500] text-white font-medium rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40">
                   {contentIdx < section.contents.length - 1
                     ? 'Next'
                     : training.sectionOrder === 'any'
