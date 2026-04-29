@@ -255,14 +255,25 @@ export default function CandidatesPage() {
                             setDragging(c.id)
                           }}
                           onDragEnd={() => { setDragging(null); setHoverCol(null) }}
-                          className={`group rounded-[10px] border border-surface-border bg-white p-3 cursor-grab active:cursor-grabbing transition-shadow ${
+                          className={`group relative rounded-[10px] border border-surface-border bg-white p-3 cursor-grab active:cursor-grabbing transition-shadow ${
                             isDragging ? 'opacity-50' : 'hover:shadow-[0_2px_6px_rgba(26,24,21,0.06)]'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2 mb-1.5">
-                            <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight">
+                            <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight pr-6">
                               {c.candidateName || 'Anonymous'}
                             </Link>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteCandidate(c) }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded-md text-grey-50 hover:text-[color:var(--danger-fg)] hover:bg-[color:var(--danger-bg)] opacity-0 group-hover:opacity-100 transition-all text-[14px] leading-none"
+                              title="Delete candidate"
+                              aria-label="Delete candidate"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          <div className="mb-1.5">
                             <Badge tone={cardStage.tone}>{cardStage.label}</Badge>
                           </div>
                           {c.candidateEmail && (
@@ -287,28 +298,6 @@ export default function CandidatesPage() {
                               {c.answerCount > 0 && <span>{c.answerCount}Q</span>}
                               {c.submissionCount > 0 && <span style={{ color: 'var(--brand-fg)' }}>{c.submissionCount}🎥</span>}
                             </div>
-                          </div>
-                          {/* Quick move buttons — visible on hover, target every other stage */}
-                          <div className="mt-2 pt-2 border-t border-surface-divider flex flex-wrap gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ opacity: isDragging ? 0 : undefined }}>
-                            {stages.filter((s) => s.id !== stage.id).map((s) => (
-                              <button
-                                key={s.id}
-                                onClick={() => updateStatus(c.id, s.id)}
-                                className="font-mono text-[9px] uppercase px-2 py-1 rounded-[6px] border border-surface-border text-grey-35 hover:text-ink hover:bg-surface-light transition-colors"
-                                style={{ letterSpacing: '0.08em' }}
-                                title={`Move to ${s.label}`}
-                              >
-                                → {s.label}
-                              </button>
-                            ))}
-                            <button
-                              onClick={() => deleteCandidate(c)}
-                              className="font-mono text-[9px] uppercase px-2 py-1 rounded-[6px] border border-red-200 text-red-600 hover:bg-red-50 transition-colors ml-auto"
-                              style={{ letterSpacing: '0.08em' }}
-                              title="Delete candidate"
-                            >
-                              ✕
-                            </button>
                           </div>
                         </div>
                       )
