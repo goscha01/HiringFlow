@@ -145,18 +145,17 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
         className="relative ml-auto h-full w-full max-w-[480px] bg-white shadow-xl flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="shrink-0 px-5 py-4 border-b border-surface-divider flex items-center justify-between">
-          <div>
+        <div className="shrink-0 px-5 py-4 border-b border-surface-divider flex items-center justify-between gap-3">
+          <div className="min-w-0">
             <div className="font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.1em' }}>Settings</div>
-            <h2 className="font-semibold text-[16px] text-ink">Funnel stages</h2>
+            <h2 className="font-semibold text-[16px] text-ink truncate">Funnel stages</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="text-grey-35 hover:text-ink text-[18px] w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-light"
-            aria-label="Close"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button variant="primary" size="sm" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-2">
@@ -225,17 +224,10 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
         </div>
 
         {error && (
-          <div className="mx-5 mb-3 px-3 py-2 rounded-md text-[12px] text-[color:var(--danger-fg)] bg-[color:var(--danger-bg)]">
+          <div className="shrink-0 mx-5 mb-3 px-3 py-2 rounded-md text-[12px] text-[color:var(--danger-fg)] bg-[color:var(--danger-bg)]">
             {error}
           </div>
         )}
-
-        <div className="shrink-0 px-5 py-4 border-t border-surface-divider flex justify-end gap-2 bg-white">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button variant="primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
 
         {deleteTarget && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-5">
