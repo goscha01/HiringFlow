@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
-import { exchangeCode, startWatch } from '@/lib/google'
+import { exchangeCode, startWatch, hasMeetScopes } from '@/lib/google'
 import { encrypt } from '@/lib/crypto'
+import { probeRecordingCapability } from '@/lib/meet/recording-capability'
+import { globalKillswitchActive } from '@/lib/meet/feature-flag'
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl
@@ -48,8 +50,8 @@ export async function GET(request: NextRequest) {
         accessExpiresAt: expiresAt,
         grantedScopes,
         hostedDomain,
-        // Reconnect invalidates prior capability probe — it'll be re-run
-        // lazily on the next scheduling attempt or by the cron.
+        // Reconnect invalidates prior capability probe; we re-run it below
+        // when Meet scopes are granted and the feature is enabled.
         recordingCapable: null,
         recordingCapabilityCheckedAt: null,
         recordingCapabilityReason: null,
@@ -63,6 +65,24 @@ export async function GET(request: NextRequest) {
     } catch (err: any) {
       console.error('[Google] startWatch failed after connect:', err?.message)
       return NextResponse.redirect(new URL(`${redirectBase}&status=error&msg=${encodeURIComponent('Connected, but could not set up calendar watch: ' + (err?.message || 'unknown'))}`, url.origin))
+    }
+
+    if (hasMeetScopes(grantedScopes) && !globalKillswitchActive()) {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { meetIntegrationV2Enabled: true },
+      })
+      if (ws?.meetIntegrationV2Enabled) {
+        try {
+          await probeRecordingCapability(workspaceId)
+        } catch (err: any) {
+          // Probe writes its own cached result on failure paths, and the
+          // capability check is non-essential to the connect flow. Log and
+          // continue — the badge will show "not yet checked" until the cron
+          // or next scheduling attempt re-probes.
+          console.error('[Google] recording probe failed after connect:', err?.message)
+        }
+      }
     }
 
     return NextResponse.redirect(new URL(`${redirectBase}&status=connected`, url.origin))
