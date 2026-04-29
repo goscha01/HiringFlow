@@ -100,15 +100,36 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
     setSaving(true)
     setError(null)
     try {
-      const current = await fetch('/api/workspace/settings').then((r) => r.json())
-      const settings = { ...(current.settings || {}), funnelStages: stages }
+      // Read current settings first so we don't clobber unrelated keys
+      // (e.g. elevenlabs_agent_id). Tolerate non-OK GETs by treating as empty.
+      let currentSettings: Record<string, unknown> = {}
+      try {
+        const getRes = await fetch('/api/workspace/settings', { credentials: 'same-origin' })
+        if (getRes.ok) {
+          const j = await getRes.json()
+          if (j && typeof j.settings === 'object' && j.settings) currentSettings = j.settings
+        }
+      } catch { /* fall through */ }
+
+      const merged = { ...currentSettings, funnelStages: stages }
       const res = await fetch('/api/workspace/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings }),
+        credentials: 'same-origin',
+        body: JSON.stringify({ settings: merged }),
       })
-      if (!res.ok) throw new Error('Save failed')
-      onSaved(normalizeStages(stages))
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`Save failed (${res.status}): ${text.slice(0, 160)}`)
+      }
+      // Verify the round-trip — re-read settings and confirm funnelStages persisted.
+      const verify = await fetch('/api/workspace/settings', { credentials: 'same-origin', cache: 'no-store' })
+      const verifyJson = verify.ok ? await verify.json() : null
+      const persisted = verifyJson?.settings?.funnelStages
+      if (!Array.isArray(persisted) || persisted.length !== stages.length) {
+        throw new Error(`Save did not persist (server returned ${Array.isArray(persisted) ? persisted.length : 'no'} stages)`)
+      }
+      onSaved(normalizeStages(persisted))
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
