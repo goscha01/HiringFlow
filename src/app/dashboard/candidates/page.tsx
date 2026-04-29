@@ -162,10 +162,7 @@ export default function CandidatesPage() {
             <p className="text-grey-35 text-[14px]">Candidates will appear here once they start a flow.</p>
           </Card>
         ) : (
-          <div
-            className="grid gap-3.5"
-            style={{ gridTemplateColumns: `repeat(auto-fit, minmax(260px, 1fr))` }}
-          >
+          <div className="flex gap-3.5 overflow-x-auto pb-3 -mx-2 px-2 snap-x">
             {stages.map((stage) => {
               const items = grouped[stage.id] ?? []
               const isHover = hoverCol === stage.id
@@ -186,7 +183,7 @@ export default function CandidatesPage() {
                     updateStatus(id, stage.id)
                     setHoverCol(null)
                   }}
-                  className={`rounded-[14px] border transition-all ${
+                  className={`shrink-0 w-[300px] snap-start rounded-[14px] border transition-all ${
                     isHover ? 'border-[color:var(--brand-primary)] bg-brand-50/40' : 'border-surface-border bg-white'
                   }`}
                 >
