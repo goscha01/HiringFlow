@@ -60,6 +60,37 @@ export function GoogleIntegrationCard() {
     setBanner({ type: 'success', text: 'Google Calendar disconnected.' })
   }
 
+  const [syncing, setSyncing] = useState(false)
+  const sync = async () => {
+    setSyncing(true)
+    setBanner(null)
+    try {
+      const r = await fetch('/api/integrations/google/sync', { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) {
+        setBanner({ type: 'error', text: d.error || 'Sync failed' })
+      } else {
+        const parts = [
+          `Scanned ${d.processed ?? 0} calendar event${d.processed === 1 ? '' : 's'}`,
+          `${d.matched ?? 0} matched a candidate`,
+        ]
+        if (d.watchOk === false) parts.push('watch renewal failed — check logs')
+        if (d.backfillError) parts.push(`backfill error: ${d.backfillError}`)
+        setBanner({
+          type: d.watchOk && !d.backfillError ? 'success' : 'error',
+          text: parts.join(' · '),
+        })
+      }
+      // Refresh status (watchExpiresAt / lastSyncedAt)
+      const fresh = await fetch('/api/integrations/google').then(r => r.json())
+      setStatus(fresh)
+    } catch (e) {
+      setBanner({ type: 'error', text: e instanceof Error ? e.message : 'Sync failed' })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (loading) return <div className="bg-white rounded-[12px] border border-surface-border p-6 text-sm text-grey-40">Loading…</div>
 
   const meetV2 = status?.meetV2
@@ -150,7 +181,12 @@ export function GoogleIntegrationCard() {
 
       <div className="mt-5 flex gap-3">
         {status?.connected ? (
-          <button onClick={disconnect} className="btn-secondary text-sm">Disconnect</button>
+          <>
+            <button onClick={sync} disabled={syncing} className="btn-primary text-sm disabled:opacity-50">
+              {syncing ? 'Syncing…' : 'Sync calendar now'}
+            </button>
+            <button onClick={disconnect} className="btn-secondary text-sm">Disconnect</button>
+          </>
         ) : (
           <a
             href="/api/integrations/google/connect"
