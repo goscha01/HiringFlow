@@ -61,27 +61,33 @@ export function GoogleIntegrationCard() {
   }
 
   const [syncing, setSyncing] = useState(false)
+  const [authExpired, setAuthExpired] = useState(false)
   const sync = async () => {
     setSyncing(true)
     setBanner(null)
+    setAuthExpired(false)
     try {
       const r = await fetch('/api/integrations/google/sync', { method: 'POST' })
       const d = await r.json()
-      if (!r.ok) {
+      if (d.needsReconnect) {
+        setAuthExpired(true)
+        setBanner({
+          type: 'error',
+          text: 'Google has revoked our access (the refresh token is dead). Click Reconnect to grant access again — your existing settings will be preserved.',
+        })
+      } else if (!r.ok) {
         setBanner({ type: 'error', text: d.error || 'Sync failed' })
       } else {
         const parts = [
           `Scanned ${d.processed ?? 0} calendar event${d.processed === 1 ? '' : 's'}`,
           `${d.matched ?? 0} matched a candidate`,
         ]
-        if (d.watchOk === false) parts.push('watch renewal failed — check logs')
         if (d.backfillError) parts.push(`backfill error: ${d.backfillError}`)
         setBanner({
           type: d.watchOk && !d.backfillError ? 'success' : 'error',
           text: parts.join(' · '),
         })
       }
-      // Refresh status (watchExpiresAt / lastSyncedAt)
       const fresh = await fetch('/api/integrations/google').then(r => r.json())
       setStatus(fresh)
     } catch (e) {
@@ -182,9 +188,15 @@ export function GoogleIntegrationCard() {
       <div className="mt-5 flex gap-3">
         {status?.connected ? (
           <>
-            <button onClick={sync} disabled={syncing} className="btn-primary text-sm disabled:opacity-50">
-              {syncing ? 'Syncing…' : 'Sync calendar now'}
-            </button>
+            {authExpired || needsReconnect ? (
+              <a href="/api/integrations/google/connect" className="btn-primary text-sm">
+                Reconnect Google
+              </a>
+            ) : (
+              <button onClick={sync} disabled={syncing} className="btn-primary text-sm disabled:opacity-50">
+                {syncing ? 'Syncing…' : 'Sync calendar now'}
+              </button>
+            )}
             <button onClick={disconnect} className="btn-secondary text-sm">Disconnect</button>
           </>
         ) : (

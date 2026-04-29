@@ -35,13 +35,30 @@ export async function POST() {
   // 1. Renew the watch channel (best-effort stop then fresh start)
   let watchOk = true
   let watchError: string | null = null
+  let needsReconnect = false
   try {
     await stopWatch(ws.workspaceId).catch(() => {})
     await startWatch(ws.workspaceId)
   } catch (err) {
     watchOk = false
     watchError = err instanceof Error ? err.message : String(err)
+    if (/invalid_grant|invalid_token|unauthorized_client/i.test(watchError)) {
+      needsReconnect = true
+    }
     console.error('[Sync] startWatch failed:', watchError)
+  }
+
+  // If the refresh token is dead, no point trying the backfill — return early
+  // with a clear signal to the UI.
+  if (needsReconnect) {
+    return NextResponse.json({
+      watchOk: false,
+      watchError,
+      needsReconnect: true,
+      processed: 0,
+      matched: 0,
+      backfillError: null,
+    })
   }
 
   // 2. Backfill: list events from the last 30 days and process each.
@@ -90,12 +107,16 @@ export async function POST() {
     }
   } catch (err) {
     backfillError = err instanceof Error ? err.message : String(err)
+    if (/invalid_grant|invalid_token|unauthorized_client/i.test(backfillError)) {
+      needsReconnect = true
+    }
     console.error('[Sync] events.list failed:', backfillError)
   }
 
   return NextResponse.json({
     watchOk,
     watchError,
+    needsReconnect,
     processed,
     matched,
     backfillError,
