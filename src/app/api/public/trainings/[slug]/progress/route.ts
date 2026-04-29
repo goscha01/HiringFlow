@@ -25,16 +25,23 @@ export async function PATCH(request: NextRequest) {
     progress.completedSections = completedSections
   }
 
-  // Route through the funnel-stage trigger so workspaces can map per-training
-  // started events; falls back to the legacy 'training_in_progress' marker.
-  if (enrollment.sessionId) {
+  // Once an enrollment is completed, navigating back to a section or
+  // re-PATCHing progress shouldn't downgrade status from 'completed' to
+  // 'in_progress' — that masked the real state and caused the funnel
+  // backfill to misclassify already-graduated candidates.
+  const isCompleted = enrollment.status === 'completed' || enrollment.completedAt !== null
+
+  // Route through the funnel-stage trigger only on initial progression so
+  // we don't re-fire training_started for every section navigation post-
+  // completion.
+  if (enrollment.sessionId && !isCompleted) {
     await fireTrainingStartedAutomations(enrollment.sessionId, enrollment.trainingId).catch(() => {})
   }
 
   const updated = await prisma.trainingEnrollment.update({
     where: { id: enrollmentId },
     data: {
-      status: 'in_progress',
+      status: isCompleted ? 'completed' : 'in_progress',
       progress,
     },
   })

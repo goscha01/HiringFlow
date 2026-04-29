@@ -13,7 +13,7 @@
  */
 
 import { prisma } from './prisma'
-import { findStageForEvent, normalizeStages, type StageTriggerEvent } from './funnel-stages'
+import { findStageForEvent, normalizeStages, type StageTriggerEvent, type FunnelStage } from './funnel-stages'
 
 export async function applyStageTrigger(opts: {
   sessionId: string
@@ -32,13 +32,42 @@ export async function applyStageTrigger(opts: {
   const stages = normalizeStages((ws?.settings as { funnelStages?: unknown } | null)?.funnelStages)
   const stage = findStageForEvent(stages, opts.event, { flowId: opts.flowId, trainingId: opts.trainingId })
 
-  const newStatus = stage?.id ?? opts.legacyStatus
-  if (!newStatus) return null
+  // No matching stage configured — fall back to the legacy hardcoded marker so
+  // unconfigured workspaces keep working.
+  if (!stage) {
+    if (!opts.legacyStatus) return null
+    await prisma.session.update({
+      where: { id: opts.sessionId },
+      data: { pipelineStatus: opts.legacyStatus },
+    }).catch(() => {})
+    return opts.legacyStatus
+  }
+
+  // Furthest-stage-wins guard: don't move a candidate backwards through the
+  // funnel based on a later-firing event for an earlier stage. Only apply the
+  // trigger if the matched stage is at or after the candidate's current
+  // stage in the funnel order.
+  const session = await prisma.session.findUnique({
+    where: { id: opts.sessionId },
+    select: { pipelineStatus: true },
+  })
+  const currentOrder = currentStageOrder(stages, session?.pipelineStatus ?? null)
+  if (currentOrder !== null && stage.order < currentOrder) {
+    // Candidate is already further along — skip this auto-move.
+    return null
+  }
 
   await prisma.session.update({
     where: { id: opts.sessionId },
-    data: { pipelineStatus: newStatus },
+    data: { pipelineStatus: stage.id },
   }).catch(() => {})
 
-  return newStatus
+  return stage.id
+}
+
+function currentStageOrder(stages: FunnelStage[], pipelineStatus: string | null): number | null {
+  if (!pipelineStatus) return null
+  const direct = stages.find((s) => s.id === pipelineStatus)
+  if (direct) return direct.order
+  return null
 }

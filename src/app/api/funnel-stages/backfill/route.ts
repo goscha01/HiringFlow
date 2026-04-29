@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { findStageForEvent, normalizeStages, type StageTriggerEvent } from '@/lib/funnel-stages'
+import { findFurthestStageForEvents, normalizeStages, type StageTriggerEvent } from '@/lib/funnel-stages'
 
 interface SessionEvent {
   event: StageTriggerEvent
-  targetId?: string
-  at: Date
+  flowId?: string
+  trainingId?: string
 }
 
 /**
@@ -68,42 +68,42 @@ export async function POST(request: NextRequest) {
     const events: SessionEvent[] = []
 
     if (s.outcome === 'passed' && s.finishedAt) {
-      events.push({ event: 'flow_passed', targetId: s.flowId, at: s.finishedAt })
+      events.push({ event: 'flow_passed', flowId: s.flowId })
     }
     if (s.outcome === 'completed' && s.finishedAt) {
-      events.push({ event: 'flow_completed', targetId: s.flowId, at: s.finishedAt })
+      events.push({ event: 'flow_completed', flowId: s.flowId })
     }
     for (const enr of s.trainingEnrollments) {
-      events.push({ event: 'training_started', targetId: enr.trainingId, at: enr.startedAt })
-      if (enr.status === 'completed' && enr.completedAt) {
-        events.push({ event: 'training_completed', targetId: enr.trainingId, at: enr.completedAt })
+      events.push({ event: 'training_started', trainingId: enr.trainingId })
+      // Use completedAt as the source of truth — status can revert to
+      // in_progress if the candidate revisits a section after completion.
+      if (enr.completedAt) {
+        events.push({ event: 'training_completed', trainingId: enr.trainingId })
       }
     }
     for (const m of s.interviewMeetings) {
-      if (m.scheduledStart) events.push({ event: 'meeting_scheduled', at: m.scheduledStart })
-      if (m.actualStart) events.push({ event: 'meeting_started', at: m.actualStart })
-      if (m.actualEnd) events.push({ event: 'meeting_ended', at: m.actualEnd })
+      if (m.scheduledStart) events.push({ event: 'meeting_scheduled' })
+      if (m.actualStart) events.push({ event: 'meeting_started' })
+      if (m.actualEnd) events.push({ event: 'meeting_ended' })
     }
 
     if (events.length === 0) continue
-    events.sort((a, b) => +b.at - +a.at)
 
-    let targetStageId: string | null = null
-    for (const ev of events) {
-      const stage = findStageForEvent(stages, ev.event, { flowId: s.flowId, trainingId: ev.targetId })
-      if (stage) { targetStageId = stage.id; break }
-    }
-    if (!targetStageId || targetStageId === s.pipelineStatus) continue
+    // Furthest stage in the funnel wins — a candidate who has events for
+    // both 'training_completed' (order 3) and 'meeting_scheduled' (order 4)
+    // lands in the latter, but we never move them backwards based on a
+    // stale earlier-stage event.
+    const targetStage = findFurthestStageForEvents(stages, events)
+    if (!targetStage || targetStage.id === s.pipelineStatus) continue
 
-    const label = stageById.get(targetStageId)?.label ?? targetStageId
     moves.push({
       sessionId: s.id,
       candidateName: s.candidateName ?? s.candidateEmail,
       fromStatus: s.pipelineStatus,
-      toStageId: targetStageId,
-      toStageLabel: label,
+      toStageId: targetStage.id,
+      toStageLabel: stageById.get(targetStage.id)?.label ?? targetStage.id,
     })
-    byStage[targetStageId] = (byStage[targetStageId] ?? 0) + 1
+    byStage[targetStage.id] = (byStage[targetStage.id] ?? 0) + 1
   }
 
   if (commit && moves.length > 0) {

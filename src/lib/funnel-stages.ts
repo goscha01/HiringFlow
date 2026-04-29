@@ -161,6 +161,27 @@ export function findStageForEvent(
   return null
 }
 
+// "Furthest stage wins" — given the full event history of a candidate,
+// returns the matching stage with the highest order in the funnel. Used by
+// the backfill so that a candidate who triggered both training_completed
+// (order 3) and meeting_scheduled (order 4) lands in the latter, but a
+// candidate who only triggered training_completed stays in Training
+// Finished even if a stale older event also matches an earlier stage.
+//
+// Returns null if no event matches any configured trigger.
+export function findFurthestStageForEvents(
+  stages: FunnelStage[],
+  events: Array<{ event: StageTriggerEvent; flowId?: string; trainingId?: string }>,
+): FunnelStage | null {
+  let best: FunnelStage | null = null
+  for (const ev of events) {
+    const match = findStageForEvent(stages, ev.event, ev)
+    if (!match) continue
+    if (!best || match.order > best.order) best = match
+  }
+  return best
+}
+
 export const STAGE_TONE_OPTIONS: Array<{ tone: BadgeTone; color: string; label: string }> = [
   { tone: 'neutral', color: 'var(--neutral-fg)',    label: 'Grey'   },
   { tone: 'brand',   color: 'var(--brand-primary)', label: 'Orange' },
