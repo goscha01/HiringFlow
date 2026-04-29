@@ -60,6 +60,11 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
   const [pickerStageId, setPickerStageId] = useState<string | null>(null)
   const [pickerEvent, setPickerEvent] = useState<StageTriggerEvent>('training_started')
   const [pickerTargetId, setPickerTargetId] = useState<string>('')
+  const [backfillPreview, setBackfillPreview] = useState<null | {
+    total: number
+    byStage: Record<string, number>
+  }>(null)
+  const [applying, setApplying] = useState(false)
 
   useEffect(() => { setStages(initial) }, [initial, open])
 
@@ -211,13 +216,59 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
       if (!Array.isArray(persisted) || persisted.length !== stages.length) {
         throw new Error(`Save did not persist (server returned ${Array.isArray(persisted) ? persisted.length : 'no'} stages)`)
       }
-      onSaved(normalizeStages(persisted))
+      const saved = normalizeStages(persisted)
+      onSaved(saved)
+      // After persisting stages, run a dry-run backfill against the saved
+      // triggers. If anything would move, surface a confirmation modal so
+      // the user can decide whether to re-apply triggers retroactively.
+      try {
+        const drf = await fetch('/api/funnel-stages/backfill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ commit: false }),
+        })
+        if (drf.ok) {
+          const j = await drf.json()
+          if (j.total > 0) {
+            setBackfillPreview({ total: j.total, byStage: j.byStage ?? {} })
+            return // keep drawer open to show the preview modal
+          }
+        }
+      } catch { /* ignore — settings already saved */ }
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
+  }
+
+  const applyBackfill = async () => {
+    setApplying(true)
+    try {
+      await fetch('/api/funnel-stages/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ commit: true }),
+      })
+      setBackfillPreview(null)
+      // Re-fire onSaved so the page re-fetches candidates with their new
+      // pipeline_status values. Stages haven't changed since the save, but
+      // onSaved triggers a load() on the page side.
+      onSaved(stages)
+      onClose()
+    } catch {
+      setError('Re-apply failed')
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const skipBackfill = () => {
+    setBackfillPreview(null)
+    onClose()
   }
 
   return (
@@ -382,6 +433,42 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
             </div>
           )
         })()}
+
+        {backfillPreview && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-5">
+            <div className="bg-white rounded-[12px] shadow-xl w-full max-w-[420px] p-5">
+              <h3 className="font-semibold text-[15px] text-ink mb-1">
+                Re-apply triggers to existing candidates?
+              </h3>
+              <p className="text-[13px] text-grey-35 mb-3">
+                Based on your saved triggers, {backfillPreview.total} candidate{backfillPreview.total === 1 ? '' : 's'} would move:
+              </p>
+              <div className="space-y-1 mb-4 max-h-[200px] overflow-y-auto">
+                {Object.entries(backfillPreview.byStage).map(([stageId, count]) => {
+                  const stage = stages.find((s) => s.id === stageId)
+                  return (
+                    <div key={stageId} className="flex items-center justify-between bg-surface-light rounded-md px-3 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full" style={{ background: stage?.color ?? 'var(--neutral-fg)' }} />
+                        <span className="text-[12px] text-ink">{stage?.label ?? stageId}</span>
+                      </div>
+                      <span className="font-mono text-[11px] text-grey-35">{count}</span>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] text-grey-50 mb-3">
+                Skipping leaves existing candidates where they are; future events will still auto-move them.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={skipBackfill} disabled={applying}>Skip</Button>
+                <Button variant="primary" onClick={applyBackfill} disabled={applying}>
+                  {applying ? 'Applying…' : 'Re-apply'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {deleteTarget && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-5">
