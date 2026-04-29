@@ -2,6 +2,7 @@ import { prisma } from './prisma'
 import { sendEmail, renderTemplate } from './email'
 import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
+import { applyStageTrigger } from './funnel-stage-runtime'
 import { Client } from '@upstash/qstash'
 
 const qstashToken = process.env.QSTASH_TOKEN
@@ -32,8 +33,16 @@ export async function fireAutomations(sessionId: string, outcome: string) {
     const triggerType = outcome === 'passed' ? 'flow_passed' : outcome === 'completed' ? 'flow_completed' : null
     if (!triggerType) return
 
-    const pipelineStatus = outcome === 'passed' ? 'passed' : 'completed_flow'
-    await updatePipelineStatus(sessionId, pipelineStatus).catch(() => {})
+    const legacyStatus = outcome === 'passed' ? 'passed' : 'completed_flow'
+    // Auto-stage trigger first (overwrites legacy status if a matching stage
+    // is configured); falls back to the legacy string otherwise.
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: triggerType,
+      flowId: session.flowId,
+      legacyStatus,
+    }).catch(() => updatePipelineStatus(sessionId, legacyStatus).catch(() => {}))
 
     await dispatchRulesForTrigger(sessionId, triggerType, session)
   } catch (error) {
@@ -41,17 +50,45 @@ export async function fireAutomations(sessionId: string, outcome: string) {
   }
 }
 
-export async function fireTrainingCompletedAutomations(sessionId: string) {
+export async function fireTrainingCompletedAutomations(sessionId: string, trainingId?: string) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
       include: { flow: true, ad: true },
     })
     if (!session) return
-    await updatePipelineStatus(sessionId, 'training_completed').catch(() => {})
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: 'training_completed',
+      trainingId,
+      legacyStatus: 'training_completed',
+    }).catch(() => updatePipelineStatus(sessionId, 'training_completed').catch(() => {}))
     await dispatchRulesForTrigger(sessionId, 'training_completed', session)
   } catch (error) {
     console.error('[Automation] Error firing training_completed automations for session', sessionId, ':', error)
+  }
+}
+
+// Fired when a candidate first opens / progresses a training. Mirrors the
+// existing "training_in_progress" pipeline marker but routes through the
+// stage trigger system so workspaces can map per-training started events.
+export async function fireTrainingStartedAutomations(sessionId: string, trainingId: string) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, workspaceId: true },
+    })
+    if (!session) return
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: 'training_started',
+      trainingId,
+      legacyStatus: 'training_in_progress',
+    })
+  } catch (error) {
+    console.error('[Automation] Error firing training_started for session', sessionId, ':', error)
   }
 }
 
@@ -62,6 +99,12 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
       include: { flow: true, ad: true },
     })
     if (!session) return
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: 'meeting_scheduled',
+      flowId: session.flowId,
+    }).catch(() => {})
     await dispatchRulesForTrigger(sessionId, 'meeting_scheduled', session)
   } catch (error) {
     console.error('[Automation] Error firing meeting_scheduled automations for session', sessionId, ':', error)
@@ -87,6 +130,18 @@ export async function fireMeetingLifecycleAutomations(
       include: { flow: true, ad: true },
     })
     if (!session) return
+
+    // Stage trigger for the meeting lifecycle event (covers meeting_started
+     // and meeting_ended; recording / transcript events are not user-facing
+     // funnel transitions).
+    if (trigger === 'meeting_started' || trigger === 'meeting_ended') {
+      await applyStageTrigger({
+        sessionId,
+        workspaceId: session.workspaceId,
+        event: trigger,
+        flowId: session.flowId,
+      }).catch(() => {})
+    }
 
     if (trigger === 'recording_ready') {
       // Release any meeting_ended rules that were waiting on the recording.
@@ -201,14 +256,14 @@ async function dispatchRule(ruleId: string, sessionId: string, delayMinutes: num
  * Execute a single rule for a session: render template, send email, chain.
  * Called inline for immediate rules, or from the QStash callback for delayed ones.
  */
-export async function executeRule(ruleId: string, sessionId: string) {
+export async function executeRule(ruleId: string, sessionId: string, options?: { ignoreActive?: boolean }) {
   console.log(`[Automation] executeRule start ruleId=${ruleId} sessionId=${sessionId}`)
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
     include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true } } },
   })
   if (!rule) { console.log(`[Automation] Rule ${ruleId} NOT FOUND`); return }
-  if (!rule.isActive) { console.log(`[Automation] Rule ${ruleId} INACTIVE`); return }
+  if (!rule.isActive && !options?.ignoreActive) { console.log(`[Automation] Rule ${ruleId} INACTIVE`); return }
 
   const session = await prisma.session.findUnique({
     where: { id: sessionId },

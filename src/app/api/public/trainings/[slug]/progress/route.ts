@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { completeEnrollment } from '@/lib/training-access'
-import { fireTrainingCompletedAutomations } from '@/lib/automation'
+import { fireTrainingCompletedAutomations, fireTrainingStartedAutomations } from '@/lib/automation'
 
 /**
  * PATCH — Update training progress (section completion, status changes)
@@ -25,12 +25,10 @@ export async function PATCH(request: NextRequest) {
     progress.completedSections = completedSections
   }
 
-  // Update pipeline status to training_in_progress if we have a session
+  // Route through the funnel-stage trigger so workspaces can map per-training
+  // started events; falls back to the legacy 'training_in_progress' marker.
   if (enrollment.sessionId) {
-    await prisma.session.update({
-      where: { id: enrollment.sessionId },
-      data: { pipelineStatus: 'training_in_progress' },
-    }).catch(() => {})
+    await fireTrainingStartedAutomations(enrollment.sessionId, enrollment.trainingId).catch(() => {})
   }
 
   const updated = await prisma.trainingEnrollment.update({
@@ -69,7 +67,7 @@ export async function POST(request: NextRequest) {
 
   // Fire training_completed automations (e.g., send scheduling email)
   if (enrollment.sessionId) {
-    await fireTrainingCompletedAutomations(enrollment.sessionId)
+    await fireTrainingCompletedAutomations(enrollment.sessionId, enrollment.trainingId)
   }
 
   return NextResponse.json({ success: true, status: 'completed' })

@@ -4,10 +4,41 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/design'
 import {
   type FunnelStage,
+  type StageTrigger,
+  type StageTriggerEvent,
   STAGE_TONE_OPTIONS,
   makeStageId,
   normalizeStages,
 } from '@/lib/funnel-stages'
+
+interface TargetOption { id: string; label: string }
+interface TargetCatalog { flows: TargetOption[]; trainings: TargetOption[] }
+
+const EVENT_LABELS: Record<StageTriggerEvent, string> = {
+  flow_passed:        'Flow passed',
+  flow_completed:     'Flow completed',
+  training_started:   'Training started',
+  training_completed: 'Training completed',
+  meeting_scheduled:  'Interview scheduled',
+  meeting_started:    'Interview started',
+  meeting_ended:      'Interview ended',
+}
+
+function eventTargetKind(event: StageTriggerEvent): 'flow' | 'training' | null {
+  if (event.startsWith('flow_')) return 'flow'
+  if (event.startsWith('training_')) return 'training'
+  return null
+}
+
+function describeTrigger(t: StageTrigger, catalog: TargetCatalog | null): string {
+  const evt = EVENT_LABELS[t.event] ?? t.event
+  const kind = eventTargetKind(t.event)
+  if (!kind) return evt
+  if (!t.targetId) return `${evt} (any)`
+  const list = kind === 'flow' ? catalog?.flows : catalog?.trainings
+  const found = list?.find((x) => x.id === t.targetId)
+  return `${evt} — ${found?.label ?? t.targetId.slice(0, 6)}`
+}
 
 interface Props {
   open: boolean
@@ -25,13 +56,64 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
   const [reassignTo, setReassignTo] = useState<string>('')
+  const [catalog, setCatalog] = useState<TargetCatalog | null>(null)
+  const [pickerStageId, setPickerStageId] = useState<string | null>(null)
+  const [pickerEvent, setPickerEvent] = useState<StageTriggerEvent>('training_started')
+  const [pickerTargetId, setPickerTargetId] = useState<string>('')
 
   useEffect(() => { setStages(initial) }, [initial, open])
+
+  useEffect(() => {
+    if (!open) return
+    fetch('/api/funnel-stage-targets', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setCatalog({ flows: d.flows ?? [], trainings: d.trainings ?? [] }) })
+      .catch(() => {})
+  }, [open])
 
   if (!open) return null
 
   const updateStage = (id: string, patch: Partial<FunnelStage>) => {
     setStages((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  }
+
+  const addTrigger = (stageId: string, trigger: StageTrigger) => {
+    setStages((prev) => prev.map((s) => {
+      if (s.id !== stageId) return s
+      const next = [...(s.triggers ?? []), trigger]
+      // Dedupe identical triggers (same event + target).
+      const seen = new Set<string>()
+      const deduped = next.filter((t) => {
+        const k = `${t.event}|${t.targetId ?? ''}`
+        if (seen.has(k)) return false
+        seen.add(k); return true
+      })
+      return { ...s, triggers: deduped }
+    }))
+  }
+
+  const removeTrigger = (stageId: string, idx: number) => {
+    setStages((prev) => prev.map((s) => {
+      if (s.id !== stageId) return s
+      const triggers = (s.triggers ?? []).filter((_, i) => i !== idx)
+      return { ...s, triggers: triggers.length ? triggers : undefined }
+    }))
+  }
+
+  const openPicker = (stageId: string) => {
+    setPickerStageId(stageId)
+    setPickerEvent('training_started')
+    setPickerTargetId('')
+  }
+  const closePicker = () => setPickerStageId(null)
+  const confirmPicker = () => {
+    if (!pickerStageId) return
+    const kind = eventTargetKind(pickerEvent)
+    addTrigger(pickerStageId, {
+      event: pickerEvent,
+      ...(kind && pickerTargetId ? { targetId: pickerTargetId } : {}),
+    })
+    closePicker()
   }
 
   const addStage = () => {
@@ -211,6 +293,35 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
                     {count} candidate{count === 1 ? '' : 's'}
                   </div>
                 </div>
+
+                {/* Triggers — system events that auto-place candidates here */}
+                <div className="mt-3 pt-3 border-t border-surface-divider">
+                  <div className="font-mono text-[9px] uppercase text-grey-50 mb-2" style={{ letterSpacing: '0.1em' }}>
+                    Auto-move when…
+                  </div>
+                  {(s.triggers ?? []).length === 0 ? (
+                    <div className="text-[11px] text-grey-50 mb-2">No triggers — only manual moves.</div>
+                  ) : (
+                    <div className="space-y-1 mb-2">
+                      {(s.triggers ?? []).map((t, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2 bg-surface-light rounded-md px-2 py-1">
+                          <span className="text-[11px] text-ink truncate">{describeTrigger(t, catalog)}</span>
+                          <button
+                            onClick={() => removeTrigger(s.id, i)}
+                            className="shrink-0 text-grey-35 hover:text-[color:var(--danger-fg)] text-[12px] w-5 h-5 flex items-center justify-center"
+                            title="Remove trigger"
+                          >×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => openPicker(s.id)}
+                    className="text-[11px] text-grey-35 hover:text-ink underline-offset-2 hover:underline"
+                  >
+                    + Add trigger
+                  </button>
+                </div>
               </div>
             )
           })}
@@ -228,6 +339,49 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
             {error}
           </div>
         )}
+
+        {pickerStageId && (() => {
+          const kind = eventTargetKind(pickerEvent)
+          const targetList = kind === 'flow' ? catalog?.flows : kind === 'training' ? catalog?.trainings : null
+          return (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-5">
+              <div className="bg-white rounded-[12px] shadow-xl w-full max-w-[400px] p-5">
+                <h3 className="font-semibold text-[15px] text-ink mb-3">Add trigger</h3>
+                <label className="block text-[11px] font-mono uppercase text-grey-50 mb-1.5" style={{ letterSpacing: '0.08em' }}>Event</label>
+                <select
+                  value={pickerEvent}
+                  onChange={(e) => { setPickerEvent(e.target.value as StageTriggerEvent); setPickerTargetId('') }}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40 mb-3"
+                >
+                  {(Object.keys(EVENT_LABELS) as StageTriggerEvent[]).map((ev) => (
+                    <option key={ev} value={ev}>{EVENT_LABELS[ev]}</option>
+                  ))}
+                </select>
+                {kind && (
+                  <>
+                    <label className="block text-[11px] font-mono uppercase text-grey-50 mb-1.5" style={{ letterSpacing: '0.08em' }}>
+                      {kind === 'flow' ? 'Flow' : 'Training'}
+                    </label>
+                    <select
+                      value={pickerTargetId}
+                      onChange={(e) => setPickerTargetId(e.target.value)}
+                      className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40 mb-4"
+                    >
+                      <option value="">Any {kind}</option>
+                      {(targetList ?? []).map((t) => (
+                        <option key={t.id} value={t.id}>{t.label}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                <div className="flex justify-end gap-2 mt-2">
+                  <Button variant="ghost" onClick={closePicker}>Cancel</Button>
+                  <Button variant="primary" onClick={confirmPicker}>Add</Button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {deleteTarget && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-5">

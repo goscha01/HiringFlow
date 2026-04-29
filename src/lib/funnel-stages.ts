@@ -13,12 +13,33 @@
 
 import type { BadgeTone } from '@/components/design'
 
+// System events that can auto-place a candidate into a stage. The set is
+// closed (only events the engine actually fires); each event's payload tells
+// us which entity (flow / training) it relates to, which we use as targetId
+// when matching triggers.
+export type StageTriggerEvent =
+  | 'flow_passed'
+  | 'flow_completed'
+  | 'training_started'
+  | 'training_completed'
+  | 'meeting_scheduled'
+  | 'meeting_started'
+  | 'meeting_ended'
+
+export interface StageTrigger {
+  event: StageTriggerEvent
+  // For flow / training events, the specific flow or training id this trigger
+  // applies to. Omit (or empty) to match any flow / training of that event.
+  targetId?: string
+}
+
 export interface FunnelStage {
   id: string
   label: string
   tone: BadgeTone   // drives badge color on candidate cards
   color: string     // accent dot color (CSS variable or hex)
   order: number
+  triggers?: StageTrigger[]   // system events that auto-move candidates here
 }
 
 export const DEFAULT_FUNNEL_STAGES: FunnelStage[] = [
@@ -62,12 +83,29 @@ export function normalizeStages(raw: unknown): FunnelStage[] {
     const label = typeof r.label === 'string' ? r.label : null
     if (!id || !label || seenIds.has(id)) continue
     seenIds.add(id)
+    const triggers = Array.isArray(r.triggers)
+      ? (r.triggers as unknown[]).flatMap((t): StageTrigger[] => {
+          if (!t || typeof t !== 'object') return []
+          const tr = t as Record<string, unknown>
+          if (typeof tr.event !== 'string') return []
+          const allowed: StageTriggerEvent[] = [
+            'flow_passed', 'flow_completed', 'training_started', 'training_completed',
+            'meeting_scheduled', 'meeting_started', 'meeting_ended',
+          ]
+          if (!allowed.includes(tr.event as StageTriggerEvent)) return []
+          return [{
+            event: tr.event as StageTriggerEvent,
+            targetId: typeof tr.targetId === 'string' && tr.targetId ? tr.targetId : undefined,
+          }]
+        })
+      : undefined
     valid.push({
       id,
       label,
       tone: (typeof r.tone === 'string' ? r.tone : 'neutral') as BadgeTone,
       color: typeof r.color === 'string' ? r.color : 'var(--neutral-fg)',
       order: typeof r.order === 'number' ? r.order : valid.length,
+      ...(triggers && triggers.length ? { triggers } : {}),
     })
   }
   if (valid.length === 0) return DEFAULT_FUNNEL_STAGES
@@ -98,6 +136,29 @@ export function makeStageId(label: string, existing: FunnelStage[]): string {
   let i = 2
   while (taken.has(`${base}_${i}`)) i++
   return `${base}_${i}`
+}
+
+// Pick the stage that should fire for a given event. Matches by event name
+// first, then by targetId if the trigger names one. A trigger without a
+// targetId acts as a wildcard for that event. Returns null if no stage
+// declares a matching trigger — caller should fall back to legacy status.
+export function findStageForEvent(
+  stages: FunnelStage[],
+  event: StageTriggerEvent,
+  ctx: { flowId?: string; trainingId?: string },
+): FunnelStage | null {
+  const target = event.startsWith('flow_') ? ctx.flowId
+    : event.startsWith('training_') ? ctx.trainingId
+    : undefined
+  for (const stage of stages) {
+    for (const trig of stage.triggers ?? []) {
+      if (trig.event !== event) continue
+      // Exact target match wins; wildcard (no targetId) matches any.
+      if (trig.targetId && trig.targetId !== target) continue
+      return stage
+    }
+  }
+  return null
 }
 
 export const STAGE_TONE_OPTIONS: Array<{ tone: BadgeTone; color: string; label: string }> = [

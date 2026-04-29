@@ -117,6 +117,14 @@ export async function getOrCreateEnrollment(opts: {
     data: { status: 'used', usedAt: new Date() },
   })
 
+  // Fire training_started so workspace funnel triggers can auto-place the
+  // candidate. Imported lazily to keep this lib usable from contexts that
+  // don't pull the automation module.
+  if (opts.sessionId) {
+    const { fireTrainingStartedAutomations } = await import('./automation')
+    await fireTrainingStartedAutomations(opts.sessionId, opts.trainingId).catch(() => {})
+  }
+
   return enrollment
 }
 
