@@ -20,6 +20,7 @@ const SOURCES = [
   { value: 'linkedin', label: 'LinkedIn' },
   { value: 'instagram', label: 'Instagram' },
   { value: 'tiktok', label: 'TikTok' },
+  { value: 'telegram', label: 'Telegram' },
   { value: 'referral', label: 'Referral' },
   { value: 'other', label: 'Other' },
 ]
@@ -48,8 +49,6 @@ export default function CampaignsPage() {
   // Ad copy fields in modal
   const [adHeadline, setAdHeadline] = useState('')
   const [adBody, setAdBody] = useState('')
-  const [adRequirements, setAdRequirements] = useState('')
-  const [adBenefits, setAdBenefits] = useState('')
   const [adCta, setAdCta] = useState('')
   const [showAdCopy, setShowAdCopy] = useState(true)
 
@@ -65,13 +64,13 @@ export default function CampaignsPage() {
 
   const loadAdCopyDefaults = (src: string) => {
     const d = DEFAULT_AD_COPY[src] || DEFAULT_AD_COPY._default
-    setAdHeadline(d.headline); setAdBody(d.body); setAdRequirements(d.requirements); setAdBenefits(d.benefits); setAdCta(d.cta)
+    setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
   }
 
   const openCreate = () => {
     setEditingAd(null); setName(''); setSource('indeed'); setCampaign(''); setFlowId(flows[0]?.id || '')
     const d = DEFAULT_AD_COPY.indeed
-    setAdHeadline(d.headline); setAdBody(d.body); setAdRequirements(d.requirements); setAdBenefits(d.benefits); setAdCta(d.cta)
+    setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
     setShowAdCopy(true); setShowModal(true)
   }
   const openEdit = (ad: Ad) => {
@@ -347,7 +346,7 @@ export default function CampaignsPage() {
                       const val = e.target.value
                       if (val === '__default__') { loadAdCopyDefaults(source); return }
                       const t = adTemplates.find(t => t.id === val)
-                      if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdRequirements(t.requirements || ''); setAdBenefits(t.benefits || ''); setAdCta(t.callToAction || ''); if (t.source !== 'general') setSource(t.source) }
+                      if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdCta(t.callToAction || ''); if (t.source !== 'general') setSource(t.source) }
                     }}
                     className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
@@ -364,17 +363,7 @@ export default function CampaignsPage() {
                   </div>
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Body</label>
-                    <textarea value={adBody} onChange={(e) => setAdBody(e.target.value)} rows={3} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Requirements</label>
-                      <textarea value={adRequirements} onChange={(e) => setAdRequirements(e.target.value)} rows={2} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Benefits</label>
-                      <textarea value={adBenefits} onChange={(e) => setAdBenefits(e.target.value)} rows={2} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                    </div>
+                    <textarea value={adBody} onChange={(e) => setAdBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                   </div>
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Call to Action</label>
