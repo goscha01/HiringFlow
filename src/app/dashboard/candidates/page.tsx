@@ -12,7 +12,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Badge, Card, PageHeader } from '@/components/design'
 import {
@@ -46,6 +46,40 @@ export default function CandidatesPage() {
   const [dragging, setDragging] = useState<string | null>(null)
   const [hoverCol, setHoverCol] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // Click-and-drag horizontal pan on the kanban background. Skips when the
+  // mousedown originates on a card or interactive element so card DnD and
+  // buttons keep working.
+  const kanbanRef = useRef<HTMLDivElement | null>(null)
+  const panState = useRef<{ startX: number; startScroll: number } | null>(null)
+  const [panning, setPanning] = useState(false)
+
+  const onPanMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    if (target.closest('[data-card], button, a, input, select, textarea, [data-no-pan]')) return
+    const el = kanbanRef.current
+    if (!el) return
+    panState.current = { startX: e.clientX, startScroll: el.scrollLeft }
+    setPanning(true)
+  }
+
+  useEffect(() => {
+    if (!panning) return
+    const onMove = (ev: MouseEvent) => {
+      const el = kanbanRef.current
+      const ps = panState.current
+      if (!el || !ps) return
+      el.scrollLeft = ps.startScroll - (ev.clientX - ps.startX)
+    }
+    const onUp = () => { panState.current = null; setPanning(false) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [panning])
 
   useEffect(() => {
     fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
@@ -107,7 +141,7 @@ export default function CandidatesPage() {
   }, [grouped, stages])
 
   return (
-    <div className="-mx-6 lg:-mx-[132px]">
+    <div className="-mx-6 lg:-mx-[132px] -my-6 md:-my-8 flex flex-col" style={{ height: 'calc(100vh - 60px)' }}>
       <PageHeader
         eyebrow={`${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}
         title="Candidates"
@@ -127,9 +161,9 @@ export default function CandidatesPage() {
         }
       />
 
-      <div className="px-8 py-5">
+      <div className="flex-1 min-h-0 flex flex-col px-8 py-5">
         {/* Filters */}
-        <div className="flex gap-2.5 mb-5">
+        <div className="shrink-0 flex gap-2.5 mb-5">
           <input
             type="text"
             value={searchInput}
@@ -162,7 +196,13 @@ export default function CandidatesPage() {
             <p className="text-grey-35 text-[14px]">Candidates will appear here once they start a flow.</p>
           </Card>
         ) : (
-          <div className="flex gap-3.5 overflow-x-auto pb-3 -mx-2 px-2 snap-x">
+          <div
+            ref={kanbanRef}
+            onMouseDown={onPanMouseDown}
+            className={`flex-1 min-h-0 flex gap-3.5 overflow-x-auto overflow-y-hidden -mx-2 px-2 snap-x select-none ${
+              panning ? 'cursor-grabbing' : 'cursor-grab'
+            }`}
+          >
             {stages.map((stage) => {
               const items = grouped[stage.id] ?? []
               const isHover = hoverCol === stage.id
@@ -183,11 +223,11 @@ export default function CandidatesPage() {
                     updateStatus(id, stage.id)
                     setHoverCol(null)
                   }}
-                  className={`shrink-0 w-[300px] snap-start rounded-[14px] border transition-all ${
+                  className={`shrink-0 w-[300px] h-full snap-start rounded-[14px] border transition-all flex flex-col ${
                     isHover ? 'border-[color:var(--brand-primary)] bg-brand-50/40' : 'border-surface-border bg-white'
                   }`}
                 >
-                  <div className="px-4 py-3 border-b border-surface-divider flex items-center justify-between">
+                  <div className="shrink-0 px-4 py-3 border-b border-surface-divider flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full" style={{ background: stage.color }} />
                       <div className="font-semibold text-[13px] text-ink">{stage.label}</div>
@@ -196,7 +236,7 @@ export default function CandidatesPage() {
                       {items.length}
                     </div>
                   </div>
-                  <div className="p-2.5 space-y-2 min-h-[120px]">
+                  <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2">
                     {items.length === 0 ? (
                       <div className="text-center py-8 font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.12em' }}>
                         Drop here
@@ -208,6 +248,7 @@ export default function CandidatesPage() {
                         <div
                           key={c.id}
                           draggable
+                          data-card
                           onDragStart={(e) => {
                             e.dataTransfer.setData('text/candidate-id', c.id)
                             e.dataTransfer.effectAllowed = 'move'
