@@ -145,7 +145,7 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
         className="relative ml-auto h-full w-full max-w-[480px] bg-white shadow-xl flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-4 border-b border-surface-divider flex items-center justify-between">
+        <div className="shrink-0 px-5 py-4 border-b border-surface-divider flex items-center justify-between">
           <div>
             <div className="font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.1em' }}>Settings</div>
             <h2 className="font-semibold text-[16px] text-ink">Funnel stages</h2>
@@ -159,7 +159,7 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-2">
           {stages.map((s, idx) => {
             const count = candidateCounts[s.id] ?? 0
             return (
@@ -230,7 +230,7 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
           </div>
         )}
 
-        <div className="px-5 py-4 border-t border-surface-divider flex justify-end gap-2">
+        <div className="shrink-0 px-5 py-4 border-t border-surface-divider flex justify-end gap-2 bg-white">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
