@@ -79,8 +79,21 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
     const result = await withWorkspaceMeetClient(meeting.workspaceId, async (client) => {
       const conferences = await listConferenceRecords(client, meeting.meetSpaceName)
       if (conferences.length === 0) {
-        // No conference ever happened in this space → definite no-show.
-        await maybeFlagNoShow(meeting, [], { reason: 'no_conference_started' })
+        // Empty conferenceRecords means *either* no one joined OR the Meet API
+        // refuses to return conference data for this account. Personal
+        // @gmail.com accounts always return empty even when the meeting
+        // actually happened — only Google Workspace tenants get conference
+        // data. We can only auto-flag no-show on tenants where the absence
+        // signal is meaningful, otherwise we'd false-positive every meeting.
+        const integ = await prisma.googleIntegration.findUnique({
+          where: { workspaceId: meeting.workspaceId },
+          select: { hostedDomain: true },
+        })
+        if (integ?.hostedDomain) {
+          await maybeFlagNoShow(meeting, [], { reason: 'no_conference_started' })
+        } else {
+          console.log('[meet-sync] empty conferenceRecords on non-Workspace account — skipping auto-no-show for', meeting.id)
+        }
         return false
       }
 
