@@ -54,6 +54,24 @@ export async function processCalendarEvent(
     orderBy: { eventAt: 'desc' },
   })
 
+  // Google Calendar fires a watch notification for *any* change to an event
+  // — RSVP status, Calendly metadata touches, internal field updates. Only
+  // count it as a reschedule when start/end/meeting URL actually changed,
+  // otherwise the candidate timeline fills up with phantom reschedule rows.
+  if (existing) {
+    const prevMeta = (existing.metadata as Record<string, unknown> | null) || {}
+    const prevStart = (prevMeta.scheduledAt as string | null) ?? null
+    const prevEnd = (prevMeta.endAt as string | null) ?? null
+    const prevUrl = (prevMeta.meetingUrl as string | null) ?? null
+    const unchanged =
+      prevStart === (start || null) &&
+      prevEnd === (end || null) &&
+      prevUrl === (meetingUrl || null)
+    if (unchanged) {
+      return { matched: true, eventType: 'meeting_scheduled', sessionId }
+    }
+  }
+
   const eventType = existing ? 'meeting_rescheduled' : 'meeting_scheduled'
 
   await logSchedulingEvent({
