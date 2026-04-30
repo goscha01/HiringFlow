@@ -31,6 +31,7 @@ const PIPELINE_ORDER: Array<{ value: string; label: string; group: 'flow' | 'tra
   { value: 'meeting_scheduled',  label: 'Meeting Scheduled',group: 'meeting' },
   { value: 'meeting_started',    label: 'Meeting Started',  group: 'meeting' },
   { value: 'meeting_ended',      label: 'Meeting Ended',    group: 'meeting' },
+  { value: 'meeting_no_show',    label: 'No-show',          group: 'meeting' },
   { value: 'recording_ready',    label: 'Recording Ready',  group: 'meeting' },
   { value: 'transcript_ready',   label: 'Transcript Ready', group: 'meeting' },
 ]
@@ -44,6 +45,7 @@ const TRIGGERS = [
   { value: 'meeting_scheduled', label: 'Meeting Scheduled' },
   { value: 'meeting_started', label: 'Meeting Started' },
   { value: 'meeting_ended', label: 'Meeting Ended' },
+  { value: 'meeting_no_show', label: 'No-show' },
   { value: 'recording_ready', label: 'Recording Ready' },
   { value: 'transcript_ready', label: 'Transcript Ready' },
   { value: 'automation_completed', label: 'After Automation' },
@@ -57,6 +59,7 @@ const SESSION_WIDE_TRIGGERS = new Set([
   'meeting_scheduled',
   'meeting_started',
   'meeting_ended',
+  'meeting_no_show',
   'recording_ready',
   'transcript_ready',
 ])
@@ -68,6 +71,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   meeting_scheduled: 'Meeting Scheduled',
   meeting_started: 'Meeting Started',
   meeting_ended: 'Meeting Ended',
+  meeting_no_show: 'No-show',
   recording_ready: 'Recording Ready',
   transcript_ready: 'Transcript Ready',
   automation_completed: 'After Automation',
@@ -124,6 +128,21 @@ export default function AutomationsPage() {
   }, [])
 
   const refresh = async () => { const r = await fetch('/api/automations'); if (r.ok) setRules(await r.json()) }
+
+  const [seedingNoShow, setSeedingNoShow] = useState(false)
+  const seedNoShow = async () => {
+    setSeedingNoShow(true)
+    try {
+      const r = await fetch('/api/automations/seed-no-show', { method: 'POST' })
+      if (r.ok) {
+        await refresh()
+        const t = await fetch('/api/email-templates').then(r => r.json())
+        setTemplates(t)
+      }
+    } finally {
+      setSeedingNoShow(false)
+    }
+  }
 
   const openCreate = () => {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
@@ -216,7 +235,9 @@ export default function AutomationsPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
-        alert(`Test email sent to ${data.sentTo}.\nCheck inbox (and spam folder). No execution record was created.`)
+        alert(`Test email sent to ${data.sentTo}.\nA tracked candidate was created (source: test) — view it in Candidates to follow the path.`)
+      } else if (res.ok && data.sessionId) {
+        alert(`Candidate was created but the email did not send: ${data.error || 'unknown error'}.\nYou can still view the candidate in Candidates.`)
       } else {
         alert(`Test failed: ${data.error || 'Unknown error'}`)
       }
@@ -244,6 +265,23 @@ export default function AutomationsPage() {
       />
 
       <div className="px-8 py-6">
+
+      {!rules.some((r) => r.triggerType === 'meeting_no_show') && (
+        <div className="mb-4 px-4 py-3 rounded-[10px] bg-amber-50 border border-amber-200 flex items-center justify-between gap-3">
+          <div className="text-[13px] text-amber-900">
+            <span className="font-medium">No no-show follow-up yet.</span>{' '}
+            We&apos;ll detect candidate no-shows automatically and move them to Rejected. Add a default email
+            so they&apos;re invited to re-book.
+          </div>
+          <button
+            onClick={seedNoShow}
+            disabled={seedingNoShow}
+            className="text-xs px-3 py-1.5 rounded-[8px] bg-amber-600 text-white hover:bg-amber-700 font-medium disabled:opacity-50 whitespace-nowrap"
+          >
+            {seedingNoShow ? 'Setting up…' : 'Add default no-show email'}
+          </button>
+        </div>
+      )}
 
       {rules.length > 0 && <AutomationPipeline
         rules={rules}

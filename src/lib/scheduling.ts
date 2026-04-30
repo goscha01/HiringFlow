@@ -54,6 +54,7 @@ export type SchedulingEventType =
   // Meet integration v2 lifecycle events — driven by Google Workspace Events.
   | 'meeting_started'
   | 'meeting_ended'
+  | 'meeting_no_show'
   | 'recording_ready'
   | 'transcript_ready'
 

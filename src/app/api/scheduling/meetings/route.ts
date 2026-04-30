@@ -45,12 +45,69 @@ export async function GET() {
     return !cancelAt || cancelAt < e.eventAt.getTime()
   })
 
-  return NextResponse.json(active.map(e => ({
-    id: e.id,
-    eventType: e.eventType,
-    eventAt: e.eventAt,
-    metadata: e.metadata,
-    session: e.session,
-    schedulingConfig: e.schedulingConfig,
-  })))
+  // Join each event to its InterviewMeeting (Meet integration v2 row) via the
+  // calendar event id stored in the SchedulingEvent metadata. This is what
+  // tells the UI whether the adopted Meet space will record.
+  const calendarEventIds = active
+    .map(e => (e.metadata as Record<string, unknown> | null)?.googleEventId as string | undefined)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const interviewMeetings = calendarEventIds.length
+    ? await prisma.interviewMeeting.findMany({
+        where: { workspaceId: ws.workspaceId, googleCalendarEventId: { in: calendarEventIds } },
+        select: {
+          id: true,
+          googleCalendarEventId: true,
+          recordingEnabled: true,
+          recordingState: true,
+          recordingProvider: true,
+          transcriptState: true,
+          driveRecordingFileId: true,
+          actualStart: true,
+          actualEnd: true,
+        },
+      })
+    : []
+  const meetingByCalEvent = new Map(interviewMeetings.map(m => [m.googleCalendarEventId, m]))
+
+  // No-show status: mark the row if a meeting_no_show SchedulingEvent exists
+  // for the same InterviewMeeting.
+  const noShowSet = new Set<string>()
+  if (interviewMeetings.length) {
+    const noShowEvents = await prisma.schedulingEvent.findMany({
+      where: {
+        sessionId: { in: active.map(e => e.sessionId) },
+        eventType: 'meeting_no_show',
+      },
+      select: { metadata: true },
+    })
+    for (const ev of noShowEvents) {
+      const id = (ev.metadata as Record<string, unknown> | null)?.interviewMeetingId
+      if (typeof id === 'string') noShowSet.add(id)
+    }
+  }
+
+  return NextResponse.json(active.map(e => {
+    const calEventId = (e.metadata as Record<string, unknown> | null)?.googleEventId as string | undefined
+    const im = calEventId ? meetingByCalEvent.get(calEventId) : undefined
+    return {
+      id: e.id,
+      eventType: e.eventType,
+      eventAt: e.eventAt,
+      metadata: e.metadata,
+      session: e.session,
+      schedulingConfig: e.schedulingConfig,
+      noShow: im ? noShowSet.has(im.id) : false,
+      recording: im
+        ? {
+            enabled: im.recordingEnabled,
+            state: im.recordingState,
+            provider: im.recordingProvider,
+            transcriptState: im.transcriptState,
+            hasFile: !!im.driveRecordingFileId,
+            actualStart: im.actualStart,
+            actualEnd: im.actualEnd,
+          }
+        : null,
+    }
+  }))
 }

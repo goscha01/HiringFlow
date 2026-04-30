@@ -43,6 +43,40 @@ export async function appendRawEvent(meetingId: string, ev: MeetingRawEvent) {
   })
 }
 
+/**
+ * Inspect the accumulated participant list and decide whether the candidate
+ * showed up. Heuristic: anyone whose email is NOT the workspace's connected
+ * Google account (host), OR any anonymous/non-email participant, counts as a
+ * non-host attendee. Zero non-host entries → no-show.
+ *
+ * Note: this is a snapshot read, intended to be called from the conference.ended
+ * handler. Late-arriving participant.joined events are not common in practice
+ * but if they happen, callers can re-evaluate.
+ */
+export async function evaluateNoShow(
+  meetingId: string,
+  hostEmail: string,
+): Promise<{ noShow: boolean; nonHostCount: number }> {
+  const row = await prisma.interviewMeeting.findUnique({
+    where: { id: meetingId },
+    select: { participants: true },
+  })
+  if (!row) return { noShow: false, nonHostCount: 0 }
+  const list = Array.isArray(row.participants)
+    ? (row.participants as Array<Record<string, unknown>>)
+    : []
+  const hostKey = hostEmail.toLowerCase()
+  const seen = new Set<string>()
+  for (const p of list) {
+    const email = typeof p.email === 'string' && p.email ? p.email.toLowerCase() : null
+    const name = typeof p.displayName === 'string' && p.displayName ? p.displayName : null
+    if (email && email === hostKey) continue
+    const key = email ? `e:${email}` : name ? `n:${name}` : `anon:${seen.size}`
+    seen.add(key)
+  }
+  return { noShow: seen.size === 0, nonHostCount: seen.size }
+}
+
 export async function appendParticipant(
   meetingId: string,
   p: { email?: string | null; displayName?: string | null; joinTime?: string; leaveTime?: string },

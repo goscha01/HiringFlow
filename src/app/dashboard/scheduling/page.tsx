@@ -20,6 +20,30 @@ interface Meeting {
   metadata: { scheduledAt?: string; meetingUrl?: string; notes?: string; source?: string } | null
   session: { id: string; candidateName: string | null; candidateEmail: string | null }
   schedulingConfig: { id: string; name: string } | null
+  noShow?: boolean
+  recording: {
+    enabled: boolean
+    state: string
+    provider: string | null
+    transcriptState: string
+    hasFile: boolean
+    actualStart: string | null
+    actualEnd: string | null
+  } | null
+}
+
+function recordingBadge(m: Meeting): { tone: 'success' | 'info' | 'neutral' | 'warn' | 'danger'; text: string } {
+  if (m.noShow) return { tone: 'danger', text: 'No-show' }
+  const rec = m.recording
+  if (!rec) return { tone: 'neutral', text: 'Not adopted' }
+  if (!rec.enabled) return { tone: 'neutral', text: 'Off' }
+  if (rec.state === 'ready' || rec.hasFile) return { tone: 'success', text: 'Ready' }
+  if (rec.state === 'recording') return { tone: 'info', text: 'Recording' }
+  if (rec.state === 'processing') return { tone: 'info', text: 'Processing' }
+  if (rec.state === 'requested') return { tone: 'info', text: 'Auto-record on' }
+  if (rec.state === 'failed') return { tone: 'danger', text: 'Failed' }
+  if (rec.state === 'unavailable') return { tone: 'warn', text: 'Unavailable' }
+  return { tone: 'neutral', text: rec.state }
 }
 
 export default function SchedulingPage() {
@@ -172,7 +196,7 @@ export default function SchedulingPage() {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr style={{ background: 'var(--surface-light, #FCFAF6)' }}>
-                    {['Candidate', 'When', 'Link', 'Config', 'Source'].map((h) => (
+                    {['Candidate', 'When', 'Link', 'Recording', 'Config', 'Source'].map((h) => (
                       <th key={h} className="px-4 py-2.5 font-mono text-[10px] uppercase text-grey-35 border-b border-surface-divider text-left" style={{ letterSpacing: '0.1em' }}>
                         {h}
                       </th>
@@ -203,6 +227,12 @@ export default function SchedulingPage() {
                               {m.metadata.meetingUrl.replace(/^https?:\/\//, '')}
                             </a>
                           ) : <span className="text-grey-50">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const b = recordingBadge(m)
+                            return <Badge tone={b.tone}>{b.text}</Badge>
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-grey-35">{m.schedulingConfig?.name || '—'}</td>
                         <td className="px-4 py-3">

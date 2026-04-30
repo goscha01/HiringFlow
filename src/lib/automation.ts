@@ -122,7 +122,7 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
  */
 export async function fireMeetingLifecycleAutomations(
   sessionId: string,
-  trigger: 'meeting_started' | 'meeting_ended' | 'recording_ready' | 'transcript_ready',
+  trigger: 'meeting_started' | 'meeting_ended' | 'recording_ready' | 'transcript_ready' | 'meeting_no_show',
 ) {
   try {
     const session = await prisma.session.findUnique({
@@ -131,15 +131,20 @@ export async function fireMeetingLifecycleAutomations(
     })
     if (!session) return
 
-    // Stage trigger for the meeting lifecycle event (covers meeting_started
-     // and meeting_ended; recording / transcript events are not user-facing
-     // funnel transitions).
-    if (trigger === 'meeting_started' || trigger === 'meeting_ended') {
+    // Stage trigger for the meeting lifecycle event (covers meeting_started,
+    // meeting_ended, and meeting_no_show; recording / transcript events are
+    // not user-facing funnel transitions).
+    if (trigger === 'meeting_started' || trigger === 'meeting_ended' || trigger === 'meeting_no_show') {
+      // No-shows: default to the Rejected stage when no workspace stage is
+      // wired to meeting_no_show. legacyStatus='rejected' resolves to the
+      // built-in Rejected column via mapLegacyStatusToStageId.
+      const legacyStatus = trigger === 'meeting_no_show' ? 'rejected' : undefined
       await applyStageTrigger({
         sessionId,
         workspaceId: session.workspaceId,
         event: trigger,
         flowId: session.flowId,
+        legacyStatus,
       }).catch(() => {})
     }
 

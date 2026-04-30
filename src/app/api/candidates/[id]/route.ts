@@ -51,7 +51,24 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     orderBy: { createdAt: 'asc' },
   })
 
-  return NextResponse.json({ ...session, automationExecutions })
+  // Resolve form field labels from the flow's form steps so the candidate page
+  // can render `Address` instead of `custom_1775512958533`. A flow may have
+  // multiple form steps; we merge their fields into one label map keyed by id.
+  const formFieldLabels: Record<string, string> = {}
+  if (session.flow?.id) {
+    const formSteps = await prisma.flowStep.findMany({
+      where: { flowId: session.flow.id, formEnabled: true },
+      select: { formConfig: true },
+    })
+    for (const s of formSteps) {
+      const cfg = s.formConfig as { fields?: Array<{ id?: string; label?: string }> } | null
+      for (const f of cfg?.fields || []) {
+        if (f?.id && f?.label) formFieldLabels[f.id] = f.label
+      }
+    }
+  }
+
+  return NextResponse.json({ ...session, automationExecutions, formFieldLabels })
 }
 
 // Update pipeline status

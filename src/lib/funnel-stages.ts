@@ -25,6 +25,7 @@ export type StageTriggerEvent =
   | 'meeting_scheduled'
   | 'meeting_started'
   | 'meeting_ended'
+  | 'meeting_no_show'
 
 export interface StageTrigger {
   event: StageTriggerEvent
@@ -90,7 +91,7 @@ export function normalizeStages(raw: unknown): FunnelStage[] {
           if (typeof tr.event !== 'string') return []
           const allowed: StageTriggerEvent[] = [
             'flow_passed', 'flow_completed', 'training_started', 'training_completed',
-            'meeting_scheduled', 'meeting_started', 'meeting_ended',
+            'meeting_scheduled', 'meeting_started', 'meeting_ended', 'meeting_no_show',
           ]
           if (!allowed.includes(tr.event as StageTriggerEvent)) return []
           return [{

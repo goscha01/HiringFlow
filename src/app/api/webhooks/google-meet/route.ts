@@ -28,6 +28,7 @@ import {
   markRecordingReady,
   markTranscriptReady,
   recordProcessedEvent,
+  evaluateNoShow,
 } from '@/lib/meet/interview-meeting'
 import { logSchedulingEvent } from '@/lib/scheduling'
 import { renewSubscription } from '@/lib/meet/workspace-events'
@@ -204,6 +205,43 @@ export async function POST(request: NextRequest) {
         await fireMeetingLifecycleAutomations(meeting.sessionId, 'meeting_ended').catch((err) => {
           console.error('[Meet webhook] meeting_ended automations failed:', err)
         })
+
+        // No-show detection: if no participant other than the workspace host
+        // was ever observed, log a meeting_no_show SchedulingEvent and fire
+        // the meeting_no_show automation trigger. Idempotent: we check for an
+        // existing meeting_no_show row tied to this InterviewMeeting first.
+        try {
+          const integration = await prisma.googleIntegration.findUnique({
+            where: { workspaceId: meeting.workspaceId },
+            select: { googleEmail: true },
+          })
+          if (integration?.googleEmail) {
+            const { noShow, nonHostCount } = await evaluateNoShow(meeting.id, integration.googleEmail)
+            if (noShow) {
+              const already = await prisma.schedulingEvent.findFirst({
+                where: {
+                  sessionId: meeting.sessionId,
+                  eventType: 'meeting_no_show',
+                  metadata: { path: ['interviewMeetingId'], equals: meeting.id },
+                },
+                select: { id: true },
+              })
+              if (!already) {
+                await logSchedulingEvent({
+                  sessionId: meeting.sessionId,
+                  eventType: 'meeting_no_show',
+                  metadata: { interviewMeetingId: meeting.id, at: at.toISOString(), nonHostCount },
+                })
+                await fireMeetingLifecycleAutomations(meeting.sessionId, 'meeting_no_show').catch((err) => {
+                  console.error('[Meet webhook] meeting_no_show automations failed:', err)
+                })
+                console.log('[Meet webhook] no-show detected for meeting', meeting.id)
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[Meet webhook] no-show evaluation failed:', err)
+        }
         break
       }
       case 'google.workspace.meet.recording.v2.fileGenerated': {

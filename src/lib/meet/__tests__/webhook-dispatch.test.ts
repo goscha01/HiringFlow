@@ -37,12 +37,16 @@ const prismaMock = {
   },
   schedulingEvent: {
     create: vi.fn(async () => ({ id: 'se1' })),
+    findFirst: vi.fn(async () => null),
   },
   session: {
     findUnique: vi.fn(async () => ({ id: 'sess-1', workspaceId: 'ws-1', flowId: 'f-1', flow: { name: 'F' }, ad: null, candidateName: 'C', candidateEmail: 'c@example.com' })),
   },
   automationRule: { findMany: vi.fn(async () => []) },
   automationExecution: { findMany: vi.fn(async () => []) },
+  googleIntegration: {
+    findUnique: vi.fn(async () => ({ googleEmail: 'host@example.com' })),
+  },
 }
 
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
@@ -150,6 +154,47 @@ describe('Meet webhook dispatch', () => {
     )
     // Recording state should not be 'ready' yet — that requires a separate recording.fileGenerated event
     expect(state.recordingState).not.toBe('ready')
+  })
+
+  it('conference.ended with empty participants logs meeting_no_show', async () => {
+    state.participants = []
+    const { POST } = await import('../../../app/api/webhooks/google-meet/route')
+    const res = await POST(makeRequest(buildPush(
+      'google.workspace.meet.conference.v2.ended',
+      { conferenceRecord: { name: 'conferenceRecords/x', space: { name: 'spaces/ABC' }, endTime: '2030-01-01T10:30:00Z' } },
+    )))
+    expect(res.status).toBe(200)
+    const calls = prismaMock.schedulingEvent.create.mock.calls.map((c: unknown[]) => (c[0] as { data: { eventType: string } }).data.eventType)
+    expect(calls).toContain('meeting_ended')
+    expect(calls).toContain('meeting_no_show')
+  })
+
+  it('conference.ended with only host in participants logs meeting_no_show', async () => {
+    state.participants = [{ email: 'host@example.com', displayName: 'Host', joinTime: '2030-01-01T10:00:00Z' }]
+    const { POST } = await import('../../../app/api/webhooks/google-meet/route')
+    const res = await POST(makeRequest(buildPush(
+      'google.workspace.meet.conference.v2.ended',
+      { conferenceRecord: { name: 'conferenceRecords/x', space: { name: 'spaces/ABC' }, endTime: '2030-01-01T10:30:00Z' } },
+    )))
+    expect(res.status).toBe(200)
+    const calls = prismaMock.schedulingEvent.create.mock.calls.map((c: unknown[]) => (c[0] as { data: { eventType: string } }).data.eventType)
+    expect(calls).toContain('meeting_no_show')
+  })
+
+  it('conference.ended with candidate present does NOT log meeting_no_show', async () => {
+    state.participants = [
+      { email: 'host@example.com', displayName: 'Host' },
+      { email: 'candidate@example.com', displayName: 'Candidate' },
+    ]
+    const { POST } = await import('../../../app/api/webhooks/google-meet/route')
+    const res = await POST(makeRequest(buildPush(
+      'google.workspace.meet.conference.v2.ended',
+      { conferenceRecord: { name: 'conferenceRecords/x', space: { name: 'spaces/ABC' }, endTime: '2030-01-01T10:30:00Z' } },
+    )))
+    expect(res.status).toBe(200)
+    const calls = prismaMock.schedulingEvent.create.mock.calls.map((c: unknown[]) => (c[0] as { data: { eventType: string } }).data.eventType)
+    expect(calls).toContain('meeting_ended')
+    expect(calls).not.toContain('meeting_no_show')
   })
 
   it('recording.fileGenerated marks recordingState=ready and writes recording_ready', async () => {

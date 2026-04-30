@@ -39,6 +39,7 @@ interface CandidateDetail {
   answers: Answer[]; submissions: Submission[]
   trainingEnrollments: TrainingEnrollment[]; schedulingEvents: SchedulingEvent[]
   automationExecutions?: AutomationExec[]
+  formFieldLabels?: Record<string, string>
 }
 
 const PIPELINE_STEPS = [
@@ -146,9 +147,10 @@ export default function CandidateDetailPage() {
       meeting_scheduled: 'Meeting scheduled',
       meeting_rescheduled: 'Meeting rescheduled',
       meeting_cancelled: 'Meeting cancelled',
+      meeting_no_show: 'Candidate no-show',
     }
     const successTypes = new Set(['marked_scheduled', 'meeting_scheduled', 'meeting_rescheduled'])
-    const errorTypes = new Set(['meeting_cancelled'])
+    const errorTypes = new Set(['meeting_cancelled', 'meeting_no_show'])
     const type = errorTypes.has(e.eventType) ? 'error' : successTypes.has(e.eventType) ? 'success' : 'info'
     const meta = e.metadata || {}
     const bits: string[] = []
@@ -196,6 +198,11 @@ export default function CandidateDetailPage() {
             {candidate.candidateEmail && <span>{candidate.candidateEmail}</span>}
             {candidate.candidatePhone && <span>{candidate.candidatePhone}</span>}
             {candidate.flow && <span>Flow: {candidate.flow.name}</span>}
+            {candidate.schedulingEvents.some((e) => e.eventType === 'meeting_no_show') && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">
+                No-show
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -275,12 +282,16 @@ export default function CandidateDetailPage() {
         <div className="bg-white rounded-[12px] border border-surface-border p-6 mb-6">
           <h3 className="text-sm font-semibold text-grey-15 mb-3">Form Data</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {Object.entries(candidate.formData).map(([key, value]) => (
-              <div key={key}>
-                <div className="text-xs text-grey-40 capitalize">{key}</div>
-                <div className="text-sm text-grey-15">{String(value)}</div>
-              </div>
-            ))}
+            {Object.entries(candidate.formData).map(([key, value]) => {
+              const builtInLabels: Record<string, string> = { name: 'Full Name', email: 'Email', phone: 'Phone' }
+              const label = candidate.formFieldLabels?.[key] || builtInLabels[key] || key
+              return (
+                <div key={key}>
+                  <div className="text-xs text-grey-40">{label}</div>
+                  <div className="text-sm text-grey-15">{String(value)}</div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
