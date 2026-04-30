@@ -30,6 +30,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(body.trainingId !== undefined && { trainingId: body.trainingId || null }),
       ...(body.schedulingConfigId !== undefined && { schedulingConfigId: body.schedulingConfigId || null }),
       ...(body.delayMinutes !== undefined && { delayMinutes: body.delayMinutes || 0 }),
+      ...(body.minutesBefore !== undefined && {
+        minutesBefore: Number.isInteger(body.minutesBefore) && body.minutesBefore > 0 ? body.minutesBefore : null,
+      }),
       ...(body.waitForRecording !== undefined && { waitForRecording: !!body.waitForRecording }),
       ...(body.emailDestination !== undefined && { emailDestination: body.emailDestination || 'applicant' }),
       ...(body.emailDestinationAddress !== undefined && { emailDestinationAddress: body.emailDestinationAddress || null }),

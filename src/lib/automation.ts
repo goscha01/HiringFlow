@@ -106,9 +106,32 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
       flowId: session.flowId,
     }).catch(() => {})
     await dispatchRulesForTrigger(sessionId, 'meeting_scheduled', session)
+
+    // Schedule any before_meeting reminder rules. We need the absolute
+    // scheduledStart to compute fire times; pull it from the candidate's
+    // newest InterviewMeeting (the one that just got created via Calendly
+    // adoption or the in-app scheduler).
+    const upcoming = await prisma.interviewMeeting.findFirst({
+      where: { sessionId },
+      orderBy: { scheduledStart: 'desc' },
+      select: { scheduledStart: true },
+    })
+    if (upcoming?.scheduledStart) {
+      await scheduleBeforeMeetingReminders(sessionId, upcoming.scheduledStart)
+    }
   } catch (error) {
     console.error('[Automation] Error firing meeting_scheduled automations for session', sessionId, ':', error)
   }
+}
+
+/**
+ * Called when a calendar event is rescheduled. Cancels any pending
+ * before_meeting reminders (they were keyed off the old time) and queues
+ * fresh ones for the new scheduledStart.
+ */
+export async function rescheduleBeforeMeetingReminders(sessionId: string, newScheduledStart: Date) {
+  await cancelBeforeMeetingReminders(sessionId)
+  await scheduleBeforeMeetingReminders(sessionId, newScheduledStart)
 }
 
 /**
@@ -238,36 +261,139 @@ async function dispatchRulesForTrigger(sessionId: string, triggerType: string, s
  */
 async function dispatchRule(ruleId: string, sessionId: string, delayMinutes: number) {
   if (delayMinutes > 0 && qstash) {
-    // Record the queued execution so the candidate timeline shows the planned action.
-    const scheduledFor = new Date(Date.now() + delayMinutes * 60_000)
-    const existing = await prisma.automationExecution.findUnique({
-      where: { automationRuleId_sessionId: { automationRuleId: ruleId, sessionId } },
-    })
-    if (!existing || existing.status !== 'sent') {
-      if (existing) {
-        await prisma.automationExecution.update({
-          where: { id: existing.id },
-          data: { status: 'queued', scheduledFor, errorMessage: null },
-        })
-      } else {
-        await prisma.automationExecution.create({
-          data: { automationRuleId: ruleId, sessionId, status: 'queued', scheduledFor },
-        })
-      }
-    }
-    try {
-      await qstash.publishJSON({
-        url: `${APP_URL}/api/automations/run`,
-        body: { ruleId, sessionId },
-        delay: delayMinutes * 60,
-      })
-      console.log(`[Automation] Queued rule ${ruleId} for session ${sessionId} (delay ${delayMinutes}m, fires ${scheduledFor.toISOString()})`)
-      return
-    } catch (err) {
-      console.error(`[Automation] QStash publish failed, running inline:`, err)
-    }
+    return queueAtDelay(ruleId, sessionId, delayMinutes * 60)
   }
   await executeRule(ruleId, sessionId)
+}
+
+/**
+ * Lower-level: queue a rule via QStash with an arbitrary delay (seconds).
+ * Captures the QStash messageId on the execution row so the rule can later
+ * be cancelled (e.g. when a meeting is cancelled or rescheduled).
+ *
+ * Returns true if the QStash publish succeeded; false if it fell back to
+ * inline execution.
+ */
+async function queueAtDelay(ruleId: string, sessionId: string, delaySeconds: number): Promise<boolean> {
+  if (!qstash || delaySeconds <= 0) {
+    await executeRule(ruleId, sessionId)
+    return false
+  }
+  const scheduledFor = new Date(Date.now() + delaySeconds * 1000)
+  const existing = await prisma.automationExecution.findUnique({
+    where: { automationRuleId_sessionId: { automationRuleId: ruleId, sessionId } },
+  })
+  if (existing?.status === 'sent') {
+    return false
+  }
+  const row = existing
+    ? await prisma.automationExecution.update({
+        where: { id: existing.id },
+        data: { status: 'queued', scheduledFor, errorMessage: null, qstashMessageId: null },
+      })
+    : await prisma.automationExecution.create({
+        data: { automationRuleId: ruleId, sessionId, status: 'queued', scheduledFor },
+      })
+  try {
+    const res = await qstash.publishJSON({
+      url: `${APP_URL}/api/automations/run`,
+      body: { ruleId, sessionId },
+      delay: delaySeconds,
+    })
+    const messageId = (res as { messageId?: string })?.messageId
+    if (messageId) {
+      await prisma.automationExecution.update({
+        where: { id: row.id },
+        data: { qstashMessageId: messageId },
+      }).catch(() => {})
+    }
+    console.log(`[Automation] Queued rule ${ruleId} for session ${sessionId} (delay ${delaySeconds}s, fires ${scheduledFor.toISOString()}, qstash=${messageId ?? 'unknown'})`)
+    return true
+  } catch (err) {
+    console.error('[Automation] QStash publish failed, running inline:', err)
+    await executeRule(ruleId, sessionId)
+    return false
+  }
+}
+
+/**
+ * Schedule (or re-schedule) all `before_meeting` reminder rules for a
+ * session. Called when a meeting is first scheduled and again after a
+ * reschedule (the caller must cancel old queued reminders first).
+ *
+ * Each rule fires at `scheduledStart - rule.minutesBefore`. Reminders whose
+ * computed fire time is in the past or within the next 60 s are skipped —
+ * sending a "1 hour before" email after the meeting starts is worse than
+ * sending nothing.
+ */
+export async function scheduleBeforeMeetingReminders(sessionId: string, scheduledStart: Date) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { workspaceId: true, flowId: true },
+    })
+    if (!session) return
+    const rules = await prisma.automationRule.findMany({
+      where: {
+        isActive: true,
+        triggerType: 'before_meeting',
+        workspaceId: session.workspaceId,
+        OR: [{ flowId: session.flowId }, { flowId: null }],
+      },
+      select: { id: true, minutesBefore: true },
+    })
+    if (rules.length === 0) return
+    const now = Date.now()
+    for (const rule of rules) {
+      const minutesBefore = rule.minutesBefore ?? 0
+      if (minutesBefore <= 0) continue
+      const fireAtMs = scheduledStart.getTime() - minutesBefore * 60_000
+      const delaySeconds = Math.floor((fireAtMs - now) / 1000)
+      if (delaySeconds < 60) {
+        console.log(`[Automation] Skipping reminder rule ${rule.id} for session ${sessionId} — fire time too close (delay ${delaySeconds}s)`)
+        continue
+      }
+      await queueAtDelay(rule.id, sessionId, delaySeconds)
+    }
+  } catch (err) {
+    console.error('[Automation] scheduleBeforeMeetingReminders failed:', err)
+  }
+}
+
+/**
+ * Cancel all queued `before_meeting` reminders for a session. Deletes the
+ * underlying QStash messages (best-effort) and marks each execution row as
+ * status='cancelled' so the timeline reflects the void.
+ *
+ * Safe to call multiple times — already-sent or already-cancelled rows are
+ * skipped.
+ */
+export async function cancelBeforeMeetingReminders(sessionId: string): Promise<number> {
+  const queued = await prisma.automationExecution.findMany({
+    where: {
+      sessionId,
+      status: 'queued',
+      automationRule: { triggerType: 'before_meeting' },
+    },
+    select: { id: true, qstashMessageId: true },
+  })
+  if (queued.length === 0) return 0
+  for (const e of queued) {
+    if (e.qstashMessageId && qstash) {
+      try {
+        await (qstash.messages as unknown as { delete: (id: string) => Promise<unknown> }).delete(e.qstashMessageId)
+      } catch (err) {
+        // Already-fired or already-deleted messages return 404. Non-fatal — we
+        // still mark the row cancelled so the timeline is accurate.
+        console.warn('[Automation] qstash.messages.delete failed (likely already fired):', (err as Error).message)
+      }
+    }
+    await prisma.automationExecution.update({
+      where: { id: e.id },
+      data: { status: 'cancelled', errorMessage: null },
+    }).catch(() => {})
+  }
+  return queued.length
 }
 
 /**

@@ -16,6 +16,7 @@ interface Rule {
   emailDestination: 'applicant' | 'company' | 'specific'
   emailDestinationAddress: string | null
   delayMinutes?: number
+  minutesBefore?: number | null
   waitForRecording?: boolean
   isActive: boolean; createdAt: string
   flow: Flow | null; emailTemplate: Template; training: TrainingItem | null
@@ -29,6 +30,7 @@ const PIPELINE_ORDER: Array<{ value: string; label: string; group: 'flow' | 'tra
   { value: 'flow_passed',        label: 'Flow Passed',      group: 'flow' },
   { value: 'training_completed', label: 'Training Done',    group: 'training' },
   { value: 'meeting_scheduled',  label: 'Meeting Scheduled',group: 'meeting' },
+  { value: 'before_meeting',     label: 'Before Meeting',   group: 'meeting' },
   { value: 'meeting_started',    label: 'Meeting Started',  group: 'meeting' },
   { value: 'meeting_ended',      label: 'Meeting Ended',    group: 'meeting' },
   { value: 'meeting_no_show',    label: 'No-show',          group: 'meeting' },
@@ -43,6 +45,7 @@ const TRIGGERS = [
   { value: 'flow_passed', label: 'Flow Passed' },
   { value: 'training_completed', label: 'Training Done' },
   { value: 'meeting_scheduled', label: 'Meeting Scheduled' },
+  { value: 'before_meeting', label: 'Before Meeting' },
   { value: 'meeting_started', label: 'Meeting Started' },
   { value: 'meeting_ended', label: 'Meeting Ended' },
   { value: 'meeting_no_show', label: 'No-show' },
@@ -57,6 +60,7 @@ const SESSION_WIDE_TRIGGERS = new Set([
   'training_completed',
   'automation_completed',
   'meeting_scheduled',
+  'before_meeting',
   'meeting_started',
   'meeting_ended',
   'meeting_no_show',
@@ -69,6 +73,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   flow_passed: 'Flow Passed',
   training_completed: 'Training Done',
   meeting_scheduled: 'Meeting Scheduled',
+  before_meeting: 'Before Meeting',
   meeting_started: 'Meeting Started',
   meeting_ended: 'Meeting Ended',
   meeting_no_show: 'No-show',
@@ -98,6 +103,7 @@ export default function AutomationsPage() {
   const [trainingId, setTrainingId] = useState('')
   const [schedulingConfigId, setSchedulingConfigId] = useState('')
   const [delayMinutes, setDelayMinutes] = useState(0)
+  const [minutesBefore, setMinutesBefore] = useState(60)
   const [waitForRecording, setWaitForRecording] = useState(false)
   const [emailDestination, setEmailDestination] = useState<'applicant' | 'company' | 'specific'>('applicant')
   const [emailDestinationAddress, setEmailDestinationAddress] = useState('')
@@ -174,7 +180,7 @@ export default function AutomationsPage() {
   const openCreate = () => {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
     setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
-    setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0)
+    setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0); setMinutesBefore(60)
     setEmailDestination('applicant'); setEmailDestinationAddress('')
     setShowModal(true)
   }
@@ -183,6 +189,7 @@ export default function AutomationsPage() {
     setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
     setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
     setDelayMinutes((r as any).delayMinutes || 0)
+    setMinutesBefore((r as any).minutesBefore || 60)
     setWaitForRecording(!!(r as any).waitForRecording)
     setEmailDestination(((r as any).emailDestination as 'applicant' | 'company' | 'specific') || 'applicant')
     setEmailDestinationAddress((r as any).emailDestinationAddress || '')
@@ -201,7 +208,8 @@ export default function AutomationsPage() {
       nextStepUrl: null as string | null,
       trainingId: nextStepType === 'training' ? (trainingId || null) : null,
       schedulingConfigId: nextStepType === 'scheduling' ? (schedulingConfigId || null) : null,
-      delayMinutes,
+      delayMinutes: triggerType === 'before_meeting' ? 0 : delayMinutes,
+      minutesBefore: triggerType === 'before_meeting' ? minutesBefore : null,
       waitForRecording: triggerType === 'meeting_ended' ? waitForRecording : false,
       emailDestination,
       emailDestinationAddress: emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
@@ -389,7 +397,13 @@ export default function AutomationsPage() {
                     ) : r.nextStepType || '—'}
                   </td>
                   <td className="px-5 py-4 text-xs text-grey-40">
-                    {(r as any).delayMinutes > 0 ? (
+                    {r.triggerType === 'before_meeting' && (r as any).minutesBefore > 0 ? (
+                      <>
+                        {(r as any).minutesBefore >= 1440 ? `${Math.round((r as any).minutesBefore / 1440)}d` :
+                          (r as any).minutesBefore >= 60 ? `${Math.round((r as any).minutesBefore / 60)}h` :
+                          `${(r as any).minutesBefore}m`} before
+                      </>
+                    ) : (r as any).delayMinutes > 0 ? (
                       (r as any).delayMinutes >= 1440 ? `${Math.round((r as any).delayMinutes / 1440)}d` :
                       (r as any).delayMinutes >= 60 ? `${Math.round((r as any).delayMinutes / 60)}h` :
                       `${(r as any).delayMinutes}m`
@@ -587,8 +601,41 @@ export default function AutomationsPage() {
                   <p className="text-xs text-grey-40 mt-1">Link clicks are tracked. Candidate status updates to &quot;invited to schedule&quot;.</p>
                 </div>
               )}
-              {/* Delay — only show when a next step is selected */}
-              {nextStepType && (
+              {/* Send X minutes before meeting — only for before_meeting trigger */}
+              {triggerType === 'before_meeting' && (
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Send before meeting</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { value: 15, label: '15 min before' },
+                    { value: 60, label: '1 hour before' },
+                    { value: 180, label: '3 hours before' },
+                    { value: 1440, label: '1 day before' },
+                    { value: 2880, label: '2 days before' },
+                  ].map(d => (
+                    <button key={d.value} onClick={() => setMinutesBefore(d.value)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${minutesBefore === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="number"
+                    min={1}
+                    value={minutesBefore > 0 ? minutesBefore : ''}
+                    onChange={(e) => setMinutesBefore(Math.max(1, parseInt(e.target.value) || 0))}
+                    className="w-24 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                  <span className="text-xs text-grey-40">minutes before scheduled start</span>
+                </div>
+                <p className="text-xs text-grey-50 mt-1.5">
+                  Reminder fires {minutesBefore >= 1440 ? `${Math.round(minutesBefore / 1440)} day${minutesBefore >= 2880 ? 's' : ''}` : minutesBefore >= 60 ? `${Math.round(minutesBefore / 60)} hour${minutesBefore >= 120 ? 's' : ''}` : `${minutesBefore} minutes`} before the meeting&apos;s scheduled start.
+                  Auto-cancelled if the candidate cancels or reschedules.
+                </p>
+              </div>
+              )}
+              {/* Delay — only show when a next step is selected and trigger is not before_meeting */}
+              {nextStepType && triggerType !== 'before_meeting' && (
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Delay</label>
                 <div className="flex flex-wrap gap-1.5">

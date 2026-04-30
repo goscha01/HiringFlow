@@ -633,6 +633,10 @@ model AutomationRule {
   schedulingConfigId String?          @map("scheduling_config_id")
   schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
   delayMinutes    Int                 @default(0) @map("delay_minutes") // 0 = immediate
+  // For triggerType='before_meeting' rules: how many minutes before
+  // InterviewMeeting.scheduledStart to fire. e.g. 60 = "1 hour before".
+  // Ignored for all other trigger types.
+  minutesBefore   Int?                @map("minutes_before")
   // When a meeting_ended rule has this set, execution is deferred until a
   // recording_ready event fires for the same session (or a 4h hard cutoff).
   waitForRecording Boolean            @default(false) @map("wait_for_recording")
@@ -653,6 +657,10 @@ model AutomationExecution {
   errorMessage      String?         @map("error_message")
   provider          String          @default("sendgrid")
   providerMessageId String?         @map("provider_message_id")
+  // QStash messageId — captured when a delayed rule is queued so we can
+  // cancel/delete the scheduled job (e.g. when a meeting is cancelled or
+  // rescheduled and pending reminders need to be voided).
+  qstashMessageId   String?         @map("qstash_message_id")
   sentAt            DateTime?       @map("sent_at")
   scheduledFor      DateTime?       @map("scheduled_for")
   createdAt         DateTime        @default(now()) @map("created_at")

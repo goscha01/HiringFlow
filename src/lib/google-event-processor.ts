@@ -11,7 +11,7 @@
 import type { calendar_v3 } from 'googleapis'
 import { prisma } from './prisma'
 import { logSchedulingEvent, updatePipelineStatus } from './scheduling'
-import { fireMeetingScheduledAutomations } from './automation'
+import { fireMeetingScheduledAutomations, cancelBeforeMeetingReminders, rescheduleBeforeMeetingReminders } from './automation'
 import { meetIntegrationEnabled } from './meet/feature-flag'
 import { getSpaceByMeetingCode, parseMeetingCodeFromUrl, updateSpaceSettings } from './meet/google-meet'
 import { subscribeSpace } from './meet/workspace-events'
@@ -41,6 +41,11 @@ export async function processCalendarEvent(
       sessionId,
       eventType: 'meeting_cancelled',
       metadata: { googleEventId: event.id, source: 'google_calendar' },
+    })
+    // Void any queued before_meeting reminders so the candidate doesn't get
+    // a "your interview starts in 1h" email after the meeting was cancelled.
+    await cancelBeforeMeetingReminders(sessionId).catch((err) => {
+      console.error('[GCal] cancelBeforeMeetingReminders failed:', err)
     })
     return { matched: true, eventType: 'meeting_cancelled', sessionId }
   }
@@ -94,6 +99,11 @@ export async function processCalendarEvent(
     })
     await adoptExternalMeet(workspaceId, sessionId, event, start, end, meetingUrl).catch((err) => {
       console.error('[GCal] adoptExternalMeet failed (non-fatal):', (err as Error).message)
+    })
+  } else if (eventType === 'meeting_rescheduled' && start) {
+    // Re-key any pending before_meeting reminders to the new scheduledStart.
+    await rescheduleBeforeMeetingReminders(sessionId, new Date(start)).catch((err) => {
+      console.error('[GCal] rescheduleBeforeMeetingReminders failed:', err)
     })
   }
 

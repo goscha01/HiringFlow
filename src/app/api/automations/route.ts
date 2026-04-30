@@ -22,8 +22,11 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
-  const { name, triggerType, flowId, triggerAutomationId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes, emailDestination, emailDestinationAddress, waitForRecording } = await request.json()
+  const { name, triggerType, flowId, triggerAutomationId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes, minutesBefore, emailDestination, emailDestinationAddress, waitForRecording } = await request.json()
   if (!name || !triggerType || !emailTemplateId) return NextResponse.json({ error: 'name, triggerType, emailTemplateId required' }, { status: 400 })
+  if (triggerType === 'before_meeting' && (!Number.isInteger(minutesBefore) || minutesBefore <= 0)) {
+    return NextResponse.json({ error: 'before_meeting rules need minutesBefore (positive integer)' }, { status: 400 })
+  }
 
   // If training is selected, set the training to invitation_only
   if (nextStepType === 'training' && trainingId) {
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
       trainingId: trainingId || null,
       schedulingConfigId: schedulingConfigId || null,
       delayMinutes: delayMinutes || 0,
+      minutesBefore: triggerType === 'before_meeting' ? (minutesBefore as number) : null,
       waitForRecording: triggerType === 'meeting_ended' ? !!waitForRecording : false,
       emailDestination: emailDestination || 'applicant',
       emailDestinationAddress: emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
