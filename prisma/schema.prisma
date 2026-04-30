@@ -90,6 +90,14 @@ model GoogleIntegration {
   // email — is what we compare against to decide whether a participant is the host.
   // Nullable to keep older connections working until they reconnect or self-heal.
   googleUserId    String?   @map("google_user_id")
+  // Display name from userinfo (e.g. "Georgiy Sayapin"). Used by the Drive
+  // recording-filename attendance heuristic — Meet names recordings as
+  // "<Attendee A> and <Attendee B>" so we need the host's display name to
+  // tell host-only recordings apart from host+candidate recordings.
+  googleDisplayName String? @map("google_display_name")
+  // Cached "Meet Recordings" Drive folder id, looked up once per integration.
+  // Saves a Drive files.list call on every sync.
+  meetRecordingsFolderId String? @map("meet_recordings_folder_id")
   refreshToken    String    @map("refresh_token")                  // encrypted
   accessToken     String?   @map("access_token")                   // encrypted
   accessExpiresAt DateTime? @map("access_expires_at")

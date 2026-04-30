@@ -22,9 +22,11 @@
  */
 
 import type { InterviewMeeting, Prisma } from '@prisma/client'
+import type { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../prisma'
-import { fetchUserId, getAuthedClientForWorkspace } from '../google'
+import { fetchUserInfo, getAuthedClientForWorkspace } from '../google'
 import { withWorkspaceMeetClient, listConferenceRecords, listParticipants, listRecordings, type Participant } from './google-meet'
+import { findMeetRecordingsFolderId, searchMeetRecordings, inferAttendanceFromFilename } from './google-drive'
 import { logSchedulingEvent } from '../scheduling'
 import { fireMeetingLifecycleAutomations } from '../automation'
 
@@ -79,22 +81,26 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
     const result = await withWorkspaceMeetClient(meeting.workspaceId, async (client) => {
       const conferences = await listConferenceRecords(client, meeting.meetSpaceName)
       if (conferences.length === 0) {
-        // Empty conferenceRecords means *either* no one joined OR the Meet API
-        // refuses to return conference data for this account. Personal
-        // @gmail.com accounts always return empty even when the meeting
-        // actually happened — only Google Workspace tenants get conference
-        // data. We can only auto-flag no-show on tenants where the absence
-        // signal is meaningful, otherwise we'd false-positive every meeting.
+        // Empty conferenceRecords means either no one joined OR Google won't
+        // return conference data for this account tier. Personal @gmail.com
+        // and Workspace Individual always return empty even when the meeting
+        // actually happened. For those tenants we fall back to the Drive
+        // recording filename as the attendance signal — recordings still land
+        // in the user's Drive even when the API conferenceRecords endpoint is
+        // gated.
         const integ = await prisma.googleIntegration.findUnique({
           where: { workspaceId: meeting.workspaceId },
-          select: { hostedDomain: true },
+          select: { hostedDomain: true, googleDisplayName: true, meetRecordingsFolderId: true },
         })
         if (integ?.hostedDomain) {
+          // Workspace tenant — empty really means no conference happened.
           await maybeFlagNoShow(meeting, [], { reason: 'no_conference_started' })
-        } else {
-          console.log('[meet-sync] empty conferenceRecords on non-Workspace account — skipping auto-no-show for', meeting.id)
+          return false
         }
-        return false
+        // Personal Gmail / Workspace Individual fallback path.
+        const driveOutcome = await syncFromDriveRecording(client, meeting, integ?.googleDisplayName ?? null, integ?.meetRecordingsFolderId ?? null)
+        if (driveOutcome.updated) updated = true
+        return driveOutcome.updated
       }
 
       // Use the most recent conference. (Multiple are possible if the host
@@ -178,6 +184,98 @@ function toParticipantRow(p: Participant): { email: string | null; displayName: 
   }
 }
 
+/**
+ * Drive-recording fallback for personal Gmail / Workspace Individual tenants.
+ *
+ * Strategy: query the user's Meet Recordings folder for video files created
+ * within the meeting window with the candidate's name in the filename. If
+ * found, the filename pattern (`<X> and <Y>`) tells us who attended. If not
+ * found within an extended window, we leave the meeting alone — recruiters
+ * can still mark no-show manually.
+ *
+ * Returns whether anything was written to the InterviewMeeting row.
+ */
+async function syncFromDriveRecording(
+  client: OAuth2Client,
+  meeting: SyncableMeeting,
+  hostDisplayName: string | null,
+  cachedFolderId: string | null,
+): Promise<{ updated: boolean }> {
+  if (!hostDisplayName) {
+    console.log('[meet-sync] no host display name on integration — Drive filename heuristic needs it; skipping for', meeting.id)
+    return { updated: false }
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { id: meeting.sessionId },
+    select: { candidateName: true },
+  })
+  if (!session?.candidateName) return { updated: false }
+
+  // Resolve folder id (cache hit or one Drive call).
+  let folderId = cachedFolderId
+  if (!folderId) {
+    folderId = await findMeetRecordingsFolderId(client).catch((err) => {
+      console.error('[meet-sync] findMeetRecordingsFolderId failed:', (err as Error).message)
+      return null
+    })
+    if (folderId) {
+      await prisma.googleIntegration.update({
+        where: { workspaceId: meeting.workspaceId },
+        data: { meetRecordingsFolderId: folderId },
+      }).catch(() => {})
+    }
+    // No folder yet → user has never recorded. Bail without flagging.
+    if (!folderId) return { updated: false }
+  }
+
+  // Search window: 1h before scheduledStart through 3h after scheduledEnd.
+  // Recording files are written at the *end* of the meeting, so the lower
+  // bound only matters if Drive's createdTime races with the meeting start.
+  const start = meeting.scheduledStart ?? new Date(0)
+  const end = meeting.scheduledEnd ?? new Date(Date.now() + 24 * 60 * 60 * 1000)
+  const candidates = await searchMeetRecordings(client, {
+    folderId,
+    candidateName: session.candidateName,
+    createdAfter: new Date(start.getTime() - 60 * 60 * 1000),
+    createdBefore: new Date(end.getTime() + 3 * 60 * 60 * 1000),
+    limit: 5,
+  }).catch((err) => {
+    console.error('[meet-sync] searchMeetRecordings failed:', (err as Error).message)
+    return []
+  })
+
+  // Pick the recording whose filename names the candidate (most precise) or
+  // fall back to the most recent. Prefer matches where the host name also
+  // appears, since that confirms it's the same call (vs an unrelated file).
+  let chosen = candidates.find((f) => {
+    const inf = inferAttendanceFromFilename(f.name, hostDisplayName, session.candidateName!)
+    return inf?.hasHost && inf?.hasCandidate
+  })
+  if (!chosen) chosen = candidates[0]
+  if (!chosen) return { updated: false }
+
+  const inferred = inferAttendanceFromFilename(chosen.name, hostDisplayName, session.candidateName)
+  const data: Prisma.InterviewMeetingUpdateInput = {
+    driveRecordingFileId: chosen.id,
+    recordingState: 'ready',
+    // We don't have precise actualStart/End from Drive, but the recording's
+    // createdTime is right after the meeting ends — close enough that the UI
+    // shows "Ended" instead of "Missed". scheduledStart stays authoritative
+    // for the start time.
+    actualEnd: chosen.createdTime ? new Date(chosen.createdTime) : new Date(),
+  }
+  await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
+
+  // No-show inference from filename. If parsing failed, leave it alone — the
+  // recruiter can still manually mark no-show.
+  if (inferred && inferred.nonHostCount === 0) {
+    // Filename has only the host → no-show.
+    await maybeFlagNoShow(meeting, [], { reason: 'drive_recording_host_only' })
+  }
+  return { updated: true }
+}
+
 async function maybeFlagNoShow(
   meeting: { id: string; sessionId: string; workspaceId: string },
   participants: Array<{ email: string | null; displayName: string | null }>,
@@ -194,20 +292,23 @@ async function maybeFlagNoShow(
   })
   if (existing) return
 
-  // Resolve host user id (with one-time backfill via userinfo).
+  // Resolve host user id + display name (with one-time backfill via userinfo).
   const integ = await prisma.googleIntegration.findUnique({
     where: { workspaceId: meeting.workspaceId },
-    select: { googleUserId: true },
+    select: { googleUserId: true, googleDisplayName: true },
   })
   let hostUserId = integ?.googleUserId ?? null
-  if (!hostUserId) {
+  if (!hostUserId || !integ?.googleDisplayName) {
     const authed = await getAuthedClientForWorkspace(meeting.workspaceId)
     if (authed) {
-      hostUserId = await fetchUserId(authed.client)
-      if (hostUserId) {
+      const info = await fetchUserInfo(authed.client)
+      const updates: Record<string, unknown> = {}
+      if (info.id && !hostUserId) { hostUserId = info.id; updates.googleUserId = info.id }
+      if (info.displayName && !integ?.googleDisplayName) updates.googleDisplayName = info.displayName
+      if (Object.keys(updates).length > 0) {
         await prisma.googleIntegration.update({
           where: { workspaceId: meeting.workspaceId },
-          data: { googleUserId: hostUserId },
+          data: updates,
         }).catch(() => {})
       }
     }

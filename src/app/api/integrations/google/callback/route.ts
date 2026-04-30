@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   cookieStore.delete(`goog_oauth_${state}`)
 
   try {
-    const { refreshToken, accessToken, expiresAt, email, userId, hostedDomain, grantedScopes } = await exchangeCode(code)
+    const { refreshToken, accessToken, expiresAt, email, userId, displayName, hostedDomain, grantedScopes } = await exchangeCode(code)
 
     await prisma.googleIntegration.upsert({
       where: { workspaceId },
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
         workspaceId,
         googleEmail: email,
         googleUserId: userId,
+        googleDisplayName: displayName,
         refreshToken: encrypt(refreshToken),
         accessToken: accessToken ? encrypt(accessToken) : null,
         accessExpiresAt: expiresAt,
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
       update: {
         googleEmail: email,
         googleUserId: userId,
+        googleDisplayName: displayName,
         refreshToken: encrypt(refreshToken),
         accessToken: accessToken ? encrypt(accessToken) : null,
         accessExpiresAt: expiresAt,
@@ -57,6 +59,9 @@ export async function GET(request: NextRequest) {
         recordingCapable: null,
         recordingCapabilityCheckedAt: null,
         recordingCapabilityReason: null,
+        // Reset the Meet Recordings folder cache so a fresh lookup runs after
+        // reconnect (in case the user has cleaned out the folder etc.)
+        meetRecordingsFolderId: null,
       },
     })
 

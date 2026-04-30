@@ -93,25 +93,35 @@ export async function exchangeCode(code: string) {
     expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     email: userInfo.email || '',
     userId: userInfo.id || null,
+    displayName: (userInfo as { name?: string }).name || null,
     hostedDomain: (userInfo as { hd?: string }).hd || null,
     grantedScopes: tokens.scope || null,
   }
 }
 
 /**
- * Lightweight userinfo fetch using an already-authed OAuth2 client.
- * Used to backfill googleUserId on integrations connected before that field
- * was captured at OAuth-callback time. Cheap (one HTTP call) and only invoked
- * lazily when the no-show evaluator finds googleUserId still null.
+ * Lightweight userinfo fetch using an already-authed OAuth2 client. Returns
+ * the Google account id + display name so callers can backfill the matching
+ * GoogleIntegration columns. Used by the self-heal path on integrations
+ * connected before those columns existed.
  */
-export async function fetchUserId(client: InstanceType<typeof google.auth.OAuth2>): Promise<string | null> {
+export async function fetchUserInfo(client: InstanceType<typeof google.auth.OAuth2>): Promise<{ id: string | null; displayName: string | null }> {
   try {
     const { data } = await google.oauth2({ version: 'v2', auth: client }).userinfo.get()
-    return data.id || null
+    return {
+      id: data.id || null,
+      displayName: (data as { name?: string }).name || null,
+    }
   } catch (err) {
-    console.error('[Google] fetchUserId failed:', (err as Error).message)
-    return null
+    console.error('[Google] fetchUserInfo failed:', (err as Error).message)
+    return { id: null, displayName: null }
   }
+}
+
+/** @deprecated Use fetchUserInfo. Kept for backward compatibility. */
+export async function fetchUserId(client: InstanceType<typeof google.auth.OAuth2>): Promise<string | null> {
+  const info = await fetchUserInfo(client)
+  return info.id
 }
 
 export async function getAuthedClientForWorkspace(workspaceId: string) {
