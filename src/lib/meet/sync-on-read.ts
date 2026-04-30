@@ -76,6 +76,15 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
     data: { meetApiSyncedAt: new Date() },
   }).catch(() => {})
 
+  // Self-heal googleUserId + googleDisplayName on integrations connected
+  // before those fields were captured. The Drive recording-filename path
+  // needs the display name to identify the host; the Workspace path needs
+  // userId to identify the host in participants. One userinfo call covers
+  // both, and only runs once per integration thanks to the not-null guards.
+  await ensureHostIdentity(meeting.workspaceId).catch((err) =>
+    console.error('[meet-sync] ensureHostIdentity failed:', (err as Error).message),
+  )
+
   let updated = false
   try {
     const result = await withWorkspaceMeetClient(meeting.workspaceId, async (client) => {
@@ -276,6 +285,28 @@ async function syncFromDriveRecording(
   return { updated: true }
 }
 
+/**
+ * Backfill googleUserId + googleDisplayName on the workspace's integration
+ * if either is missing. One userinfo call, idempotent — both downstream
+ * paths (no-show evaluation, Drive filename matching) need these.
+ */
+async function ensureHostIdentity(workspaceId: string): Promise<void> {
+  const integ = await prisma.googleIntegration.findUnique({
+    where: { workspaceId },
+    select: { googleUserId: true, googleDisplayName: true },
+  })
+  if (integ?.googleUserId && integ?.googleDisplayName) return
+  const authed = await getAuthedClientForWorkspace(workspaceId)
+  if (!authed) return
+  const info = await fetchUserInfo(authed.client)
+  const updates: Record<string, unknown> = {}
+  if (info.id && !integ?.googleUserId) updates.googleUserId = info.id
+  if (info.displayName && !integ?.googleDisplayName) updates.googleDisplayName = info.displayName
+  if (Object.keys(updates).length > 0) {
+    await prisma.googleIntegration.update({ where: { workspaceId }, data: updates }).catch(() => {})
+  }
+}
+
 async function maybeFlagNoShow(
   meeting: { id: string; sessionId: string; workspaceId: string },
   participants: Array<{ email: string | null; displayName: string | null }>,
@@ -292,27 +323,13 @@ async function maybeFlagNoShow(
   })
   if (existing) return
 
-  // Resolve host user id + display name (with one-time backfill via userinfo).
+  // ensureHostIdentity (called at the top of syncMeetingFromMeetApi) has
+  // already populated googleUserId where possible. Read the latest value.
   const integ = await prisma.googleIntegration.findUnique({
     where: { workspaceId: meeting.workspaceId },
-    select: { googleUserId: true, googleDisplayName: true },
+    select: { googleUserId: true },
   })
-  let hostUserId = integ?.googleUserId ?? null
-  if (!hostUserId || !integ?.googleDisplayName) {
-    const authed = await getAuthedClientForWorkspace(meeting.workspaceId)
-    if (authed) {
-      const info = await fetchUserInfo(authed.client)
-      const updates: Record<string, unknown> = {}
-      if (info.id && !hostUserId) { hostUserId = info.id; updates.googleUserId = info.id }
-      if (info.displayName && !integ?.googleDisplayName) updates.googleDisplayName = info.displayName
-      if (Object.keys(updates).length > 0) {
-        await prisma.googleIntegration.update({
-          where: { workspaceId: meeting.workspaceId },
-          data: updates,
-        }).catch(() => {})
-      }
-    }
-  }
+  const hostUserId = integ?.googleUserId ?? null
 
   // Decide.
   let noShow = false
