@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
     candidatePhone: s.candidatePhone,
     outcome: s.outcome,
     pipelineStatus: s.pipelineStatus,
+    rejectionReason: s.rejectionReason,
     startedAt: s.startedAt,
     finishedAt: s.finishedAt,
     source: s.source,

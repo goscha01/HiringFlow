@@ -146,6 +146,19 @@ export async function fireMeetingLifecycleAutomations(
         flowId: session.flowId,
         legacyStatus,
       }).catch(() => {})
+
+      // Stamp a rejection reason for no-shows so the candidate card shows
+      // *why* they ended up in Rejected. Recruiters can edit it afterwards
+      // from the candidate page.
+      if (trigger === 'meeting_no_show') {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: {
+            rejectionReason: 'No-show',
+            rejectionReasonAt: new Date(),
+          },
+        }).catch((err) => console.error('[Automation] failed to stamp rejection reason', err))
+      }
     }
 
     if (trigger === 'recording_ready') {

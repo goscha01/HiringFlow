@@ -340,6 +340,11 @@ model Session {
   finishedAt     DateTime?             @map("finished_at")
   outcome        String?               // 'completed' | 'passed' | 'failed' | 'abandoned'
   pipelineStatus String?               @map("pipeline_status")
+  // Free-form reason captured when a candidate lands in a Rejected-style
+  // stage. Auto-set to 'No-show' by the no-show detection; otherwise editable
+  // from the candidate page (predefined options + custom string).
+  rejectionReason   String?            @map("rejection_reason")
+  rejectionReasonAt DateTime?          @map("rejection_reason_at")
   lastStepId     String?               @map("last_step_id")
   lastStep       FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
   adId           String?               @map("ad_id")

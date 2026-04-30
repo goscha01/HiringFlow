@@ -81,11 +81,17 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { pipelineStatus, outcome } = await request.json()
+  const { pipelineStatus, outcome, rejectionReason } = await request.json()
 
   const data: Record<string, unknown> = {}
   if (pipelineStatus !== undefined) data.pipelineStatus = pipelineStatus
   if (outcome !== undefined) data.outcome = outcome
+  if (rejectionReason !== undefined) {
+    // Empty string clears the reason; non-empty stamps the timestamp
+    const trimmed = typeof rejectionReason === 'string' ? rejectionReason.trim() : null
+    data.rejectionReason = trimmed && trimmed.length > 0 ? trimmed : null
+    data.rejectionReasonAt = trimmed && trimmed.length > 0 ? new Date() : null
+  }
 
   const updated = await prisma.session.update({
     where: { id: params.id },
@@ -101,7 +107,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }).catch(() => {})
   }
 
-  return NextResponse.json({ id: updated.id, pipelineStatus: updated.pipelineStatus, outcome: updated.outcome })
+  return NextResponse.json({
+    id: updated.id,
+    pipelineStatus: updated.pipelineStatus,
+    outcome: updated.outcome,
+    rejectionReason: updated.rejectionReason,
+    rejectionReasonAt: updated.rejectionReasonAt,
+  })
 }
 
 // Delete a candidate (Session) and all owned records.

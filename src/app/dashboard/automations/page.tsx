@@ -144,6 +144,33 @@ export default function AutomationsPage() {
     }
   }
 
+  type PreviewData = {
+    subject: string
+    html: string
+    text: string | null
+    recipient: string
+    from: { name: string; email: string }
+    templateName: string
+    ruleName: string
+  } | null
+  const [previewLoading, setPreviewLoading] = useState<string | null>(null)
+  const [preview, setPreview] = useState<PreviewData>(null)
+  const openPreview = async (r: Rule) => {
+    setPreviewLoading(r.id)
+    try {
+      const res = await fetch(`/api/automations/${r.id}/preview`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(`Preview failed: ${data.error || res.statusText}`)
+        return
+      }
+      const data = await res.json()
+      setPreview({ ...data, ruleName: r.name })
+    } finally {
+      setPreviewLoading(null)
+    }
+  }
+
   const openCreate = () => {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
     setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
@@ -375,6 +402,9 @@ export default function AutomationsPage() {
                     </button>
                   </td>
                   <td className="px-5 py-4 text-right space-x-3">
+                    <button onClick={() => openPreview(r)} disabled={previewLoading === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                      {previewLoading === r.id ? 'Loading…' : 'Preview'}
+                    </button>
                     <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
                       {testingId === r.id ? 'Sending…' : 'Test'}
                     </button>
@@ -386,6 +416,41 @@ export default function AutomationsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Preview modal */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setPreview(null)}>
+          <div
+            className="bg-white rounded-[12px] shadow-2xl w-full max-w-[760px] max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-surface-border flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-xs text-grey-40 font-medium uppercase tracking-wide">Email preview</div>
+                <h2 className="text-lg font-semibold text-grey-15 truncate">{preview.ruleName}</h2>
+                <div className="text-xs text-grey-40 mt-0.5">Template: {preview.templateName}</div>
+              </div>
+              <button
+                onClick={() => setPreview(null)}
+                className="text-grey-40 hover:text-grey-15 text-xl leading-none px-2"
+                aria-label="Close"
+              >×</button>
+            </div>
+            <div className="px-6 py-4 border-b border-surface-border bg-surface-light text-[13px] space-y-1.5">
+              <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">From</span><span className="text-grey-15">{preview.from.name} &lt;{preview.from.email}&gt;</span></div>
+              <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">To</span><span className="text-grey-15">{preview.recipient}</span></div>
+              <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">Subject</span><span className="text-grey-15 font-medium">{preview.subject}</span></div>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <div className="p-6 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: preview.html }} />
+            </div>
+            <div className="px-6 py-3 border-t border-surface-border bg-surface-light flex items-center justify-between text-xs text-grey-40">
+              <span>Sample values shown for merge tokens. No email sent.</span>
+              <button onClick={() => setPreview(null)} className="text-grey-15 hover:text-grey-40 font-medium">Close</button>
+            </div>
+          </div>
         </div>
       )}
 

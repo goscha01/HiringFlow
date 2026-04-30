@@ -34,6 +34,7 @@ interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
   formData: Record<string, string> | null; outcome: string | null; pipelineStatus: string | null
   startedAt: string; finishedAt: string | null; source: string | null; campaign: string | null
+  rejectionReason: string | null; rejectionReasonAt: string | null
   flow: { id: string; name: string; slug: string } | null
   ad: { id: string; name: string; source: string } | null
   answers: Answer[]; submissions: Submission[]
@@ -41,6 +42,8 @@ interface CandidateDetail {
   automationExecutions?: AutomationExec[]
   formFieldLabels?: Record<string, string>
 }
+
+const REJECTION_PRESETS = ['No-show', 'Not qualified', 'Declined offer', 'Wrong location', 'Pay expectations']
 
 const PIPELINE_STEPS = [
   { value: 'applied', label: 'Applied' },
@@ -96,6 +99,27 @@ export default function CandidateDetailPage() {
       alert('Failed to delete candidate')
     }
   }
+
+  const [showReasonEditor, setShowReasonEditor] = useState(false)
+  const [reasonDraft, setReasonDraft] = useState('')
+  const openReasonEditor = () => {
+    setReasonDraft(candidate?.rejectionReason ?? '')
+    setShowReasonEditor(true)
+  }
+  const saveReason = async (next: string) => {
+    const trimmed = next.trim()
+    const res = await fetch(`/api/candidates/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rejectionReason: trimmed }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setCandidate(prev => prev ? { ...prev, rejectionReason: data.rejectionReason ?? null, rejectionReasonAt: data.rejectionReasonAt ?? null } : null)
+      setShowReasonEditor(false)
+    }
+  }
+  const clearReason = () => saveReason('')
 
   const [showLogMeeting, setShowLogMeeting] = useState(false)
   const [meetingAt, setMeetingAt] = useState('')
@@ -198,14 +222,73 @@ export default function CandidateDetailPage() {
             {candidate.candidateEmail && <span>{candidate.candidateEmail}</span>}
             {candidate.candidatePhone && <span>{candidate.candidatePhone}</span>}
             {candidate.flow && <span>Flow: {candidate.flow.name}</span>}
-            {candidate.schedulingEvents.some((e) => e.eventType === 'meeting_no_show') && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">
-                No-show
-              </span>
+            {candidate.rejectionReason ? (
+              <button
+                onClick={openReasonEditor}
+                title="Click to edit rejection reason"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200"
+              >
+                <span className="opacity-70">Reason:</span> {candidate.rejectionReason}
+              </button>
+            ) : (candidate.pipelineStatus === 'rejected' || candidate.pipelineStatus === 'failed' || candidate.outcome === 'failed') && (
+              <button
+                onClick={openReasonEditor}
+                className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 text-red-600 text-xs font-medium border border-dashed border-red-300 hover:bg-red-100"
+              >
+                + Add reason
+              </button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Rejection reason editor */}
+      {showReasonEditor && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setShowReasonEditor(false)}>
+          <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[460px] p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-grey-15 mb-1">Rejection reason</h3>
+            <p className="text-xs text-grey-40 mb-4">Pick one or write your own. Stored on the candidate and visible across the dashboard.</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {REJECTION_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setReasonDraft(p)}
+                  className={`text-xs px-3 py-1.5 rounded-full border font-medium ${reasonDraft === p ? 'border-red-500 bg-red-50 text-red-700' : 'border-surface-border text-grey-35 hover:border-grey-35'}`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={reasonDraft}
+              onChange={(e) => setReasonDraft(e.target.value)}
+              placeholder="Or type a custom reason"
+              className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+              autoFocus
+            />
+            <div className="flex justify-between mt-5 gap-2">
+              <button
+                onClick={clearReason}
+                disabled={!candidate.rejectionReason}
+                className="text-xs px-3 py-1.5 rounded-[8px] text-grey-40 hover:text-grey-15 disabled:opacity-40"
+              >
+                Clear reason
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setShowReasonEditor(false)} className="text-sm px-4 py-2 rounded-[8px] text-grey-40 hover:text-grey-15">Cancel</button>
+                <button
+                  onClick={() => saveReason(reasonDraft)}
+                  disabled={!reasonDraft.trim()}
+                  className="text-sm px-4 py-2 rounded-[8px] bg-red-600 text-white hover:bg-red-700 font-medium disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pipeline progress */}
       <div className="bg-white rounded-[12px] border border-surface-border p-6 mb-6">

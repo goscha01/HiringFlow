@@ -25,7 +25,8 @@ import { StageSettingsDrawer } from './_StageSettingsDrawer'
 
 interface Candidate {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
-  outcome: string | null; pipelineStatus: string | null; startedAt: string; finishedAt: string | null
+  outcome: string | null; pipelineStatus: string | null; rejectionReason: string | null
+  startedAt: string; finishedAt: string | null
   source: string | null; answerCount: number; submissionCount: number
   trainingStatus: string | null; trainingCompletedAt: string | null
   schedulingEvents: number; lastSchedulingEvent: string | null
@@ -273,8 +274,16 @@ export default function CandidatesPage() {
                               ×
                             </button>
                           </div>
-                          <div className="mb-1.5">
+                          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                             <Badge tone={cardStage.tone}>{cardStage.label}</Badge>
+                            {c.rejectionReason && (
+                              <span
+                                title={c.rejectionReason}
+                                className="inline-flex items-center max-w-[150px] truncate text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium"
+                              >
+                                {c.rejectionReason}
+                              </span>
+                            )}
                           </div>
                           {c.candidateEmail && (
                             <div className="font-mono text-[10px] text-grey-35 truncate mb-1.5" style={{ letterSpacing: '0.02em' }}>
