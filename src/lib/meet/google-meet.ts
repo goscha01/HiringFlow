@@ -259,6 +259,39 @@ export async function listTranscripts(
   return body.transcripts || []
 }
 
+export interface Participant {
+  name?: string
+  earliestStartTime?: string
+  latestEndTime?: string
+  signedinUser?: { user?: string; displayName?: string }
+  anonymousUser?: { displayName?: string }
+  phoneUser?: { displayName?: string }
+}
+
+/**
+ * List all participants on a conference record, paging through every result.
+ * Used by the on-read sync path so we can compute no-show / attendance from
+ * Meet API directly when Workspace Events isn't delivering (personal Gmail
+ * accounts, scope verification gap, etc.).
+ */
+export async function listParticipants(
+  client: OAuth2Client,
+  conferenceRecordName: string,
+): Promise<Participant[]> {
+  const all: Participant[] = []
+  let pageToken: string | undefined
+  do {
+    const qs = pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : ''
+    const body = await meetFetch<{ participants?: Participant[]; nextPageToken?: string }>(
+      client,
+      `/${conferenceRecordName}/participants${qs}`,
+    )
+    if (body.participants) all.push(...body.participants)
+    pageToken = body.nextPageToken
+  } while (pageToken)
+  return all
+}
+
 // ---------- workspace-scoped helpers ----------
 
 /**

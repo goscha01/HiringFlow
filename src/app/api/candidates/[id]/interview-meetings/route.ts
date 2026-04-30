@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { syncMeetingFromMeetApi } from '@/lib/meet/sync-on-read'
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
@@ -18,6 +19,20 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     select: { id: true },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Pull current Meet API state for each meeting before returning — covers
+  // tenants where the Workspace Events webhook never fires (personal Gmail).
+  const stale = await prisma.interviewMeeting.findMany({
+    where: { sessionId: session.id },
+    select: {
+      id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
+      scheduledStart: true, scheduledEnd: true, actualEnd: true,
+      recordingState: true, meetApiSyncedAt: true,
+    },
+  })
+  await Promise.all(stale.map((m) => syncMeetingFromMeetApi(m).catch((err) =>
+    console.error('[candidates.interview-meetings] sync failed for', m.id, ':', err),
+  )))
 
   const meetings = await prisma.interviewMeeting.findMany({
     where: { sessionId: session.id },

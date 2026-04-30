@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { syncWorkspaceMeetings } from '@/lib/meet/sync-on-read'
 
 // Returns all logged meetings for the workspace (manual + future webhook-sourced).
 // Filters out invite/click events — only meeting_* and marked_scheduled rows.
 export async function GET() {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
+
+  // Pull fresh state from Meet API for any stale meetings before listing —
+  // covers personal-Gmail tenants where Workspace Events doesn't deliver and
+  // Workspace tenants whose push delivery hiccupped. No-show automations fire
+  // here for any meetings that have crossed scheduledEnd + grace.
+  await syncWorkspaceMeetings(ws.workspaceId).catch((err) =>
+    console.error('[scheduling.meetings] syncWorkspaceMeetings failed:', err),
+  )
 
   const events = await prisma.schedulingEvent.findMany({
     where: {

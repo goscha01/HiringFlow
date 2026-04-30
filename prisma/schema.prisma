@@ -160,6 +160,10 @@ model InterviewMeeting {
   participants              Json?
   // Capped ring buffer of recent CloudEvent payloads for debugging / replay
   rawEvents                 Json?     @map("raw_events")
+  // Timestamp of the most recent on-read sync from Meet API. Throttles repeat
+  // sync attempts when many concurrent listings hit a stale meeting; null
+  // means we've never synced via the API path.
+  meetApiSyncedAt           DateTime? @map("meet_api_synced_at")
   createdAt                 DateTime  @default(now()) @map("created_at")
   updatedAt                 DateTime  @updatedAt @map("updated_at")
 
