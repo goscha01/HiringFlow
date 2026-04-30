@@ -40,6 +40,7 @@ export function InterviewPanel({ candidateId, candidateEmail }: { candidateId: s
   const [meetings, setMeetings] = useState<InterviewMeeting[] | null>(null)
   const [showDialog, setShowDialog] = useState(false)
   const [featureOn, setFeatureOn] = useState<boolean | null>(null)
+  const [markingNoShow, setMarkingNoShow] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/candidates/${candidateId}/interview-meetings`)
@@ -47,6 +48,21 @@ export function InterviewPanel({ candidateId, candidateEmail }: { candidateId: s
     const body = await res.json()
     setMeetings(body.meetings || [])
   }, [candidateId])
+
+  const markNoShow = useCallback(async (meetingId: string) => {
+    if (!confirm('Mark this meeting as a no-show? The candidate will be moved to Rejected and the no-show follow-up automation (if configured) will run.')) return
+    setMarkingNoShow(meetingId)
+    try {
+      const res = await fetch(`/api/interview-meetings/${meetingId}/mark-no-show`, { method: 'POST' })
+      if (res.ok) {
+        await load()
+      } else {
+        alert('Could not mark as no-show. Please retry.')
+      }
+    } finally {
+      setMarkingNoShow(null)
+    }
+  }, [load])
 
   useEffect(() => {
     fetch('/api/integrations/google').then((r) => r.json()).then((d) => {
@@ -120,6 +136,18 @@ export function InterviewPanel({ candidateId, candidateEmail }: { candidateId: s
                     <a href={`/api/interview-meetings/${m.id}/transcript`} className="text-xs text-primary hover:underline" target="_blank" rel="noopener noreferrer">
                       View transcript
                     </a>
+                  </div>
+                )}
+
+                {new Date(m.scheduledEnd).getTime() < Date.now() && (
+                  <div className="mt-3 pt-3 border-t border-surface-border">
+                    <button
+                      onClick={() => markNoShow(m.id)}
+                      disabled={markingNoShow === m.id}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      {markingNoShow === m.id ? 'Marking…' : 'Mark as no-show'}
+                    </button>
                   </div>
                 )}
               </div>

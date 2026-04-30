@@ -26,7 +26,7 @@ import type { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../prisma'
 import { fetchUserInfo, getAuthedClientForWorkspace } from '../google'
 import { withWorkspaceMeetClient, listConferenceRecords, listParticipants, listRecordings, type Participant } from './google-meet'
-import { findMeetRecordingsFolderId, searchMeetRecordings, inferAttendanceFromFilename } from './google-drive'
+import { findMeetRecordingsFolderId, searchMeetRecordings } from './google-drive'
 import { logSchedulingEvent } from '../scheduling'
 import { fireMeetingLifecycleAutomations } from '../automation'
 
@@ -99,15 +99,18 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
         // gated.
         const integ = await prisma.googleIntegration.findUnique({
           where: { workspaceId: meeting.workspaceId },
-          select: { hostedDomain: true, googleDisplayName: true, meetRecordingsFolderId: true },
+          select: { hostedDomain: true, meetRecordingsFolderId: true },
         })
         if (integ?.hostedDomain) {
           // Workspace tenant — empty really means no conference happened.
           await maybeFlagNoShow(meeting, [], { reason: 'no_conference_started' })
           return false
         }
-        // Personal Gmail / Workspace Individual fallback path.
-        const driveOutcome = await syncFromDriveRecording(client, meeting, integ?.googleDisplayName ?? null, integ?.meetRecordingsFolderId ?? null)
+        // Personal Gmail / Workspace Individual fallback path: link the Drive
+        // recording artifact only. We don't auto-flag no-show because Meet
+        // names recordings from the calendar event title, not from who
+        // actually attended — recruiters mark manually.
+        const driveOutcome = await syncFromDriveRecording(client, meeting, integ?.meetRecordingsFolderId ?? null)
         if (driveOutcome.updated) updated = true
         return driveOutcome.updated
       }
@@ -196,25 +199,25 @@ function toParticipantRow(p: Participant): { email: string | null; displayName: 
 /**
  * Drive-recording fallback for personal Gmail / Workspace Individual tenants.
  *
- * Strategy: query the user's Meet Recordings folder for video files created
- * within the meeting window with the candidate's name in the filename. If
- * found, the filename pattern (`<X> and <Y>`) tells us who attended. If not
- * found within an extended window, we leave the meeting alone — recruiters
- * can still mark no-show manually.
+ * Looks up the recording artifact in the user's Meet Recordings folder and
+ * links it to the meeting (driveRecordingFileId, recordingState='ready'). We
+ * do **not** infer attendance from the filename: Meet names recordings using
+ * the calendar event title, not actual attendees, so "<Candidate> and <Host>"
+ * appears whether or not the candidate joined.
+ *
+ * Personal Gmail tenants therefore never get an automatic no-show flag — the
+ * recording presence proves only that *someone* (typically the host) joined.
+ * Recruiters mark no-show manually; UI surfaces a notice explaining the
+ * limitation and the two paths to fix it (Workspace Business+ or a Chrome
+ * extension that exports attendance to Drive).
  *
  * Returns whether anything was written to the InterviewMeeting row.
  */
 async function syncFromDriveRecording(
   client: OAuth2Client,
   meeting: SyncableMeeting,
-  hostDisplayName: string | null,
   cachedFolderId: string | null,
 ): Promise<{ updated: boolean }> {
-  if (!hostDisplayName) {
-    console.log('[meet-sync] no host display name on integration — Drive filename heuristic needs it; skipping for', meeting.id)
-    return { updated: false }
-  }
-
   const session = await prisma.session.findUnique({
     where: { id: meeting.sessionId },
     select: { candidateName: true },
@@ -234,13 +237,13 @@ async function syncFromDriveRecording(
         data: { meetRecordingsFolderId: folderId },
       }).catch(() => {})
     }
-    // No folder yet → user has never recorded. Bail without flagging.
+    // No folder yet → user has never recorded a Meet call. Nothing to link.
     if (!folderId) return { updated: false }
   }
 
   // Search window: 1h before scheduledStart through 3h after scheduledEnd.
-  // Recording files are written at the *end* of the meeting, so the lower
-  // bound only matters if Drive's createdTime races with the meeting start.
+  // Recording files are written at the *end* of the meeting; the lower bound
+  // only matters if Drive's createdTime races with the meeting start.
   const start = meeting.scheduledStart ?? new Date(0)
   const end = meeting.scheduledEnd ?? new Date(Date.now() + 24 * 60 * 60 * 1000)
   const candidates = await searchMeetRecordings(client, {
@@ -254,17 +257,12 @@ async function syncFromDriveRecording(
     return []
   })
 
-  // Pick the recording whose filename names the candidate (most precise) or
-  // fall back to the most recent. Prefer matches where the host name also
-  // appears, since that confirms it's the same call (vs an unrelated file).
-  let chosen = candidates.find((f) => {
-    const inf = inferAttendanceFromFilename(f.name, hostDisplayName, session.candidateName!)
-    return inf?.hasHost && inf?.hasCandidate
-  })
-  if (!chosen) chosen = candidates[0]
+  // Most-recent matching file wins. We don't try to be clever — if multiple
+  // recordings landed in the window matching the candidate's name (rare),
+  // we link the latest one and the recruiter can correct it.
+  const chosen = candidates[0]
   if (!chosen) return { updated: false }
 
-  const inferred = inferAttendanceFromFilename(chosen.name, hostDisplayName, session.candidateName)
   const data: Prisma.InterviewMeetingUpdateInput = {
     driveRecordingFileId: chosen.id,
     recordingState: 'ready',
@@ -275,13 +273,6 @@ async function syncFromDriveRecording(
     actualEnd: chosen.createdTime ? new Date(chosen.createdTime) : new Date(),
   }
   await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
-
-  // No-show inference from filename. If parsing failed, leave it alone — the
-  // recruiter can still manually mark no-show.
-  if (inferred && inferred.nonHostCount === 0) {
-    // Filename has only the host → no-show.
-    await maybeFlagNoShow(meeting, [], { reason: 'drive_recording_host_only' })
-  }
   return { updated: true }
 }
 

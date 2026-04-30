@@ -371,6 +371,50 @@ export function GoogleIntegrationCard() {
         </div>
       )}
 
+      {status?.connected && meetV2 && !meetV2.hostedDomain && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p className="font-medium text-amber-900">Automatic no-show detection isn&apos;t available on this account</p>
+          <p className="mt-1 text-amber-800">
+            Your Google account isn&apos;t on a Workspace Business plan, so Google doesn&apos;t expose Meet
+            attendance to our integration. Recordings still get linked to candidates automatically — but
+            who actually joined the call has to come from somewhere else.
+          </p>
+          <p className="mt-3 text-xs text-amber-900 font-medium">Two ways to fix:</p>
+          <ul className="mt-1 space-y-2 text-amber-800 text-xs">
+            <li>
+              <strong>Upgrade to Google Workspace Business or higher</strong> (custom-domain email like
+              <span className="font-mono"> you@yourcompany.com</span>). Unlocks the full Meet API:
+              automatic attendance, no-show detection, recording links, transcripts.
+              <br />
+              <a
+                href="https://workspace.google.com/pricing.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:no-underline"
+              >
+                See Workspace pricing →
+              </a>
+            </li>
+            <li>
+              <strong>Install a Meet attendance Chrome extension</strong> that exports attendance to your
+              Drive. We&apos;ll read it from there to flag no-shows automatically.
+              <br />
+              <a
+                href="https://chromewebstore.google.com/detail/google-meet-attendance-list/appcnhiefcidclcdjeahgklghghihfok"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:no-underline"
+              >
+                Install &ldquo;Google Meet Attendance List&rdquo; →
+              </a>
+            </li>
+          </ul>
+          <p className="mt-3 text-xs text-amber-700">
+            Until then, mark no-shows manually from the candidate&apos;s detail page.
+          </p>
+        </div>
+      )}
+
       <div className="mt-5 flex gap-3">
         {status?.connected ? (
           <>
