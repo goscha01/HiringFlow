@@ -176,7 +176,7 @@ export default function StepEditorPanel({
   const [transcript, setTranscript] = useState<{ text: string; segments: Array<{ start: number; end: number; text: string }> } | null>(null)
   const [suggesting, setSuggesting] = useState(false)
   const [suggestion, setSuggestion] = useState<{ question: string; options: Array<{ text: string; isEndFlow: boolean }> } | null>(null)
-  const [activeTab, setActiveTab] = useState<'quiz' | 'form'>('quiz')
+  const [activeTab, setActiveTab] = useState<'question' | 'form'>('question')
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [captionsEnabled, setCaptionsEnabledState] = useState(step.captionsEnabled || false)
@@ -464,7 +464,7 @@ export default function StepEditorPanel({
           )}
         </div>
 
-        {/* Right: Title, Transcription/Captions, Quiz/Form */}
+        {/* Right: Title, Transcription/Captions, Question/Form */}
         <div className="lg:w-1/2 space-y-4">
           {/* Title with AI generate */}
           <div>
@@ -818,14 +818,14 @@ export default function StepEditorPanel({
           {/* Tabs */}
           <div className="flex border-b border-gray-200 mb-4">
             <button
-              onClick={() => setActiveTab('quiz')}
+              onClick={() => setActiveTab('question')}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'quiz'
+                activeTab === 'question'
                   ? 'border-brand-500 text-brand-500'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              Quiz
+              Question
             </button>
             <button
               onClick={() => setActiveTab('form')}
@@ -842,8 +842,8 @@ export default function StepEditorPanel({
             </button>
           </div>
 
-          {/* Quiz Tab */}
-          {activeTab === 'quiz' && (
+          {/* Question Tab */}
+          {activeTab === 'question' && (
             <div className="space-y-4">
               {/* Question */}
               <div>

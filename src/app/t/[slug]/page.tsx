@@ -18,6 +18,18 @@ interface QuizOption { index: number; text: string }
 interface QuizQuestion { id: string; questionText: string; questionType: string; options: QuizOption[] }
 interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: QuizQuestion[] }
 interface Section { id: string; title: string; kind: 'video' | 'quiz'; contents: ContentItem[]; quiz: Quiz | null }
+
+// The training editor stores the section's description as the first text-type
+// `TrainingContent` row. The viewer must NOT render that as a lesson card —
+// otherwise the description shows up as a phantom "Lesson 02". Treat the first
+// text content as the section description, everything else as a real lesson.
+function sectionDescription(s: Section): string | null {
+  return s.contents.find((c) => c.type === 'text')?.textContent || null
+}
+function sectionLessons(s: Section): ContentItem[] {
+  const firstText = s.contents.find((c) => c.type === 'text')
+  return s.contents.filter((c) => c !== firstText)
+}
 interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; sectionOrder: 'sequential' | 'any'; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; candidateName: string | null; candidateEmail: string | null; sections: Section[] }
 interface QuizResult { questionId: string; isCorrect: boolean; correctIndices: number[]; hints: (string | null)[] }
 
@@ -222,7 +234,9 @@ export default function TrainingPage() {
 
   const brand = mergeBranding(training.branding as Partial<BrandingConfig> | null)
   const section = training.sections[sectionIdx]
-  const content = section?.contents[contentIdx]
+  // contentIdx indexes into the *lesson* list (description-text excluded), not raw contents.
+  const sectionLessonList = section ? sectionLessons(section) : []
+  const content = sectionLessonList[contentIdx]
 
   const markSectionComplete = (sectionId: string) => {
     if (!completedSections.includes(sectionId)) {
@@ -236,7 +250,7 @@ export default function TrainingPage() {
     setVideoEnded(false)
     if (!section) return
     // Advance within a video-kind section's lesson list
-    if (section.kind === 'video' && contentIdx < section.contents.length - 1) {
+    if (section.kind === 'video' && contentIdx < sectionLessonList.length - 1) {
       setContentIdx(contentIdx + 1)
       return
     }
@@ -368,7 +382,7 @@ export default function TrainingPage() {
 
   // ===== LANDING PAGE =====
   if (!started) {
-    const totalLessons = training.sections.reduce((sum, s) => sum + s.contents.length, 0)
+    const totalLessons = training.sections.reduce((sum, s) => sum + sectionLessons(s).length, 0)
     const totalQuizzes = training.sections.filter((s) => s.quiz).length
     const orgName = (training.branding as { orgName?: string } | null)?.orgName || ''
     return (
@@ -437,7 +451,8 @@ export default function TrainingPage() {
         <div className="max-w-[1596px] mx-auto w-full px-6 lg:px-[80px] py-10">
           <div className="relative rounded-[12px] overflow-hidden bg-[#262626]">
             {activeLesson ? (() => {
-              const al = training.sections[activeLesson.sectionIdx]?.contents[activeLesson.contentIdx]
+              const alSection = training.sections[activeLesson.sectionIdx]
+              const al = alSection ? sectionLessons(alSection)[activeLesson.contentIdx] : undefined
               if (al?.type === 'video' && al.videoUrl) {
                 return (
                   <LessonVideo
@@ -468,10 +483,11 @@ export default function TrainingPage() {
                 {/* Play button overlay */}
                 <button
                   onClick={() => {
-                    // Find first video content
+                    // Find first video lesson (description-text rows excluded).
                     for (let si = 0; si < training.sections.length; si++) {
-                      for (let ci = 0; ci < training.sections[si].contents.length; ci++) {
-                        if (training.sections[si].contents[ci].videoUrl) {
+                      const lessons = sectionLessons(training.sections[si])
+                      for (let ci = 0; ci < lessons.length; ci++) {
+                        if (lessons[ci].videoUrl) {
                           setActiveLesson({ sectionIdx: si, contentIdx: ci })
                           return
                         }
@@ -490,8 +506,9 @@ export default function TrainingPage() {
           </div>
           {/* Active lesson info bar */}
           {activeLesson && (() => {
-            const al = training.sections[activeLesson.sectionIdx]?.contents[activeLesson.contentIdx]
-            const sectionTitle = training.sections[activeLesson.sectionIdx]?.title
+            const alSection = training.sections[activeLesson.sectionIdx]
+            const al = alSection ? sectionLessons(alSection)[activeLesson.contentIdx] : undefined
+            const sectionTitle = alSection?.title
             return (
               <div className="flex items-center justify-between mt-4 px-1">
                 <div>
@@ -505,7 +522,7 @@ export default function TrainingPage() {
                       if (activeLesson.contentIdx > 0) setActiveLesson({ ...activeLesson, contentIdx: activeLesson.contentIdx - 1 })
                       else if (activeLesson.sectionIdx > 0) {
                         const prevSection = training.sections[activeLesson.sectionIdx - 1]
-                        setActiveLesson({ sectionIdx: activeLesson.sectionIdx - 1, contentIdx: prevSection.contents.length - 1 })
+                        setActiveLesson({ sectionIdx: activeLesson.sectionIdx - 1, contentIdx: Math.max(0, sectionLessons(prevSection).length - 1) })
                       }
                     }}
                     className="px-4 py-2 text-xs border border-[#F1F1F3] rounded-[8px] text-[#59595A] hover:bg-[#F7F7F8]"
@@ -516,7 +533,8 @@ export default function TrainingPage() {
                   <button
                     onClick={() => {
                       const sec = training.sections[activeLesson.sectionIdx]
-                      if (activeLesson.contentIdx < sec.contents.length - 1) setActiveLesson({ ...activeLesson, contentIdx: activeLesson.contentIdx + 1 })
+                      const lessons = sectionLessons(sec)
+                      if (activeLesson.contentIdx < lessons.length - 1) setActiveLesson({ ...activeLesson, contentIdx: activeLesson.contentIdx + 1 })
                       else if (activeLesson.sectionIdx < training.sections.length - 1) setActiveLesson({ sectionIdx: activeLesson.sectionIdx + 1, contentIdx: 0 })
                     }}
                     disabled={al?.type === 'video' && !videoEnded}
@@ -554,6 +572,10 @@ export default function TrainingPage() {
                 </div>
                 {/* Section title */}
                 <h3 className="text-lg font-semibold text-[#262626] mb-4 border-b border-[#E4E4E7] pb-3">{s.title}</h3>
+                {/* Description (first text content) — rendered above the lessons, not as a card. */}
+                {sectionDescription(s) && (
+                  <p className="text-sm text-[#59595A] mb-4 leading-relaxed whitespace-pre-wrap">{sectionDescription(s)}</p>
+                )}
                 {/* Body: quiz-kind shows Take Quiz; video-kind lists lessons */}
                 <div className="space-y-0">
                   {s.kind === 'quiz' && s.quiz ? (
@@ -572,7 +594,7 @@ export default function TrainingPage() {
                     </button>
                   ) : (
                     <>
-                      {s.contents.map((c, ci) => {
+                      {sectionLessons(s).map((c, ci) => {
                         const isActive = activeLesson?.sectionIdx === si && activeLesson?.contentIdx === ci
                         return (
                         <button
@@ -602,7 +624,7 @@ export default function TrainingPage() {
                         </button>
                         )
                       })}
-                      {s.contents.length > 0 && (
+                      {sectionLessons(s).length > 0 && (
                         <button
                           onClick={() => { if (!isLocked) startAtSection(si) }}
                           disabled={isLocked}
@@ -694,9 +716,9 @@ export default function TrainingPage() {
                 <div className="prose prose-lg max-w-none text-[#262626] whitespace-pre-wrap mb-6">{content.textContent}</div>
               ) : null}
               <div className="flex items-center justify-between pt-6 border-t border-[#F1F1F3]">
-                <span className="text-sm text-[#59595A]">{contentIdx + 1} / {section.contents.length}</span>
+                <span className="text-sm text-[#59595A]">{contentIdx + 1} / {sectionLessonList.length}</span>
                 <button onClick={goNext} disabled={content.type === 'video' && !videoEnded} className="px-6 py-3 bg-[#FF9500] text-white font-medium rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40">
-                  {contentIdx < section.contents.length - 1
+                  {contentIdx < sectionLessonList.length - 1
                     ? 'Next'
                     : training.sectionOrder === 'any'
                       ? 'Finish section'

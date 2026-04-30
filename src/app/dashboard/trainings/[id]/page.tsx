@@ -68,6 +68,16 @@ const videoContent = (sec: Section): Content | null =>
 const textContent = (sec: Section): Content | null =>
   sec.contents.find((c) => c.type === 'text') ?? null
 
+// Contents that the public viewer renders but this editor doesn't surface.
+// The editor pins the first video + first text as the section's "video" and
+// "description"; anything else is a hidden lesson that still appears to
+// candidates. These are usually leftovers from an older multi-content layout.
+const extraContents = (sec: Section): Content[] => {
+  const firstVideo = sec.contents.find((c) => c.type === 'video')
+  const firstText = sec.contents.find((c) => c.type === 'text')
+  return sec.contents.filter((c) => c !== firstVideo && c !== firstText)
+}
+
 // ───────────────────────── Main component ─────────────────────────
 
 export default function TrainingEditorPage() {
@@ -224,6 +234,16 @@ export default function TrainingEditorPage() {
         body: JSON.stringify(data),
       })
     }
+    flashSaved()
+    refresh()
+  }
+
+  const removeContent = async (sectionId: string, contentId: string) => {
+    await fetch(`/api/trainings/${trainingId}/sections/${sectionId}/contents`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contentId }),
+    })
     flashSaved()
     refresh()
   }
@@ -531,6 +551,7 @@ export default function TrainingEditorPage() {
               onDescriptionChange={(text) => debouncedSaveDescription(activeSection.id, text)}
               onUploadVideo={(file, onProgress) => uploadAndAttach(activeSection.id, file, onProgress)}
               onRemoveVideo={() => removeVideoFromSection(activeSection.id)}
+              onRemoveContent={(contentId) => removeContent(activeSection.id, contentId)}
             />
           )}
         </section>
@@ -652,6 +673,7 @@ function SectionEditorPane({
   onDescriptionChange,
   onUploadVideo,
   onRemoveVideo,
+  onRemoveContent,
 }: {
   section: Section
   sectionNumber: number
@@ -659,12 +681,28 @@ function SectionEditorPane({
   onDescriptionChange: (text: string) => void
   onUploadVideo: (file: File, onProgress: (p: number) => void) => Promise<void>
   onRemoveVideo: () => void
+  onRemoveContent: (contentId: string) => void
 }) {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const vc = videoContent(section)
   const tc = textContent(section)
+  const extras = extraContents(section)
   const duration = fmtDuration(vc?.video?.durationSeconds ?? null)
+
+  const extraLabel = (c: Content): string => {
+    if (c.type === 'video') return c.video?.displayName || c.video?.filename || 'Untitled video'
+    if (c.type === 'text') {
+      const t = (c.textContent || '').trim()
+      return t ? (t.length > 60 ? t.slice(0, 60) + '…' : t) : 'Empty text block'
+    }
+    return c.type
+  }
+
+  const removeAllExtras = () => {
+    if (!confirm(`Remove ${extras.length} hidden lesson${extras.length === 1 ? '' : 's'} from this section? This cannot be undone.`)) return
+    extras.forEach((c) => onRemoveContent(c.id))
+  }
 
   const pickFile = () => fileRef.current?.click()
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -694,6 +732,50 @@ function SectionEditorPane({
         value={section.title}
         onChange={onRenameSection}
       />
+
+      {/* ─── Hidden-extras warning ─── */}
+      {extras.length > 0 && (
+        <div className="mb-6 rounded-[12px] border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 mt-0.5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] font-medium text-amber-900">
+                {extras.length} hidden {extras.length === 1 ? 'lesson is' : 'lessons are'} still shown to candidates
+              </div>
+              <div className="text-[13px] text-amber-800 leading-relaxed mt-1">
+                The candidate viewer renders every content row in this section, but this editor only surfaces the first video and first description. Remove the extras below or they&apos;ll keep appearing in the published training.
+              </div>
+              <ul className="mt-3 space-y-1.5">
+                {extras.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-3 rounded-[8px] bg-white border border-amber-200 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[10px] uppercase text-amber-700 tracking-wider">{c.type}</div>
+                      <div className="text-[13px] text-ink truncate">{extraLabel(c)}</div>
+                    </div>
+                    <button
+                      onClick={() => onRemoveContent(c.id)}
+                      className="shrink-0 text-[12px] font-medium px-2.5 py-1 rounded-[8px] hover:bg-[color:var(--danger-bg)] transition-colors"
+                      style={{ color: 'var(--danger-fg)' }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {extras.length > 1 && (
+                <button
+                  onClick={removeAllExtras}
+                  className="mt-3 text-[12px] font-medium px-3 py-1.5 rounded-[8px] border border-amber-300 bg-white hover:bg-amber-100 text-amber-900"
+                >
+                  Remove all {extras.length}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Video block ─── */}
       <div className="mb-6">
