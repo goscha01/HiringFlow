@@ -61,6 +61,34 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json(question)
   }
 
+  // Bulk-create questions in a single round trip — used by the "Paste from Doc"
+  // importer so a 20-question quiz doesn't fan out into 20 API calls + refetches.
+  if (body.action === 'bulk_add_questions') {
+    const quiz = await prisma.trainingQuiz.findUnique({ where: { sectionId: params.sectionId } })
+    if (!quiz) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
+    if (!Array.isArray(body.questions) || body.questions.length === 0) {
+      return NextResponse.json({ error: 'No questions provided' }, { status: 400 })
+    }
+
+    const maxOrder = await prisma.trainingQuestion.aggregate({ where: { quizId: quiz.id }, _max: { sortOrder: true } })
+    const baseOrder = (maxOrder._max.sortOrder ?? -1) + 1
+
+    const created = await prisma.$transaction(
+      body.questions.map((q: { questionText: string; questionType: string; options: unknown }, i: number) =>
+        prisma.trainingQuestion.create({
+          data: {
+            quizId: quiz.id,
+            questionText: q.questionText || 'New Question',
+            questionType: q.questionType || 'single',
+            sortOrder: baseOrder + i,
+            options: q.options ?? [],
+          },
+        })
+      )
+    )
+    return NextResponse.json({ created: created.length })
+  }
+
   if (body.action === 'update_question') {
     const updated = await prisma.trainingQuestion.update({
       where: { id: body.questionId },

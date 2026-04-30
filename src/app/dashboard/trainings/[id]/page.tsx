@@ -67,6 +67,106 @@ function defaultOptionsFor(questionType: string): unknown {
   }
   return null
 }
+// ───────────────────────── Doc-paste quiz parser ─────────────────────────
+//
+// Parses a Google-Doc-style quiz into question objects. Expected shape:
+//
+//   1. Question text?
+//    A. Option text
+//    B. Option text
+//    C. Option text
+//   Correct answers: A, B
+//
+// - Title / instruction lines outside that pattern are ignored.
+// - Lines that aren't question / option / correct-answer markers are appended
+//   to the previous element they belong to (multi-line questions/options).
+// - questionType is 'single' if exactly one option is correct, else 'multiselect'.
+// - Letters A–Z are mapped to option indices 0–25.
+type ParsedQuestion = { questionText: string; questionType: 'single' | 'multiselect'; options: ChoiceOpt[] }
+type ParseResult = { questions: ParsedQuestion[]; errors: string[] }
+
+function parseQuizDoc(text: string): ParseResult {
+  const lines = text.split(/\r?\n/)
+  const errors: string[] = []
+  const questions: ParsedQuestion[] = []
+
+  let current: { text: string; options: { letter: string; text: string }[]; correct: Set<string> } | null = null
+  let lastTouched: 'question' | 'option' | null = null
+
+  const flush = (lineNo: number) => {
+    if (!current) return
+    if (current.options.length === 0) {
+      errors.push(`Line ${lineNo}: question "${current.text.slice(0, 40)}…" has no options`)
+      current = null
+      return
+    }
+    if (current.correct.size === 0) {
+      errors.push(`Line ${lineNo}: question "${current.text.slice(0, 40)}…" has no "Correct answers:" line`)
+      current = null
+      return
+    }
+    const opts: ChoiceOpt[] = current.options.map((o) => ({
+      text: o.text,
+      isCorrect: current!.correct.has(o.letter),
+    }))
+    questions.push({
+      questionText: current.text,
+      questionType: current.correct.size > 1 ? 'multiselect' : 'single',
+      options: opts,
+    })
+    current = null
+  }
+
+  const reQuestion = /^\s*\d+[.)]\s+(.+)$/
+  const reOption = /^\s*([A-Z])[.)]\s+(.+)$/
+  const reCorrect = /^\s*(?:correct\s+answers?|answers?)\s*[:\-]\s*(.+)$/i
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+    const line = raw.trim()
+    if (!line) { lastTouched = null; continue }
+
+    const correctMatch = line.match(reCorrect)
+    if (correctMatch && current) {
+      const letters = correctMatch[1].split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]$/.test(s))
+      letters.forEach((l) => current!.correct.add(l))
+      flush(i + 1)
+      lastTouched = null
+      continue
+    }
+
+    const qMatch = line.match(reQuestion)
+    if (qMatch) {
+      flush(i + 1)
+      current = { text: qMatch[1].trim(), options: [], correct: new Set() }
+      lastTouched = 'question'
+      continue
+    }
+
+    const oMatch = line.match(reOption)
+    if (oMatch && current) {
+      current.options.push({ letter: oMatch[1], text: oMatch[2].trim() })
+      lastTouched = 'option'
+      continue
+    }
+
+    // Continuation line — append to the last question or option text. Skips
+    // header / instruction lines that appear before any question is opened.
+    if (current && lastTouched === 'option') {
+      const last = current.options[current.options.length - 1]
+      if (last) last.text += ' ' + line
+    } else if (current && lastTouched === 'question') {
+      current.text += ' ' + line
+    }
+  }
+  flush(lines.length)
+
+  if (questions.length === 0 && errors.length === 0) {
+    errors.push('No questions found. Expected lines like "1. Question?" with "A. Option" choices and a "Correct answers: A, B" line.')
+  }
+  return { questions, errors }
+}
+
 interface Section {
   id: string
   title: string
@@ -409,7 +509,11 @@ export default function TrainingEditorPage() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => window.open(`/t/${training.slug}?preview=1`, '_blank')}
+              onClick={() => {
+                const qs = new URLSearchParams({ preview: '1' })
+                if (viewMode === 'section' && activeSectionId) qs.set('section', activeSectionId)
+                window.open(`/t/${training.slug}?${qs.toString()}`, '_blank')
+              }}
             >
               Preview
             </Button>
@@ -965,6 +1069,7 @@ function QuizBlock({
   quiz: Quiz
   onQuizAction: (data: Record<string, unknown>) => void
 }) {
+  const [showImport, setShowImport] = useState(false)
   return (
     <div className="bg-white border border-surface-border rounded-[14px] p-5">
       <div className="flex items-center justify-between mb-4">
@@ -974,13 +1079,31 @@ function QuizBlock({
             {quiz.questions.length} question{quiz.questions.length === 1 ? '' : 's'}
           </div>
         </div>
-        <button
-          onClick={() => onQuizAction({ action: 'add_question', questionText: 'New question', questionType: 'single', options: defaultOptionsFor('single') })}
-          className="text-[12px] font-medium text-grey-35 hover:text-ink"
-        >
-          + Add question
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowImport(true)}
+            className="text-[12px] font-medium text-grey-35 hover:text-ink"
+          >
+            Paste from doc
+          </button>
+          <span className="text-grey-50">·</span>
+          <button
+            onClick={() => onQuizAction({ action: 'add_question', questionText: 'New question', questionType: 'single', options: defaultOptionsFor('single') })}
+            className="text-[12px] font-medium text-grey-35 hover:text-ink"
+          >
+            + Add question
+          </button>
+        </div>
       </div>
+      {showImport && (
+        <ImportFromDocModal
+          onClose={() => setShowImport(false)}
+          onImport={async (questions) => {
+            await onQuizAction({ action: 'bulk_add_questions', questions })
+            setShowImport(false)
+          }}
+        />
+      )}
 
       {/* Quiz-level feedback mode */}
       <div className="mb-4 p-3 rounded-[10px] bg-surface-weak border border-surface-border">
@@ -1007,6 +1130,112 @@ function QuizBlock({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ───────────────────────── Paste-from-doc importer ─────────────────────────
+
+function ImportFromDocModal({
+  onClose,
+  onImport,
+}: {
+  onClose: () => void
+  onImport: (questions: ParsedQuestion[]) => Promise<void>
+}) {
+  const [text, setText] = useState('')
+  const [importing, setImporting] = useState(false)
+  const result = useMemo<ParseResult | null>(() => (text.trim() ? parseQuizDoc(text) : null), [text])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
+      <div
+        className="bg-white rounded-[14px] w-full max-w-[720px] max-h-[85vh] flex flex-col border border-surface-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
+          <div>
+            <Eyebrow size="xs" className="mb-0.5">Import</Eyebrow>
+            <div className="text-[15px] font-semibold text-ink">Paste questions from a doc</div>
+          </div>
+          <button onClick={onClose} className="text-[12px] text-grey-35 hover:text-ink">Close</button>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto flex-1">
+          <p className="text-[12px] text-grey-35 mb-3 leading-relaxed">
+            Copy the body of your Google Doc and paste it below. Expected format:
+          </p>
+          <pre className="text-[11px] bg-surface-weak border border-surface-border rounded-[8px] p-3 mb-4 text-grey-35 whitespace-pre-wrap font-mono leading-relaxed">{`1. Question text?
+ A. Option text
+ B. Option text
+ C. Option text
+Correct answers: A, B`}</pre>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Paste here…"
+            rows={12}
+            className="w-full px-3 py-2 text-[13px] bg-white border border-surface-border rounded-[8px] focus:outline-none focus:border-[color:var(--brand-primary)] font-mono leading-relaxed"
+          />
+
+          {result && (
+            <div className="mt-4">
+              {result.questions.length > 0 && (
+                <div className="text-[12px] text-ink mb-2">
+                  Found <span className="font-semibold">{result.questions.length}</span> question{result.questions.length === 1 ? '' : 's'} ·{' '}
+                  {result.questions.filter((q) => q.questionType === 'multiselect').length} multi-select,{' '}
+                  {result.questions.filter((q) => q.questionType === 'single').length} single
+                </div>
+              )}
+              {result.errors.length > 0 && (
+                <div className="text-[12px] text-red-600 space-y-1 mb-2">
+                  {result.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                </div>
+              )}
+              {result.questions.length > 0 && (
+                <div className="space-y-2 max-h-[260px] overflow-y-auto">
+                  {result.questions.map((q, i) => (
+                    <div key={i} className="border border-surface-border rounded-[8px] p-3">
+                      <div className="text-[12px] font-medium text-ink mb-1">
+                        {i + 1}. {q.questionText}{' '}
+                        <span className="font-mono text-[10px] uppercase text-grey-35 ml-1" style={{ letterSpacing: '0.1em' }}>
+                          {q.questionType}
+                        </span>
+                      </div>
+                      <ul className="text-[12px] text-grey-35 space-y-0.5">
+                        {q.options.map((o, oi) => (
+                          <li key={oi} className={o.isCorrect ? 'text-green-600' : ''}>
+                            {String.fromCharCode(65 + oi)}. {o.text} {o.isCorrect && <span className="text-[10px]">✓</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-surface-border flex items-center justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            disabled={!result || result.questions.length === 0 || importing}
+            onClick={async () => {
+              if (!result || result.questions.length === 0) return
+              setImporting(true)
+              try {
+                await onImport(result.questions)
+              } finally {
+                setImporting(false)
+              }
+            }}
+          >
+            {importing ? 'Importing…' : `Import ${result?.questions.length ?? 0} question${result?.questions.length === 1 ? '' : 's'}`}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

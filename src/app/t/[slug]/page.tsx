@@ -156,6 +156,7 @@ export default function TrainingPage() {
   const slug = params.slug as string
   const token = searchParams.get('token')
   const preview = searchParams.get('preview')
+  const previewSectionId = searchParams.get('section')
 
   const [training, setTraining] = useState<TrainingData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -203,10 +204,23 @@ export default function TrainingPage() {
           if (d.enrollmentStatus === 'completed') {
             setCompleted(true)
           }
+          // Preview deep-link: when the editor opens preview from a specific
+          // section (e.g. a quiz the user is editing), jump straight into it
+          // instead of dropping the user on the landing page.
+          if (preview && previewSectionId) {
+            const idx = (d.sections as Section[]).findIndex((s) => s.id === previewSectionId)
+            if (idx >= 0) {
+              const kind = (d.sections as Section[])[idx].kind
+              setSectionIdx(idx)
+              setContentIdx(0)
+              setMode(kind === 'quiz' ? 'quiz' : 'content')
+              setStarted(true)
+            }
+          }
         }
         setLoading(false)
       })
-  }, [slug, token, preview])
+  }, [slug, token, preview, previewSectionId])
 
   // Save progress to backend
   const saveProgress = useCallback(async (sections: string[]) => {
