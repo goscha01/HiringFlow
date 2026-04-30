@@ -661,7 +661,13 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
       eventType: 'invite_sent',
       metadata: { automationRuleId: rule.id, executionId: execution.id },
     }).catch(() => {})
-    await updatePipelineStatus(sessionId, 'invited_to_schedule').catch(() => {})
+    // Move to "invited_to_schedule" only when this is a *first* scheduling
+    // invite — typically the post-flow-pass / post-training-completed hand-off.
+    // No-show re-book invites are a courtesy email; the candidate must stay
+    // in Rejected so recruiters see the no-show outcome on the funnel board.
+    if (rule.triggerType !== 'meeting_no_show') {
+      await updatePipelineStatus(sessionId, 'invited_to_schedule').catch(() => {})
+    }
   }
 
   // Chain: dispatch rules triggered by this one completing
