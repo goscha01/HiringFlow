@@ -39,7 +39,22 @@ export async function GET(request: NextRequest) {
     },
   })
 
-  return NextResponse.json(sessions.map(s => ({
+  // Dedupe by candidate email: when the same person re-applies (e.g. they
+  // clicked a no-show "re-book invite" and went through the flow again), the
+  // database has multiple Session rows but the kanban should show only ONE
+  // card per person — the most recent one (already first thanks to ordering
+  // by startedAt desc). Sessions without an email stay individually since
+  // they can't be merged. Older sessions remain queryable directly.
+  const seenEmails = new Set<string>()
+  const deduped = sessions.filter((s) => {
+    if (!s.candidateEmail) return true
+    const key = s.candidateEmail.toLowerCase().trim()
+    if (seenEmails.has(key)) return false
+    seenEmails.add(key)
+    return true
+  })
+
+  return NextResponse.json(deduped.map(s => ({
     id: s.id,
     candidateName: s.candidateName,
     candidateEmail: s.candidateEmail,
