@@ -46,6 +46,16 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
       onEndedRef.current?.()
     }
 
+    const isAtEnd = () => {
+      if (v.ended) return true
+      const dur = v.duration
+      if (!Number.isFinite(dur) || dur <= 0) return false
+      // Generous threshold: encoders often write a duration slightly beyond
+      // the last decodable frame, so timeupdate's last sample can land 1–2s
+      // shy of `duration` even when playback has visibly finished.
+      return maxWatchedRef.current >= dur - 1.5 || v.currentTime >= dur - 0.25
+    }
+
     const onTimeUpdate = () => {
       if (requiredWatch && v.currentTime > maxWatchedRef.current + 0.5) {
         v.currentTime = maxWatchedRef.current
@@ -54,10 +64,7 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
       if (v.currentTime > maxWatchedRef.current) {
         maxWatchedRef.current = v.currentTime
       }
-      const dur = v.duration
-      if (Number.isFinite(dur) && dur > 0 && maxWatchedRef.current >= dur - 0.5) {
-        fireEndedOnce()
-      }
+      if (isAtEnd()) fireEndedOnce()
     }
     const onSeeking = () => {
       if (!requiredWatch) return
@@ -73,6 +80,9 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
       if (requiredWatch && v.playbackRate > 1) v.playbackRate = 1
     }
     const onNativeEnded = () => fireEndedOnce()
+    // Fallback: when the player pauses at the end without firing `ended`
+    // (some browsers + MP4 encodings drop the event), check explicitly.
+    const onPause = () => { if (isAtEnd()) fireEndedOnce() }
 
     v.addEventListener('timeupdate', onTimeUpdate)
     v.addEventListener('seeking', onSeeking)
@@ -80,6 +90,7 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
     v.addEventListener('loadedmetadata', onLoadedMetadata)
     v.addEventListener('ratechange', onRateChange)
     v.addEventListener('ended', onNativeEnded)
+    v.addEventListener('pause', onPause)
     return () => {
       v.removeEventListener('timeupdate', onTimeUpdate)
       v.removeEventListener('seeking', onSeeking)
@@ -87,6 +98,7 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
       v.removeEventListener('loadedmetadata', onLoadedMetadata)
       v.removeEventListener('ratechange', onRateChange)
       v.removeEventListener('ended', onNativeEnded)
+      v.removeEventListener('pause', onPause)
     }
   }, [requiredWatch, src])
 
@@ -125,6 +137,10 @@ export default function TrainingPage() {
   const [completed, setCompleted] = useState(false)
   const [activeLesson, setActiveLesson] = useState<{ sectionIdx: number; contentIdx: number } | null>(null)
   const [completedSections, setCompletedSections] = useState<string[]>([])
+
+  useEffect(() => {
+    setVideoEnded(false)
+  }, [sectionIdx, contentIdx, started, mode, activeLesson?.sectionIdx, activeLesson?.contentIdx])
 
   useEffect(() => {
     const qs = new URLSearchParams()
@@ -227,9 +243,24 @@ export default function TrainingPage() {
     // Video sections complete by reaching the last lesson. Quiz sections are marked on pass in submitQuiz.
     if (section.kind === 'video') markSectionComplete(section.id)
 
-    // Any-order mode: return to landing after finishing any section
+    // markSectionComplete / submitQuiz update completedSections asynchronously;
+    // compute the post-update set inline so we can correctly tell whether
+    // every section is now done.
+    const effectiveCompleted = completedSections.includes(section.id)
+      ? completedSections
+      : [...completedSections, section.id]
+    const allComplete = training.sections.every(s => effectiveCompleted.includes(s.id))
+
+    // Any-order mode: bounce back to landing after each section — except when
+    // every section is now complete, which still needs to fire training_completed
+    // and show the wrap-up screen.
     if (training.sectionOrder === 'any') {
-      setStarted(false)
+      if (allComplete) {
+        setCompleted(true)
+        markCompleted()
+      } else {
+        setStarted(false)
+      }
       return
     }
 
@@ -414,6 +445,7 @@ export default function TrainingPage() {
                     src={al.videoUrl}
                     requiredWatch={al.requiredWatch}
                     autoPlay
+                    onEnded={() => setVideoEnded(true)}
                     className="w-full h-[300px] lg:h-[480px] object-contain bg-black"
                   />
                 )
@@ -487,7 +519,8 @@ export default function TrainingPage() {
                       if (activeLesson.contentIdx < sec.contents.length - 1) setActiveLesson({ ...activeLesson, contentIdx: activeLesson.contentIdx + 1 })
                       else if (activeLesson.sectionIdx < training.sections.length - 1) setActiveLesson({ sectionIdx: activeLesson.sectionIdx + 1, contentIdx: 0 })
                     }}
-                    className="px-4 py-2 text-xs bg-[#FF9500] text-white rounded-[8px] hover:bg-[#EA8500]"
+                    disabled={al?.type === 'video' && !videoEnded}
+                    className="px-4 py-2 text-xs bg-[#FF9500] text-white rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Next →
                   </button>
