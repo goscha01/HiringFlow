@@ -4,6 +4,129 @@ import { getVideoUrl } from '@/lib/storage'
 import { validateAccessToken, getOrCreateEnrollment } from '@/lib/training-access'
 import { getWorkspaceSession } from '@/lib/auth'
 
+// ─────────────────────────── Quiz options shapes ───────────────────────────
+//
+// `TrainingQuestion.options` is a JSON blob whose shape varies by `questionType`.
+// Helpers below normalize reads, redact correct-answer secrets before sending
+// to candidates, and grade submissions per type.
+//
+// Choice options:
+//   single | multiselect | image  → Array<ChoiceOption>
+//     (image variant adds imageUrl)
+// Free-form:
+//   text  → { acceptedAnswers: string[], caseSensitive?: boolean, hint?: string }
+//   number → { value: number, tolerance?: number, hint?: string }
+// Upload:
+//   file  → { acceptedMimeTypes: string[], maxSizeMb: number }
+type ChoiceOption = { text?: string; imageUrl?: string; isCorrect: boolean; hint?: string }
+type TextOptions = { acceptedAnswers: string[]; caseSensitive?: boolean; hint?: string }
+type NumberOptions = { value: number; tolerance?: number; hint?: string }
+type FileOptions = { acceptedMimeTypes: string[]; maxSizeMb: number }
+
+function isChoiceType(t: string): boolean {
+  return t === 'single' || t === 'multiselect' || t === 'image'
+}
+
+// Strip correct-answer signals before sending options to the candidate viewer.
+function redactOptionsForCandidate(questionType: string, raw: unknown): unknown {
+  if (isChoiceType(questionType)) {
+    const opts = (raw as ChoiceOption[]) ?? []
+    return opts.map((o, i) => ({
+      index: i,
+      text: o.text,
+      imageUrl: o.imageUrl,
+    }))
+  }
+  if (questionType === 'text') {
+    // Don't reveal accepted answers. Send an empty shell so the viewer knows
+    // it's a text question.
+    return { kind: 'text' }
+  }
+  if (questionType === 'number') {
+    return { kind: 'number' }
+  }
+  if (questionType === 'file') {
+    const o = (raw as FileOptions) ?? { acceptedMimeTypes: [], maxSizeMb: 25 }
+    return {
+      kind: 'file',
+      acceptedMimeTypes: o.acceptedMimeTypes ?? [],
+      maxSizeMb: o.maxSizeMb ?? 25,
+    }
+  }
+  return raw
+}
+
+// ─────────────────────────── Per-type grading ───────────────────────────
+//
+// `answers` is { [questionId]: AnswerValue }. Shape per type:
+//   choice/multi/image → number[] (selected option indices)
+//   text   → string
+//   number → number
+//   file   → { url: string, mimeType: string, sizeBytes: number }
+type GradeResult = {
+  questionId: string
+  isCorrect: boolean
+  // For choice types, surface which indices were correct (for review UI).
+  correctIndices?: number[]
+  // For free-form types, surface the canonical correct answer when feedbackMode
+  // is 'explanation'. The caller decides whether to forward this to the client.
+  correctAnswerText?: string | null
+  // Per-option hints aligned with the candidate's selection (choice types) or
+  // the option-level hint for free-form types.
+  hints: (string | null)[]
+}
+
+function gradeChoice(q: { id: string; questionType: string; options: unknown }, selected: number[]): GradeResult {
+  const opts = (q.options as ChoiceOption[]) ?? []
+  // For "single" and "image" with one correct, exact-set match. For "multiselect",
+  // all correct selected and no incorrect selected.
+  const isCorrect = opts.every((o, i) => Boolean(o.isCorrect) === selected.includes(i))
+  return {
+    questionId: q.id,
+    isCorrect,
+    correctIndices: opts.map((o, i) => (o.isCorrect ? i : -1)).filter((i) => i >= 0),
+    hints: opts.map((o, i) => (selected.includes(i) ? o.hint || null : null)),
+  }
+}
+
+function gradeText(q: { id: string; options: unknown }, given: string): GradeResult {
+  const opts = (q.options as TextOptions) ?? { acceptedAnswers: [] }
+  const norm = (s: string) => (opts.caseSensitive ? s : s.toLowerCase()).trim()
+  const target = (opts.acceptedAnswers ?? []).map(norm)
+  const isCorrect = target.length > 0 && target.includes(norm(given || ''))
+  return {
+    questionId: q.id,
+    isCorrect,
+    correctAnswerText: opts.acceptedAnswers?.[0] ?? null,
+    hints: [opts.hint || null],
+  }
+}
+
+function gradeNumber(q: { id: string; options: unknown }, given: number): GradeResult {
+  const opts = (q.options as NumberOptions) ?? { value: 0 }
+  const tol = Math.abs(opts.tolerance ?? 0)
+  const isCorrect = typeof given === 'number' && Number.isFinite(given) && Math.abs(given - opts.value) <= tol
+  return {
+    questionId: q.id,
+    isCorrect,
+    correctAnswerText: String(opts.value),
+    hints: [opts.hint || null],
+  }
+}
+
+function gradeFile(q: { id: string; options: unknown }, given: { url?: string; mimeType?: string; sizeBytes?: number } | null): GradeResult {
+  const opts = (q.options as FileOptions) ?? { acceptedMimeTypes: [], maxSizeMb: 25 }
+  const hasFile = !!given?.url
+  const mimeOk = !opts.acceptedMimeTypes?.length || (given?.mimeType ? opts.acceptedMimeTypes.includes(given.mimeType) : false)
+  const sizeOk = (given?.sizeBytes ?? 0) <= (opts.maxSizeMb ?? 25) * 1024 * 1024
+  const isCorrect = hasFile && mimeOk && sizeOk
+  return {
+    questionId: q.id,
+    isCorrect,
+    hints: [],
+  }
+}
+
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
   const training = await prisma.training.findUnique({
     where: { slug: params.slug },
@@ -103,15 +226,14 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
         title: s.quiz.title,
         requiredPassing: s.quiz.requiredPassing,
         passingGrade: s.quiz.passingGrade,
+        feedbackMode: s.quiz.feedbackMode,
         questions: s.quiz.questions.map((q) => ({
           id: q.id,
           questionText: q.questionText,
           questionType: q.questionType,
-          // Don't expose isCorrect — only send option text
-          options: (q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>).map((o, i) => ({
-            index: i,
-            text: o.text,
-          })),
+          // Per-type redaction: never send isCorrect / acceptedAnswers / value
+          // / tolerance to the candidate. The grader compares server-side.
+          options: redactOptionsForCandidate(q.questionType, q.options),
         })),
       } : null,
     })),
@@ -135,29 +257,57 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     return NextResponse.json({ error: 'Training not found' }, { status: 404 })
   }
 
-  const { quizId, answers, enrollmentId } = await request.json()
-  // answers: { questionId: number[] (selected option indices) }
+  const { quizId, answers, enrollmentId } = await request.json() as {
+    quizId: string
+    answers: Record<string, unknown>
+    enrollmentId?: string
+  }
 
   // Find the quiz
   const quiz = training.sections.flatMap(s => s.quiz ? [s.quiz] : []).find(q => q.id === quizId)
   if (!quiz) return NextResponse.json({ error: 'Quiz not found' }, { status: 404 })
 
-  let correct = 0
-  const results = quiz.questions.map((q) => {
-    const opts = q.options as Array<{ text: string; isCorrect: boolean; hint?: string }>
-    const selected = (answers[q.id] || []) as number[]
-    const isCorrect = opts.every((o, i) => o.isCorrect === selected.includes(i))
-    if (isCorrect) correct++
-    return {
-      questionId: q.id,
-      isCorrect,
-      correctIndices: opts.map((o, i) => o.isCorrect ? i : -1).filter(i => i >= 0),
-      hints: opts.map((o, i) => selected.includes(i) ? (o.hint || null) : null),
+  const allResults: GradeResult[] = quiz.questions.map((q) => {
+    const given = answers[q.id]
+    if (isChoiceType(q.questionType)) {
+      return gradeChoice(q, Array.isArray(given) ? (given as number[]) : [])
     }
+    if (q.questionType === 'text') {
+      return gradeText(q, typeof given === 'string' ? given : '')
+    }
+    if (q.questionType === 'number') {
+      const n = typeof given === 'number' ? given : Number(given)
+      return gradeNumber(q, n)
+    }
+    if (q.questionType === 'file') {
+      return gradeFile(q, (given as { url?: string; mimeType?: string; sizeBytes?: number } | null) ?? null)
+    }
+    // Unknown type: fail closed.
+    return { questionId: q.id, isCorrect: false, hints: [] }
   })
 
-  const score = Math.round((correct / quiz.questions.length) * 100)
+  const correct = allResults.filter((r) => r.isCorrect).length
+  const score = quiz.questions.length > 0 ? Math.round((correct / quiz.questions.length) * 100) : 0
   const passed = score >= quiz.passingGrade
+
+  // Apply feedbackMode redaction. The grader always computes full results
+  // (the score depends on it), but what we hand back to the candidate depends
+  // on the quiz config:
+  //   none         → return only score+passed; no per-question results
+  //   correctness  → per-question isCorrect + correctIndices, no hints / canonical answer
+  //   explanation  → full results with hints + canonical answer
+  const feedbackMode = quiz.feedbackMode || 'correctness'
+  const results = (() => {
+    if (feedbackMode === 'none') return []
+    if (feedbackMode === 'correctness') {
+      return allResults.map((r) => ({
+        questionId: r.questionId,
+        isCorrect: r.isCorrect,
+        correctIndices: r.correctIndices,
+      }))
+    }
+    return allResults
+  })()
 
   // Update enrollment progress if enrollmentId provided
   if (enrollmentId) {

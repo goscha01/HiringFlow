@@ -453,6 +453,9 @@ model TrainingQuiz {
   title           String
   requiredPassing Boolean            @default(true) @map("required_passing")
   passingGrade    Int                @default(80) @map("passing_grade")
+  // 'none' (just pass/fail score), 'correctness' (per-question right/wrong),
+  // 'explanation' (per-question right/wrong + per-option hint).
+  feedbackMode    String             @default("correctness") @map("feedback_mode")
   createdAt       DateTime           @default(now()) @map("created_at")
   questions       TrainingQuestion[]
 

@@ -32,8 +32,41 @@ import { Badge, Button, Eyebrow, type BadgeTone } from '@/components/design'
 
 interface Video { id: string; filename: string; url: string; displayName?: string | null; durationSeconds?: number | null }
 interface Content { id: string; type: string; sortOrder: number; videoId: string | null; video: Video | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
-interface Question { id: string; questionText: string; questionType: string; sortOrder: number; options: Array<{ text: string; isCorrect: boolean; hint?: string }> }
-interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: Question[] }
+// `options` shape varies by questionType — see api/public/trainings/[slug]/route.ts.
+// We hold it as `unknown` here and narrow per-type at the editor boundary so we
+// don't fight the type checker across 6 distinct option shapes.
+interface Question { id: string; questionText: string; questionType: string; sortOrder: number; options: unknown }
+type FeedbackMode = 'none' | 'correctness' | 'explanation'
+interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; feedbackMode: FeedbackMode; questions: Question[] }
+type ChoiceOpt = { text?: string; imageUrl?: string; pictureId?: string; isCorrect: boolean; hint?: string }
+type TextOpts = { acceptedAnswers: string[]; caseSensitive?: boolean; hint?: string }
+type NumberOpts = { value: number; tolerance?: number; hint?: string }
+type FileOpts = { acceptedMimeTypes: string[]; maxSizeMb: number }
+const isChoiceQ = (t: string) => t === 'single' || t === 'multiselect' || t === 'image'
+
+// Default options shape when switching a question to a new type so the editor
+// always has a well-formed payload to render.
+function defaultOptionsFor(questionType: string): unknown {
+  if (questionType === 'single' || questionType === 'multiselect') {
+    return [
+      { text: 'Option A', isCorrect: true },
+      { text: 'Option B', isCorrect: false },
+    ] satisfies ChoiceOpt[]
+  }
+  if (questionType === 'image') {
+    return [] satisfies ChoiceOpt[]
+  }
+  if (questionType === 'text') {
+    return { acceptedAnswers: [''], caseSensitive: false, hint: '' } satisfies TextOpts
+  }
+  if (questionType === 'number') {
+    return { value: 0, tolerance: 0, hint: '' } satisfies NumberOpts
+  }
+  if (questionType === 'file') {
+    return { acceptedMimeTypes: [], maxSizeMb: 25 } satisfies FileOpts
+  }
+  return null
+}
 interface Section {
   id: string
   title: string
@@ -942,11 +975,25 @@ function QuizBlock({
           </div>
         </div>
         <button
-          onClick={() => onQuizAction({ action: 'add_question', questionText: 'New question', questionType: 'single', options: [{ text: 'Option A', isCorrect: true }, { text: 'Option B', isCorrect: false }] })}
+          onClick={() => onQuizAction({ action: 'add_question', questionText: 'New question', questionType: 'single', options: defaultOptionsFor('single') })}
           className="text-[12px] font-medium text-grey-35 hover:text-ink"
         >
           + Add question
         </button>
+      </div>
+
+      {/* Quiz-level feedback mode */}
+      <div className="mb-4 p-3 rounded-[10px] bg-surface-weak border border-surface-border">
+        <label className="block text-[12px] font-medium text-ink mb-1">Feedback after submit</label>
+        <select
+          value={quiz.feedbackMode}
+          onChange={(e) => onQuizAction({ feedbackMode: e.target.value as FeedbackMode })}
+          className="w-full px-2 py-1.5 text-[13px] bg-white border border-surface-border rounded-[8px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+        >
+          <option value="none">Hide results — show only pass / fail</option>
+          <option value="correctness">Show right vs wrong per question</option>
+          <option value="explanation">Show right vs wrong + per-option explanation</option>
+        </select>
       </div>
 
       {quiz.questions.length === 0 ? (
@@ -956,75 +1003,384 @@ function QuizBlock({
       ) : (
         <div className="space-y-4">
           {quiz.questions.map((q, i) => (
-            <div key={q.id} className="pb-4 border-b border-surface-divider last:border-0 last:pb-0">
-              <div className="flex items-start gap-2 mb-2">
-                <div className="font-mono text-[11px] text-grey-50 pt-2 w-6" style={{ letterSpacing: '0.08em' }}>Q{i + 1}</div>
-                <input
-                  defaultValue={q.questionText}
-                  onBlur={(e) => { if (e.target.value !== q.questionText) onQuizAction({ action: 'update_question', questionId: q.id, questionText: e.target.value }) }}
-                  className="flex-1 px-3 py-1.5 bg-transparent border-b border-surface-border text-[14px] text-ink focus:outline-none focus:border-[color:var(--brand-primary)]"
-                />
-                <button
-                  onClick={() => onQuizAction({ action: 'delete_question', questionId: q.id })}
-                  className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[18px] px-2"
-                  title="Delete question"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="ml-8 space-y-1.5">
-                {q.options.map((opt, oi) => (
-                  <div key={oi} className="flex items-center gap-2">
-                    <input
-                      type={q.questionType === 'multiselect' ? 'checkbox' : 'radio'}
-                      checked={opt.isCorrect}
-                      onChange={() => {
-                        const next = q.options.map((o, j) => ({
-                          ...o,
-                          isCorrect: q.questionType === 'multiselect'
-                            ? (j === oi ? !o.isCorrect : o.isCorrect)
-                            : (j === oi),
-                        }))
-                        onQuizAction({ action: 'update_question', questionId: q.id, options: next })
-                      }}
-                      className="accent-[color:var(--brand-primary)]"
-                    />
-                    <input
-                      defaultValue={opt.text}
-                      onBlur={(e) => {
-                        if (e.target.value === opt.text) return
-                        const next = q.options.map((o, j) => (j === oi ? { ...o, text: e.target.value } : o))
-                        onQuizAction({ action: 'update_question', questionId: q.id, options: next })
-                      }}
-                      className="flex-1 px-2 py-1 text-[13px] text-ink bg-transparent border-b border-surface-border focus:outline-none focus:border-[color:var(--brand-primary)]"
-                    />
-                    <button
-                      onClick={() => {
-                        const next = q.options.filter((_, j) => j !== oi)
-                        onQuizAction({ action: 'update_question', questionId: q.id, options: next })
-                      }}
-                      className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[14px] w-6"
-                      title="Remove option"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <button
-                  onClick={() => {
-                    const next = [...q.options, { text: `Option ${String.fromCharCode(65 + q.options.length)}`, isCorrect: false }]
-                    onQuizAction({ action: 'update_question', questionId: q.id, options: next })
-                  }}
-                  className="text-[11px] font-mono uppercase text-grey-35 hover:text-ink"
-                  style={{ letterSpacing: '0.08em' }}
-                >
-                  + Add option
-                </button>
-              </div>
-            </div>
+            <QuestionEditor key={q.id} q={q} index={i} onQuizAction={onQuizAction} />
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ───────────────────────── Per-question editor ─────────────────────────
+
+function QuestionEditor({ q, index, onQuizAction }: { q: Question; index: number; onQuizAction: (data: Record<string, unknown>) => void }) {
+  const updateOptions = (next: unknown) => onQuizAction({ action: 'update_question', questionId: q.id, options: next })
+
+  const changeType = (next: string) => {
+    if (next === q.questionType) return
+    onQuizAction({
+      action: 'update_question',
+      questionId: q.id,
+      questionType: next,
+      options: defaultOptionsFor(next),
+    })
+  }
+
+  return (
+    <div className="pb-4 border-b border-surface-divider last:border-0 last:pb-0">
+      <div className="flex items-start gap-2 mb-2">
+        <div className="font-mono text-[11px] text-grey-50 pt-2 w-6" style={{ letterSpacing: '0.08em' }}>Q{index + 1}</div>
+        <div className="flex-1 space-y-2">
+          <input
+            defaultValue={q.questionText}
+            onBlur={(e) => { if (e.target.value !== q.questionText) onQuizAction({ action: 'update_question', questionId: q.id, questionText: e.target.value }) }}
+            className="w-full px-3 py-1.5 bg-transparent border-b border-surface-border text-[14px] text-ink focus:outline-none focus:border-[color:var(--brand-primary)]"
+            placeholder="Question text"
+          />
+          <select
+            value={q.questionType}
+            onChange={(e) => changeType(e.target.value)}
+            className="px-2 py-1 text-[12px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+          >
+            <option value="single">Single choice</option>
+            <option value="multiselect">Multiple choice</option>
+            <option value="image">Image choice</option>
+            <option value="text">Short text answer</option>
+            <option value="number">Number answer</option>
+            <option value="file">File upload</option>
+          </select>
+        </div>
+        <button
+          onClick={() => onQuizAction({ action: 'delete_question', questionId: q.id })}
+          className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[18px] px-2"
+          title="Delete question"
+        >
+          ×
+        </button>
+      </div>
+      <div className="ml-8 mt-3">
+        {(q.questionType === 'single' || q.questionType === 'multiselect') && (
+          <ChoiceOptionsEditor
+            options={(q.options as ChoiceOpt[] | null) ?? []}
+            multi={q.questionType === 'multiselect'}
+            onChange={updateOptions}
+          />
+        )}
+        {q.questionType === 'image' && (
+          <ImageChoiceOptionsEditor
+            options={(q.options as ChoiceOpt[] | null) ?? []}
+            onChange={updateOptions}
+          />
+        )}
+        {q.questionType === 'text' && (
+          <TextAnswerEditor
+            opts={(q.options as TextOpts | null) ?? { acceptedAnswers: [''] }}
+            onChange={updateOptions}
+          />
+        )}
+        {q.questionType === 'number' && (
+          <NumberAnswerEditor
+            opts={(q.options as NumberOpts | null) ?? { value: 0 }}
+            onChange={updateOptions}
+          />
+        )}
+        {q.questionType === 'file' && (
+          <FileAnswerEditor
+            opts={(q.options as FileOpts | null) ?? { acceptedMimeTypes: [], maxSizeMb: 25 }}
+            onChange={updateOptions}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────── Per-type option editors ─────────────────────────
+
+function ChoiceOptionsEditor({ options, multi, onChange }: { options: ChoiceOpt[]; multi: boolean; onChange: (next: ChoiceOpt[]) => void }) {
+  return (
+    <div className="space-y-1.5">
+      {options.map((opt, oi) => (
+        <div key={oi} className="flex items-center gap-2">
+          <input
+            type={multi ? 'checkbox' : 'radio'}
+            checked={!!opt.isCorrect}
+            onChange={() => {
+              const next = options.map((o, j) => ({
+                ...o,
+                isCorrect: multi ? (j === oi ? !o.isCorrect : o.isCorrect) : j === oi,
+              }))
+              onChange(next)
+            }}
+            className="accent-[color:var(--brand-primary)]"
+            title="Mark correct"
+          />
+          <input
+            defaultValue={opt.text || ''}
+            onBlur={(e) => {
+              if (e.target.value === (opt.text || '')) return
+              onChange(options.map((o, j) => (j === oi ? { ...o, text: e.target.value } : o)))
+            }}
+            placeholder="Option text"
+            className="flex-1 px-2 py-1 text-[13px] text-ink bg-transparent border-b border-surface-border focus:outline-none focus:border-[color:var(--brand-primary)]"
+          />
+          <input
+            defaultValue={opt.hint || ''}
+            onBlur={(e) => {
+              if (e.target.value === (opt.hint || '')) return
+              onChange(options.map((o, j) => (j === oi ? { ...o, hint: e.target.value } : o)))
+            }}
+            placeholder="Hint (shown in explanation feedback)"
+            className="w-[200px] px-2 py-1 text-[12px] text-grey-35 bg-transparent border-b border-surface-border focus:outline-none focus:border-[color:var(--brand-primary)]"
+          />
+          <button
+            onClick={() => onChange(options.filter((_, j) => j !== oi))}
+            className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[14px] w-6"
+            title="Remove option"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={() => onChange([...options, { text: `Option ${String.fromCharCode(65 + options.length)}`, isCorrect: false }])}
+        className="text-[11px] font-mono uppercase text-grey-35 hover:text-ink"
+        style={{ letterSpacing: '0.08em' }}
+      >
+        + Add option
+      </button>
+    </div>
+  )
+}
+
+function ImageChoiceOptionsEditor({ options, onChange }: { options: ChoiceOpt[]; onChange: (next: ChoiceOpt[]) => void }) {
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null)
+
+  const uploadAt = async (idx: number, file: File) => {
+    setUploadingIdx(idx)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/pictures', { method: 'POST', body: fd })
+      if (res.ok) {
+        const pic = await res.json()
+        onChange(options.map((o, j) => (j === idx ? { ...o, imageUrl: pic.url, pictureId: pic.id } : o)))
+      }
+    } finally {
+      setUploadingIdx(null)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-3">
+        {options.map((opt, oi) => (
+          <div key={oi} className="border border-surface-border rounded-[10px] p-2 space-y-2 bg-surface-weak">
+            <div className="aspect-video rounded-[8px] bg-white border border-surface-border overflow-hidden flex items-center justify-center relative">
+              {opt.imageUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={opt.imageUrl} alt={opt.text || 'option'} className="w-full h-full object-contain" />
+              ) : (
+                <span className="text-[11px] text-grey-50">No image</span>
+              )}
+              {uploadingIdx === oi && (
+                <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                  <span className="text-[11px] font-mono uppercase text-grey-35">Uploading…</span>
+                </div>
+              )}
+            </div>
+            <label className="block">
+              <span className="text-[11px] font-mono uppercase text-grey-50 cursor-pointer hover:text-ink">
+                {opt.imageUrl ? 'Replace image' : 'Upload image'}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAt(oi, f) }}
+              />
+            </label>
+            <input
+              defaultValue={opt.text || ''}
+              onBlur={(e) => {
+                if (e.target.value === (opt.text || '')) return
+                onChange(options.map((o, j) => (j === oi ? { ...o, text: e.target.value } : o)))
+              }}
+              placeholder="Caption (optional)"
+              className="w-full px-2 py-1 text-[12px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+            />
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-[11px] text-ink">
+                <input
+                  type="checkbox"
+                  checked={!!opt.isCorrect}
+                  onChange={() => onChange(options.map((o, j) => (j === oi ? { ...o, isCorrect: !o.isCorrect } : o)))}
+                  className="accent-[color:var(--brand-primary)]"
+                />
+                Correct
+              </label>
+              <button
+                onClick={() => onChange(options.filter((_, j) => j !== oi))}
+                className="text-[11px] text-grey-50 hover:text-[color:var(--danger-fg)]"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => onChange([...options, { isCorrect: false }])}
+        className="text-[11px] font-mono uppercase text-grey-35 hover:text-ink"
+        style={{ letterSpacing: '0.08em' }}
+      >
+        + Add image option
+      </button>
+    </div>
+  )
+}
+
+function TextAnswerEditor({ opts, onChange }: { opts: TextOpts; onChange: (next: TextOpts) => void }) {
+  const accepted = opts.acceptedAnswers ?? ['']
+  return (
+    <div className="space-y-2 bg-surface-weak border border-surface-border rounded-[10px] p-3">
+      <div className="text-[11px] font-mono uppercase text-grey-50 mb-1" style={{ letterSpacing: '0.08em' }}>Accepted answers (any match passes)</div>
+      {accepted.map((a, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input
+            defaultValue={a}
+            onBlur={(e) => {
+              if (e.target.value === a) return
+              const next = accepted.map((v, j) => (j === i ? e.target.value : v))
+              onChange({ ...opts, acceptedAnswers: next })
+            }}
+            placeholder="Correct answer"
+            className="flex-1 px-2 py-1 text-[13px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+          />
+          <button
+            onClick={() => onChange({ ...opts, acceptedAnswers: accepted.filter((_, j) => j !== i) })}
+            className="text-grey-50 hover:text-[color:var(--danger-fg)] text-[14px] w-6"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={() => onChange({ ...opts, acceptedAnswers: [...accepted, ''] })}
+        className="text-[11px] font-mono uppercase text-grey-35 hover:text-ink"
+        style={{ letterSpacing: '0.08em' }}
+      >
+        + Add accepted answer
+      </button>
+      <label className="flex items-center gap-2 text-[12px] text-ink mt-2">
+        <input
+          type="checkbox"
+          checked={!!opts.caseSensitive}
+          onChange={() => onChange({ ...opts, caseSensitive: !opts.caseSensitive })}
+          className="accent-[color:var(--brand-primary)]"
+        />
+        Match exact case
+      </label>
+      <input
+        defaultValue={opts.hint || ''}
+        onBlur={(e) => onChange({ ...opts, hint: e.target.value })}
+        placeholder="Hint (shown in explanation feedback)"
+        className="w-full px-2 py-1 text-[12px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+      />
+    </div>
+  )
+}
+
+function NumberAnswerEditor({ opts, onChange }: { opts: NumberOpts; onChange: (next: NumberOpts) => void }) {
+  return (
+    <div className="space-y-2 bg-surface-weak border border-surface-border rounded-[10px] p-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-[11px] font-mono uppercase text-grey-50 mb-1" style={{ letterSpacing: '0.08em' }}>Correct value</div>
+          <input
+            type="number"
+            defaultValue={opts.value}
+            onBlur={(e) => {
+              const n = Number(e.target.value)
+              if (!Number.isFinite(n) || n === opts.value) return
+              onChange({ ...opts, value: n })
+            }}
+            className="w-full px-2 py-1 text-[13px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+          />
+        </div>
+        <div>
+          <div className="text-[11px] font-mono uppercase text-grey-50 mb-1" style={{ letterSpacing: '0.08em' }}>± Tolerance</div>
+          <input
+            type="number"
+            defaultValue={opts.tolerance ?? 0}
+            onBlur={(e) => {
+              const n = Number(e.target.value)
+              if (!Number.isFinite(n) || n === (opts.tolerance ?? 0)) return
+              onChange({ ...opts, tolerance: n })
+            }}
+            className="w-full px-2 py-1 text-[13px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+          />
+        </div>
+      </div>
+      <input
+        defaultValue={opts.hint || ''}
+        onBlur={(e) => onChange({ ...opts, hint: e.target.value })}
+        placeholder="Hint (shown in explanation feedback)"
+        className="w-full px-2 py-1 text-[12px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+      />
+    </div>
+  )
+}
+
+function FileAnswerEditor({ opts, onChange }: { opts: FileOpts; onChange: (next: FileOpts) => void }) {
+  const COMMON_PRESETS: { label: string; mime: string[] }[] = [
+    { label: 'PDF', mime: ['application/pdf'] },
+    { label: 'Images', mime: ['image/png', 'image/jpeg', 'image/webp'] },
+    { label: 'Word', mime: ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] },
+    { label: 'Spreadsheet', mime: ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] },
+    { label: 'Any', mime: [] },
+  ]
+  const accepted = opts.acceptedMimeTypes ?? []
+  const isPresetActive = (preset: string[]) => {
+    if (preset.length === 0) return accepted.length === 0
+    return preset.length === accepted.length && preset.every((m) => accepted.includes(m))
+  }
+  return (
+    <div className="space-y-2 bg-surface-weak border border-surface-border rounded-[10px] p-3">
+      <div className="text-[11px] font-mono uppercase text-grey-50 mb-1" style={{ letterSpacing: '0.08em' }}>Accepted file types</div>
+      <div className="flex flex-wrap gap-1.5">
+        {COMMON_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => onChange({ ...opts, acceptedMimeTypes: p.mime })}
+            className={`text-[11px] px-2.5 py-1 rounded-[6px] border ${isPresetActive(p.mime) ? 'border-[color:var(--brand-primary)] bg-brand-50 text-[color:var(--brand-primary)]' : 'border-surface-border bg-white text-grey-35 hover:text-ink'}`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {accepted.length > 0 && (
+        <div className="text-[11px] text-grey-50 mt-1">Mime: {accepted.join(', ')}</div>
+      )}
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-[11px] font-mono uppercase text-grey-50" style={{ letterSpacing: '0.08em' }}>Max size</span>
+        <input
+          type="number"
+          min={1}
+          max={50}
+          defaultValue={opts.maxSizeMb ?? 25}
+          onBlur={(e) => {
+            const n = Math.min(50, Math.max(1, Number(e.target.value) || 25))
+            if (n === (opts.maxSizeMb ?? 25)) return
+            onChange({ ...opts, maxSizeMb: n })
+          }}
+          className="w-20 px-2 py-1 text-[13px] bg-white border border-surface-border rounded-[6px] focus:outline-none focus:border-[color:var(--brand-primary)]"
+        />
+        <span className="text-[12px] text-grey-50">MB (server cap: 50MB)</span>
+      </div>
+      <p className="text-[11px] text-grey-50 italic mt-1">
+        File-upload questions auto-pass when the candidate uploads a file matching these constraints.
+      </p>
     </div>
   )
 }

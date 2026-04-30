@@ -18,11 +18,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       title: body.title || 'Section Quiz',
       requiredPassing: body.requiredPassing ?? true,
       passingGrade: body.passingGrade ?? 80,
+      feedbackMode: body.feedbackMode ?? 'correctness',
     },
     update: {
       ...(body.title !== undefined && { title: body.title }),
       ...(body.requiredPassing !== undefined && { requiredPassing: body.requiredPassing }),
       ...(body.passingGrade !== undefined && { passingGrade: body.passingGrade }),
+      ...(body.feedbackMode !== undefined && { feedbackMode: body.feedbackMode }),
     },
     include: { questions: { orderBy: { sortOrder: 'asc' } } },
   })
@@ -77,14 +79,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ success: true })
   }
 
-  // Metadata update (no action): title / requiredPassing / passingGrade
-  if (body.title !== undefined || body.requiredPassing !== undefined || body.passingGrade !== undefined) {
+  // Metadata update (no action): title / requiredPassing / passingGrade / feedbackMode
+  if (body.title !== undefined || body.requiredPassing !== undefined || body.passingGrade !== undefined || body.feedbackMode !== undefined) {
     const updated = await prisma.trainingQuiz.update({
       where: { sectionId: params.sectionId },
       data: {
         ...(body.title !== undefined && { title: body.title }),
         ...(body.requiredPassing !== undefined && { requiredPassing: body.requiredPassing }),
         ...(body.passingGrade !== undefined && { passingGrade: body.passingGrade }),
+        ...(body.feedbackMode !== undefined && { feedbackMode: body.feedbackMode }),
       },
     })
     return NextResponse.json(updated)

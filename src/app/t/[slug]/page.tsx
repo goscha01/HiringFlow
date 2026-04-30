@@ -14,9 +14,20 @@ function fmtLessonTime(seconds?: number | null): string {
   const m = min % 60
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
-interface QuizOption { index: number; text: string }
-interface QuizQuestion { id: string; questionText: string; questionType: string; options: QuizOption[] }
-interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; questions: QuizQuestion[] }
+// Per-type, post-redaction option payloads sent to the candidate viewer.
+//   choice/multi/image  → { index, text?, imageUrl? }[]
+//   text  → { kind: 'text' }
+//   number → { kind: 'number' }
+//   file  → { kind: 'file', acceptedMimeTypes: string[], maxSizeMb: number }
+interface ChoiceQuizOption { index: number; text?: string; imageUrl?: string }
+interface QuizQuestion {
+  id: string
+  questionText: string
+  questionType: string
+  options: ChoiceQuizOption[] | { kind: 'text' } | { kind: 'number' } | { kind: 'file'; acceptedMimeTypes: string[]; maxSizeMb: number }
+}
+type FeedbackMode = 'none' | 'correctness' | 'explanation'
+interface Quiz { id: string; title: string; requiredPassing: boolean; passingGrade: number; feedbackMode: FeedbackMode; questions: QuizQuestion[] }
 interface Section { id: string; title: string; kind: 'video' | 'quiz'; contents: ContentItem[]; quiz: Quiz | null }
 
 // The training editor stores the section's description as the first text-type
@@ -31,7 +42,19 @@ function sectionLessons(s: Section): ContentItem[] {
   return s.contents.filter((c) => c !== firstText)
 }
 interface TrainingData { id: string; title: string; description: string | null; coverImage: string | null; branding: Record<string, unknown> | null; passingGrade: number; accessMode: string; sectionOrder: 'sequential' | 'any'; enrollmentId: string | null; enrollmentStatus: string | null; enrollmentProgress: { completedSections: string[]; quizScores: { sectionId: string; score: number }[] } | null; candidateName: string | null; candidateEmail: string | null; sections: Section[] }
-interface QuizResult { questionId: string; isCorrect: boolean; correctIndices: number[]; hints: (string | null)[] }
+interface QuizResult {
+  questionId: string
+  isCorrect: boolean
+  correctIndices?: number[]
+  correctAnswerText?: string | null
+  hints?: (string | null)[]
+}
+// Candidate's answer payload — shape varies by question type.
+//   choice/multi/image  → number[] (selected indices)
+//   text  → string
+//   number → number
+//   file  → { url, mimeType, sizeBytes }
+type AnswerValue = number[] | string | number | { url: string; mimeType: string; sizeBytes: number } | null
 
 function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
   src: string
@@ -143,7 +166,7 @@ export default function TrainingPage() {
   const [contentIdx, setContentIdx] = useState(0)
   const [mode, setMode] = useState<'content' | 'quiz'>('content')
   const [videoEnded, setVideoEnded] = useState(false)
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, number[]>>({})
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, AnswerValue>>({})
   const [quizResults, setQuizResults] = useState<{ score: number; correct: number; total: number; passed: boolean; results: QuizResult[] } | null>(null)
   const [submittingQuiz, setSubmittingQuiz] = useState(false)
   const [completed, setCompleted] = useState(false)
@@ -731,42 +754,21 @@ export default function TrainingPage() {
               <h3 className="text-[24px] font-semibold text-[#262626] mb-1">{section.quiz.title}</h3>
               <p className="text-sm text-[#59595A] mb-6">Passing grade: {section.quiz.passingGrade}%</p>
               <div className="space-y-6">
-                {section.quiz.questions.map((q, qi) => {
-                  const selected = quizAnswers[q.id] || []
-                  const result = quizResults?.results.find(r => r.questionId === q.id)
-                  return (
-                    <div key={q.id} className="border border-[#F1F1F3] rounded-[8px] p-5">
-                      <p className="font-medium text-[#262626] mb-3">{qi + 1}. {q.questionText}</p>
-                      <div className="space-y-2">
-                        {q.options.map((opt) => {
-                          const isSelected = selected.includes(opt.index)
-                          let borderColor = '#F1F1F3', bgColor = 'transparent'
-                          if (result) {
-                            if (isSelected && result.correctIndices.includes(opt.index)) { borderColor = '#22c55e'; bgColor = '#f0fdf4' }
-                            else if (isSelected && !result.correctIndices.includes(opt.index)) { borderColor = '#ef4444'; bgColor = '#fef2f2' }
-                            else if (result.correctIndices.includes(opt.index)) { borderColor = '#bbf7d0'; bgColor = '#f0fdf4' }
-                          } else if (isSelected) { borderColor = '#FF9500'; bgColor = '#FFF7ED' }
-                          return (
-                            <div key={opt.index}>
-                              <button
-                                onClick={() => { if (quizResults) return; if (q.questionType === 'multiselect') { setQuizAnswers(prev => ({ ...prev, [q.id]: isSelected ? selected.filter(i => i !== opt.index) : [...selected, opt.index] })) } else { setQuizAnswers(prev => ({ ...prev, [q.id]: [opt.index] })) } }}
-                                className="w-full text-left px-4 py-3 rounded-[8px] text-sm transition-colors"
-                                style={{ border: `1.5px solid ${borderColor}`, backgroundColor: bgColor }}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[#262626]">{opt.text}</span>
-                                  {result && isSelected && result.correctIndices.includes(opt.index) && <span className="text-green-600 text-xs font-medium">✓ Correct</span>}
-                                  {result && isSelected && !result.correctIndices.includes(opt.index) && <span className="text-red-600 text-xs font-medium">✗ Wrong</span>}
-                                </div>
-                              </button>
-                              {result && isSelected && result.hints[opt.index] && <p className={`text-xs mt-1 ml-4 ${result.correctIndices.includes(opt.index) ? 'text-green-600' : 'text-red-600'}`}>{result.hints[opt.index]}</p>}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
+                {section.quiz.questions.map((q, qi) => (
+                  <QuestionCard
+                    key={q.id}
+                    q={q}
+                    index={qi}
+                    answer={quizAnswers[q.id]}
+                    result={quizResults?.results.find((r) => r.questionId === q.id)}
+                    feedbackMode={section.quiz!.feedbackMode || 'correctness'}
+                    locked={!!quizResults}
+                    slug={slug}
+                    preview={preview}
+                    token={token}
+                    onAnswer={(value) => setQuizAnswers((prev) => ({ ...prev, [q.id]: value }))}
+                  />
+                ))}
               </div>
               <div className="mt-8 pt-6 border-t border-[#F1F1F3]">
                 {quizResults ? (
@@ -784,7 +786,11 @@ export default function TrainingPage() {
                     </div>
                   </div>
                 ) : (
-                  <button onClick={submitQuiz} disabled={submittingQuiz || Object.keys(quizAnswers).length < section.quiz.questions.length} className="w-full py-4 bg-[#FF9500] text-white font-medium rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40">
+                  <button
+                    onClick={submitQuiz}
+                    disabled={submittingQuiz || !allAnswered(section.quiz, quizAnswers)}
+                    className="w-full py-4 bg-[#FF9500] text-white font-medium rounded-[8px] hover:bg-[#EA8500] disabled:opacity-40"
+                  >
                     {submittingQuiz ? 'Checking...' : 'Submit Quiz'}
                   </button>
                 )}
@@ -797,6 +803,398 @@ export default function TrainingPage() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────── Quiz answer helpers ───────────────────────────
+
+function isAnswered(q: QuizQuestion, value: AnswerValue | undefined): boolean {
+  if (value === undefined || value === null) return false
+  if (q.questionType === 'single' || q.questionType === 'multiselect' || q.questionType === 'image') {
+    return Array.isArray(value) && value.length > 0
+  }
+  if (q.questionType === 'text') return typeof value === 'string' && value.trim() !== ''
+  if (q.questionType === 'number') return typeof value === 'number' && Number.isFinite(value)
+  if (q.questionType === 'file') return typeof value === 'object' && value !== null && 'url' in value
+  return false
+}
+
+function allAnswered(quiz: Quiz, answers: Record<string, AnswerValue>): boolean {
+  return quiz.questions.every((q) => isAnswered(q, answers[q.id]))
+}
+
+// ─────────────────────────── Per-question viewer ───────────────────────────
+
+function QuestionCard({
+  q,
+  index,
+  answer,
+  result,
+  feedbackMode,
+  locked,
+  slug,
+  preview,
+  token,
+  onAnswer,
+}: {
+  q: QuizQuestion
+  index: number
+  answer: AnswerValue | undefined
+  result: QuizResult | undefined
+  feedbackMode: FeedbackMode
+  locked: boolean
+  slug: string
+  preview: string | null
+  token: string | null
+  onAnswer: (v: AnswerValue) => void
+}) {
+  // Result reveal: 'none' shows nothing, 'correctness' shows ✓/✗, 'explanation'
+  // also shows hints and the canonical answer for free-form types.
+  const showResult = !!result && feedbackMode !== 'none'
+  const showExplanation = !!result && feedbackMode === 'explanation'
+
+  return (
+    <div className="border border-[#F1F1F3] rounded-[8px] p-5">
+      <p className="font-medium text-[#262626] mb-3">{index + 1}. {q.questionText}</p>
+      {showResult && (
+        <div className={`text-xs font-medium mb-3 ${result!.isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+          {result!.isCorrect ? '✓ Correct' : '✗ Wrong'}
+        </div>
+      )}
+      {(q.questionType === 'single' || q.questionType === 'multiselect' || q.questionType === 'image') && Array.isArray(q.options) && (
+        <ChoiceQuestionInput
+          q={q}
+          options={q.options as ChoiceQuizOption[]}
+          selected={(Array.isArray(answer) ? answer : []) as number[]}
+          result={result}
+          showResult={showResult}
+          showExplanation={showExplanation}
+          locked={locked}
+          onChange={onAnswer}
+        />
+      )}
+      {q.questionType === 'text' && (
+        <TextQuestionInput
+          value={typeof answer === 'string' ? answer : ''}
+          locked={locked}
+          showResult={showResult}
+          showExplanation={showExplanation}
+          result={result}
+          onChange={onAnswer}
+        />
+      )}
+      {q.questionType === 'number' && (
+        <NumberQuestionInput
+          value={typeof answer === 'number' ? answer : null}
+          locked={locked}
+          showResult={showResult}
+          showExplanation={showExplanation}
+          result={result}
+          onChange={onAnswer}
+        />
+      )}
+      {q.questionType === 'file' && (
+        <FileQuestionInput
+          q={q}
+          value={typeof answer === 'object' && answer && 'url' in answer ? answer : null}
+          locked={locked}
+          slug={slug}
+          preview={preview}
+          token={token}
+          showResult={showResult}
+          onChange={onAnswer}
+        />
+      )}
+    </div>
+  )
+}
+
+function ChoiceQuestionInput({
+  q,
+  options,
+  selected,
+  result,
+  showResult,
+  showExplanation,
+  locked,
+  onChange,
+}: {
+  q: QuizQuestion
+  options: ChoiceQuizOption[]
+  selected: number[]
+  result: QuizResult | undefined
+  showResult: boolean
+  showExplanation: boolean
+  locked: boolean
+  onChange: (v: number[]) => void
+}) {
+  const isMulti = q.questionType === 'multiselect'
+  const isImage = q.questionType === 'image'
+
+  const toggle = (idx: number) => {
+    if (locked) return
+    if (isMulti) {
+      const next = selected.includes(idx) ? selected.filter((i) => i !== idx) : [...selected, idx]
+      onChange(next)
+    } else {
+      onChange([idx])
+    }
+  }
+
+  if (isImage) {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {options.map((opt) => {
+          const isSelected = selected.includes(opt.index)
+          const isRight = showResult && result?.correctIndices?.includes(opt.index)
+          let ring = 'border-[#F1F1F3]'
+          if (showResult && isSelected && isRight) ring = 'border-green-500 ring-2 ring-green-200'
+          else if (showResult && isSelected && !isRight) ring = 'border-red-500 ring-2 ring-red-200'
+          else if (showResult && isRight) ring = 'border-green-300'
+          else if (isSelected) ring = 'border-[#FF9500] ring-2 ring-[#FFEDD5]'
+          return (
+            <button
+              key={opt.index}
+              type="button"
+              onClick={() => toggle(opt.index)}
+              disabled={locked}
+              className={`text-left p-2 rounded-[10px] border-2 ${ring} bg-white hover:bg-[#FFF7ED] disabled:cursor-not-allowed transition-colors`}
+            >
+              <div className="aspect-video rounded-[6px] bg-[#F7F7F8] overflow-hidden mb-2 flex items-center justify-center">
+                {opt.imageUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={opt.imageUrl} alt={opt.text || 'option'} className="w-full h-full object-contain" />
+                ) : (
+                  <span className="text-xs text-[#59595A]">No image</span>
+                )}
+              </div>
+              {opt.text && <div className="text-xs text-[#262626]">{opt.text}</div>}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {options.map((opt) => {
+        const isSelected = selected.includes(opt.index)
+        const isRight = showResult && result?.correctIndices?.includes(opt.index)
+        let borderColor = '#F1F1F3', bgColor = 'transparent'
+        if (showResult && isSelected && isRight) { borderColor = '#22c55e'; bgColor = '#f0fdf4' }
+        else if (showResult && isSelected && !isRight) { borderColor = '#ef4444'; bgColor = '#fef2f2' }
+        else if (showResult && isRight) { borderColor = '#bbf7d0'; bgColor = '#f0fdf4' }
+        else if (isSelected) { borderColor = '#FF9500'; bgColor = '#FFF7ED' }
+        const optionHint = showExplanation ? result?.hints?.[opt.index] : null
+        return (
+          <div key={opt.index}>
+            <button
+              type="button"
+              onClick={() => toggle(opt.index)}
+              disabled={locked}
+              className="w-full text-left px-4 py-3 rounded-[8px] text-sm transition-colors disabled:cursor-not-allowed"
+              style={{ border: `1.5px solid ${borderColor}`, backgroundColor: bgColor }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[#262626]">{opt.text}</span>
+                {showResult && isSelected && isRight && <span className="text-green-600 text-xs font-medium">✓ Correct</span>}
+                {showResult && isSelected && !isRight && <span className="text-red-600 text-xs font-medium">✗ Wrong</span>}
+              </div>
+            </button>
+            {optionHint && (
+              <p className={`text-xs mt-1 ml-4 ${isRight ? 'text-green-600' : 'text-red-600'}`}>{optionHint}</p>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function TextQuestionInput({
+  value,
+  locked,
+  showResult,
+  showExplanation,
+  result,
+  onChange,
+}: {
+  value: string
+  locked: boolean
+  showResult: boolean
+  showExplanation: boolean
+  result: QuizResult | undefined
+  onChange: (v: string) => void
+}) {
+  return (
+    <div>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={locked}
+        rows={3}
+        placeholder="Type your answer…"
+        className="w-full px-3 py-2 border border-[#F1F1F3] rounded-[8px] text-sm focus:outline-none focus:border-[#FF9500] disabled:bg-[#F7F7F8]"
+      />
+      {showExplanation && result?.correctAnswerText && (
+        <p className="text-xs mt-2 text-[#59595A]">
+          Correct answer: <span className="font-medium text-[#262626]">{result.correctAnswerText}</span>
+        </p>
+      )}
+      {showExplanation && result?.hints?.[0] && (
+        <p className={`text-xs mt-1 ${result.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{result.hints[0]}</p>
+      )}
+      {showResult && !showExplanation && (
+        <p className={`text-xs mt-2 ${result!.isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+          {result!.isCorrect ? 'Correct' : 'Not correct'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function NumberQuestionInput({
+  value,
+  locked,
+  showResult,
+  showExplanation,
+  result,
+  onChange,
+}: {
+  value: number | null
+  locked: boolean
+  showResult: boolean
+  showExplanation: boolean
+  result: QuizResult | undefined
+  onChange: (v: number) => void
+}) {
+  return (
+    <div>
+      <input
+        type="number"
+        value={value ?? ''}
+        onChange={(e) => {
+          const n = Number(e.target.value)
+          if (Number.isFinite(n)) onChange(n)
+        }}
+        disabled={locked}
+        placeholder="Enter a number"
+        className="w-full px-3 py-2 border border-[#F1F1F3] rounded-[8px] text-sm focus:outline-none focus:border-[#FF9500] disabled:bg-[#F7F7F8]"
+      />
+      {showExplanation && result?.correctAnswerText && (
+        <p className="text-xs mt-2 text-[#59595A]">
+          Correct answer: <span className="font-medium text-[#262626]">{result.correctAnswerText}</span>
+        </p>
+      )}
+      {showExplanation && result?.hints?.[0] && (
+        <p className={`text-xs mt-1 ${result.isCorrect ? 'text-green-600' : 'text-red-600'}`}>{result.hints[0]}</p>
+      )}
+      {showResult && !showExplanation && (
+        <p className={`text-xs mt-2 ${result!.isCorrect ? 'text-green-600' : 'text-red-600'}`}>
+          {result!.isCorrect ? 'Correct' : 'Not correct'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function FileQuestionInput({
+  q,
+  value,
+  locked,
+  slug,
+  preview,
+  token,
+  showResult,
+  onChange,
+}: {
+  q: QuizQuestion
+  value: { url: string; mimeType: string; sizeBytes: number } | null
+  locked: boolean
+  slug: string
+  preview: string | null
+  token: string | null
+  showResult: boolean
+  onChange: (v: { url: string; mimeType: string; sizeBytes: number }) => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileOpts = q.options as { kind: 'file'; acceptedMimeTypes: string[]; maxSizeMb: number }
+
+  const upload = async (file: File) => {
+    setError(null)
+    if (fileOpts.acceptedMimeTypes?.length && !fileOpts.acceptedMimeTypes.includes(file.type)) {
+      setError(`File type not allowed. Expected: ${fileOpts.acceptedMimeTypes.join(', ')}`)
+      return
+    }
+    if (file.size > fileOpts.maxSizeMb * 1024 * 1024) {
+      setError(`File too large (max ${fileOpts.maxSizeMb}MB)`)
+      return
+    }
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const qs = new URLSearchParams()
+      if (token) qs.set('token', token)
+      if (preview) qs.set('preview', preview)
+      const url = qs.toString()
+        ? `/api/public/trainings/${slug}/upload-answer?${qs.toString()}`
+        : `/api/public/trainings/${slug}/upload-answer`
+      const res = await fetch(url, { method: 'POST', body: fd })
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        setError(e.error || 'Upload failed')
+        return
+      }
+      const json = await res.json()
+      onChange({ url: json.url, mimeType: json.mimeType, sizeBytes: json.sizeBytes })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div>
+      {value ? (
+        <div className="flex items-center gap-3 p-3 border border-[#F1F1F3] rounded-[8px] bg-[#F7F7F8]">
+          <div className="flex-1 min-w-0">
+            <a href={value.url} target="_blank" rel="noopener noreferrer" className="text-sm text-[#FF9500] hover:underline truncate block">
+              {value.url.split('/').pop() || 'Uploaded file'}
+            </a>
+            <div className="text-xs text-[#59595A]">
+              {value.mimeType} · {(value.sizeBytes / 1024 / 1024).toFixed(2)} MB
+            </div>
+          </div>
+          {!locked && (
+            <button onClick={() => onChange({ url: '', mimeType: '', sizeBytes: 0 })} className="text-xs text-[#59595A] hover:text-red-600">Replace</button>
+          )}
+        </div>
+      ) : (
+        <label className={`block w-full px-4 py-6 border-2 border-dashed rounded-[8px] text-center cursor-pointer transition-colors ${locked ? 'opacity-60 cursor-not-allowed' : 'border-[#E4E4E7] hover:border-[#FF9500] hover:bg-[#FFF7ED]'}`}>
+          <input
+            type="file"
+            className="hidden"
+            disabled={locked || uploading}
+            accept={fileOpts.acceptedMimeTypes?.join(',') || undefined}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f) }}
+          />
+          <div className="text-sm text-[#262626] font-medium">
+            {uploading ? 'Uploading…' : 'Click to upload a file'}
+          </div>
+          <div className="text-xs text-[#59595A] mt-1">
+            {fileOpts.acceptedMimeTypes?.length ? fileOpts.acceptedMimeTypes.join(', ') : 'Any file type'} · max {fileOpts.maxSizeMb}MB
+          </div>
+        </label>
+      )}
+      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+      {showResult && (
+        <p className="text-xs mt-2 text-[#59595A]">
+          {value ? 'File received — graded automatically.' : 'No file uploaded.'}
+        </p>
+      )}
     </div>
   )
 }
