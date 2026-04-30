@@ -45,15 +45,17 @@ const prismaMock = {
   automationRule: { findMany: vi.fn(async () => []) },
   automationExecution: { findMany: vi.fn(async () => []) },
   googleIntegration: {
-    findUnique: vi.fn(async () => ({ googleEmail: 'host@example.com' })),
+    findUnique: vi.fn(async (): Promise<{ googleUserId: string | null }> => ({ googleUserId: 'HOST_USER_ID' })),
+    update: vi.fn(async () => ({ id: 'gi-1' })),
   },
 }
 
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
 vi.mock('@/lib/google', () => ({
-  getAuthedClientForWorkspace: vi.fn(async () => null),
+  getAuthedClientForWorkspace: vi.fn(async () => ({ client: {} as unknown, integration: {} as unknown })),
   getAppUrl: () => 'https://test.local',
   hasMeetScopes: () => true,
+  fetchUserId: vi.fn(async () => 'HOST_USER_ID'),
 }))
 vi.mock('@/lib/meet/google-drive', () => ({ getFileMeta: vi.fn(async () => ({ id: 'drive-abc', name: 'recording.mp4', mimeType: 'video/mp4' })) }))
 vi.mock('@/lib/meet/workspace-events', async () => {
@@ -170,7 +172,8 @@ describe('Meet webhook dispatch', () => {
   })
 
   it('conference.ended with only host in participants logs meeting_no_show', async () => {
-    state.participants = [{ email: 'host@example.com', displayName: 'Host', joinTime: '2030-01-01T10:00:00Z' }]
+    // signedinUser.user is `users/{id}` — what Workspace Events actually sends.
+    state.participants = [{ email: 'users/HOST_USER_ID', displayName: 'Host', joinTime: '2030-01-01T10:00:00Z' }]
     const { POST } = await import('../../../app/api/webhooks/google-meet/route')
     const res = await POST(makeRequest(buildPush(
       'google.workspace.meet.conference.v2.ended',
@@ -183,8 +186,8 @@ describe('Meet webhook dispatch', () => {
 
   it('conference.ended with candidate present does NOT log meeting_no_show', async () => {
     state.participants = [
-      { email: 'host@example.com', displayName: 'Host' },
-      { email: 'candidate@example.com', displayName: 'Candidate' },
+      { email: 'users/HOST_USER_ID', displayName: 'Host' },
+      { email: 'users/CANDIDATE_USER_ID', displayName: 'Candidate' },
     ]
     const { POST } = await import('../../../app/api/webhooks/google-meet/route')
     const res = await POST(makeRequest(buildPush(
@@ -222,13 +225,46 @@ describe('Meet webhook dispatch', () => {
     expect(state.driveTranscriptFileId).toBe('docs-id')
   })
 
-  it('participant.joined appends to participants', async () => {
+  it('participant.joined appends signedinUser.user verbatim (it is users/{id}, not an email)', async () => {
     const { POST } = await import('../../../app/api/webhooks/google-meet/route')
     await POST(makeRequest(buildPush(
       'google.workspace.meet.participant.v2.joined',
-      { space: { name: 'spaces/ABC' }, participant: { signedinUser: { displayName: 'Alice', user: 'alice@example.com' }, earliestStartTime: '2030-01-01T10:00:30Z' } },
+      { space: { name: 'spaces/ABC' }, participant: { signedinUser: { displayName: 'Alice', user: 'users/ALICE_ID' }, earliestStartTime: '2030-01-01T10:00:30Z' } },
     )))
     expect(Array.isArray(state.participants)).toBe(true)
-    expect((state.participants as Array<{ email: string }>)[0].email).toBe('alice@example.com')
+    expect((state.participants as Array<{ email: string }>)[0].email).toBe('users/ALICE_ID')
+  })
+
+  it('host-only meeting (host joined via signed-in event) is detected as no-show', async () => {
+    // Regression: previously the host was stored as `users/{id}` but compared
+    // against googleEmail, so they were misclassified as a non-host attendee
+    // and meeting_no_show never fired.
+    state.participants = [{ email: 'users/HOST_USER_ID', displayName: 'Host' }]
+    const { POST } = await import('../../../app/api/webhooks/google-meet/route')
+    const res = await POST(makeRequest(buildPush(
+      'google.workspace.meet.conference.v2.ended',
+      { conferenceRecord: { name: 'conferenceRecords/x', space: { name: 'spaces/ABC' }, endTime: '2030-01-01T10:30:00Z' } },
+    )))
+    expect(res.status).toBe(200)
+    const calls = prismaMock.schedulingEvent.create.mock.calls.map((c: unknown[]) => (c[0] as { data: { eventType: string } }).data.eventType)
+    expect(calls).toContain('meeting_no_show')
+  })
+
+  it('older integration with null googleUserId self-heals from userinfo before evaluating no-show', async () => {
+    // Force the lookup to return null this once — webhook should fall through
+    // to fetchUserId, persist the result, then evaluate.
+    prismaMock.googleIntegration.findUnique.mockImplementationOnce(async () => ({ googleUserId: null }))
+    state.participants = [{ email: 'users/HOST_USER_ID', displayName: 'Host' }]
+    const { POST } = await import('../../../app/api/webhooks/google-meet/route')
+    const res = await POST(makeRequest(buildPush(
+      'google.workspace.meet.conference.v2.ended',
+      { conferenceRecord: { name: 'conferenceRecords/x', space: { name: 'spaces/ABC' }, endTime: '2030-01-01T10:30:00Z' } },
+    )))
+    expect(res.status).toBe(200)
+    expect(prismaMock.googleIntegration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ googleUserId: 'HOST_USER_ID' }) })
+    )
+    const calls = prismaMock.schedulingEvent.create.mock.calls.map((c: unknown[]) => (c[0] as { data: { eventType: string } }).data.eventType)
+    expect(calls).toContain('meeting_no_show')
   })
 })

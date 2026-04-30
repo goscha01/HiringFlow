@@ -85,6 +85,11 @@ model GoogleIntegration {
   workspaceId     String    @unique @map("workspace_id")
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   googleEmail     String    @map("google_email")
+  // Google account ID from userinfo.id. Workspace Events Meet API sends signed-in
+  // participants as `users/{id}` where {id} matches this value, so this — not the
+  // email — is what we compare against to decide whether a participant is the host.
+  // Nullable to keep older connections working until they reconnect or self-heal.
+  googleUserId    String?   @map("google_user_id")
   refreshToken    String    @map("refresh_token")                  // encrypted
   accessToken     String?   @map("access_token")                   // encrypted
   accessExpiresAt DateTime? @map("access_expires_at")

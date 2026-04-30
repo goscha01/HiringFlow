@@ -29,13 +29,14 @@ export async function GET(request: NextRequest) {
   cookieStore.delete(`goog_oauth_${state}`)
 
   try {
-    const { refreshToken, accessToken, expiresAt, email, hostedDomain, grantedScopes } = await exchangeCode(code)
+    const { refreshToken, accessToken, expiresAt, email, userId, hostedDomain, grantedScopes } = await exchangeCode(code)
 
     await prisma.googleIntegration.upsert({
       where: { workspaceId },
       create: {
         workspaceId,
         googleEmail: email,
+        googleUserId: userId,
         refreshToken: encrypt(refreshToken),
         accessToken: accessToken ? encrypt(accessToken) : null,
         accessExpiresAt: expiresAt,
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
       },
       update: {
         googleEmail: email,
+        googleUserId: userId,
         refreshToken: encrypt(refreshToken),
         accessToken: accessToken ? encrypt(accessToken) : null,
         accessExpiresAt: expiresAt,

@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAuthedClientForWorkspace, getAppUrl } from '@/lib/google'
+import { getAuthedClientForWorkspace, getAppUrl, fetchUserId } from '@/lib/google'
 import { verifyPubsubJwt } from '@/lib/meet/pubsub-jwt'
 import {
   findByMeetSpaceName,
@@ -210,13 +210,31 @@ export async function POST(request: NextRequest) {
         // was ever observed, log a meeting_no_show SchedulingEvent and fire
         // the meeting_no_show automation trigger. Idempotent: we check for an
         // existing meeting_no_show row tied to this InterviewMeeting first.
+        //
+        // Host identity is the connected Google account's userId (matches the
+        // `users/{id}` value Google sends in signedinUser.user). Older
+        // integrations connected before this field was captured self-heal here
+        // by fetching userinfo on the fly and caching the value.
         try {
           const integration = await prisma.googleIntegration.findUnique({
             where: { workspaceId: meeting.workspaceId },
-            select: { googleEmail: true },
+            select: { googleUserId: true },
           })
-          if (integration?.googleEmail) {
-            const { noShow, nonHostCount } = await evaluateNoShow(meeting.id, integration.googleEmail)
+          let hostUserId = integration?.googleUserId ?? null
+          if (!hostUserId) {
+            const authed = await getAuthedClientForWorkspace(meeting.workspaceId)
+            if (authed) {
+              hostUserId = await fetchUserId(authed.client)
+              if (hostUserId) {
+                await prisma.googleIntegration.update({
+                  where: { workspaceId: meeting.workspaceId },
+                  data: { googleUserId: hostUserId },
+                }).catch((err) => console.error('[Meet webhook] googleUserId backfill write failed:', err))
+              }
+            }
+          }
+          if (hostUserId) {
+            const { noShow, nonHostCount } = await evaluateNoShow(meeting.id, hostUserId)
             if (noShow) {
               const already = await prisma.schedulingEvent.findFirst({
                 where: {
@@ -282,13 +300,18 @@ export async function POST(request: NextRequest) {
       case 'google.workspace.meet.participant.v2.joined':
       case 'google.workspace.meet.participant.v2.left': {
         const p = envelope.data?.participant
-        const email = p?.signedinUser?.user || null
+        // signedinUser.user is `users/{id}` per Workspace Events Meet — NOT an
+        // email. Google does not include the participant's email in the event
+        // payload. We store this raw value in the (legacy-named) `email` field
+        // and evaluateNoShow compares against `users/{hostUserId}` to identify
+        // the host.
+        const userKey = p?.signedinUser?.user || null
         const displayName =
           p?.signedinUser?.displayName ||
           p?.anonymousUser?.displayName ||
           p?.phoneUser?.displayName || null
         await appendParticipant(meeting.id, {
-          email,
+          email: userKey,
           displayName,
           joinTime: p?.earliestStartTime,
           leaveTime: p?.latestEndTime,

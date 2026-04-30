@@ -45,9 +45,15 @@ export async function appendRawEvent(meetingId: string, ev: MeetingRawEvent) {
 
 /**
  * Inspect the accumulated participant list and decide whether the candidate
- * showed up. Heuristic: anyone whose email is NOT the workspace's connected
- * Google account (host), OR any anonymous/non-email participant, counts as a
- * non-host attendee. Zero non-host entries → no-show.
+ * showed up. Heuristic: anyone whose signed-in user id is NOT the workspace's
+ * connected Google account (host), OR any anonymous/non-signed-in participant,
+ * counts as a non-host attendee. Zero non-host entries → no-show.
+ *
+ * `hostUserId` is the Google account id (userinfo.id), not an email. Workspace
+ * Events Meet sends signed-in participants as `users/{id}` and we store that
+ * raw value in participants[].email — matching it against `users/{hostUserId}`
+ * is the only reliable way to identify the host since Google does not include
+ * the host's email in the CloudEvent payload.
  *
  * Note: this is a snapshot read, intended to be called from the conference.ended
  * handler. Late-arriving participant.joined events are not common in practice
@@ -55,7 +61,7 @@ export async function appendRawEvent(meetingId: string, ev: MeetingRawEvent) {
  */
 export async function evaluateNoShow(
   meetingId: string,
-  hostEmail: string,
+  hostUserId: string,
 ): Promise<{ noShow: boolean; nonHostCount: number }> {
   const row = await prisma.interviewMeeting.findUnique({
     where: { id: meetingId },
@@ -65,13 +71,16 @@ export async function evaluateNoShow(
   const list = Array.isArray(row.participants)
     ? (row.participants as Array<Record<string, unknown>>)
     : []
-  const hostKey = hostEmail.toLowerCase()
+  const hostKey = `users/${hostUserId}`
   const seen = new Set<string>()
   for (const p of list) {
-    const email = typeof p.email === 'string' && p.email ? p.email.toLowerCase() : null
+    // Despite the field name, `email` holds the raw signedinUser.user value
+    // (`users/{id}`) for Google-account participants — see appendParticipant
+    // call site in the webhook handler.
+    const userKey = typeof p.email === 'string' && p.email ? p.email : null
     const name = typeof p.displayName === 'string' && p.displayName ? p.displayName : null
-    if (email && email === hostKey) continue
-    const key = email ? `e:${email}` : name ? `n:${name}` : `anon:${seen.size}`
+    if (userKey && userKey === hostKey) continue
+    const key = userKey ? `u:${userKey}` : name ? `n:${name}` : `anon:${seen.size}`
     seen.add(key)
   }
   return { noShow: seen.size === 0, nonHostCount: seen.size }
