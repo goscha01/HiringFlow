@@ -13,7 +13,7 @@ import { prisma } from './prisma'
 import { logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { fireMeetingScheduledAutomations } from './automation'
 import { meetIntegrationEnabled } from './meet/feature-flag'
-import { getSpaceByMeetingCode, parseMeetingCodeFromUrl } from './meet/google-meet'
+import { getSpaceByMeetingCode, parseMeetingCodeFromUrl, updateSpaceSettings } from './meet/google-meet'
 import { subscribeSpace } from './meet/workspace-events'
 import { getAuthedClientForWorkspace, hasMeetScopes } from './google'
 
@@ -112,6 +112,30 @@ async function adoptExternalMeet(
     return
   }
 
+  // Calendly / direct calendar invites create the Meet space without recording
+  // configured. Patch the space to ON when the workspace can record so the
+  // adopted meeting auto-records the same way an in-app scheduled one would.
+  // Space settings are mutable until a participant joins, so this works as
+  // long as the calendar event lands more than a moment before the meeting.
+  let recordingTurnedOn = space.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON'
+  let transcriptionTurnedOn = space.config?.artifactConfig?.transcriptionConfig?.autoTranscriptionGeneration === 'ON'
+  if (authed.integration.recordingCapable && !recordingTurnedOn) {
+    try {
+      const updated = await updateSpaceSettings(authed.client, space.name, {
+        autoRecording: 'ON',
+        autoTranscription: 'ON',
+      })
+      recordingTurnedOn = updated.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON'
+      transcriptionTurnedOn = updated.config?.artifactConfig?.transcriptionConfig?.autoTranscriptionGeneration === 'ON'
+      console.log('[AdoptMeet] enabled auto-recording on adopted space', space.name)
+    } catch (err) {
+      // Non-fatal: meeting may already be in progress, or the API rejected
+      // the patch. Fall through and persist with whatever settings the space
+      // currently has.
+      console.warn('[AdoptMeet] updateSpaceSettings failed:', (err as Error).message)
+    }
+  }
+
   let subName: string | null = null
   let subExpires: Date | null = null
   try {
@@ -132,10 +156,10 @@ async function adoptExternalMeet(
       googleCalendarEventId: event.id,
       scheduledStart: new Date(start),
       scheduledEnd: new Date(end),
-      recordingEnabled: space.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON',
-      recordingProvider: null,
-      recordingState: 'disabled',
-      transcriptState: 'disabled',
+      recordingEnabled: recordingTurnedOn,
+      recordingProvider: recordingTurnedOn ? 'google_meet' : null,
+      recordingState: recordingTurnedOn ? 'requested' : 'disabled',
+      transcriptState: transcriptionTurnedOn ? 'processing' : 'disabled',
       workspaceEventsSubName: subName,
       workspaceEventsSubExpiresAt: subExpires,
     },
