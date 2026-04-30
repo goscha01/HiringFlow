@@ -379,7 +379,9 @@ export function GoogleIntegrationCard() {
             attendance to our integration. Recordings still get linked to candidates automatically — but
             who actually joined the call has to come from somewhere else.
           </p>
-          <p className="mt-3 text-xs text-amber-900 font-medium">Two ways to fix:</p>
+          <p className="mt-3 text-xs text-amber-900 font-medium">
+            {meetV2.recordingCapable ? 'Two ways to fix:' : 'How to fix:'}
+          </p>
           <ul className="mt-1 space-y-2 text-amber-800 text-xs">
             <li>
               <strong>Upgrade to Google Workspace Business or higher</strong> (custom-domain email like
@@ -395,19 +397,22 @@ export function GoogleIntegrationCard() {
                 See Workspace pricing →
               </a>
             </li>
-            <li>
-              <strong>Install a Meet attendance Chrome extension</strong> that exports attendance to your
-              Drive. We&apos;ll read it from there to flag no-shows automatically.
-              <br />
-              <a
-                href="https://chromewebstore.google.com/detail/google-meet-attendance-list/appcnhiefcidclcdjeahgklghghihfok"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:no-underline"
-              >
-                Install &ldquo;Google Meet Attendance List&rdquo; →
-              </a>
-            </li>
+            {meetV2.recordingCapable && (
+              <li>
+                <strong>Install a Meet attendance Chrome extension</strong> that exports attendance to your
+                Drive. Since your plan already supports recording, we can pair the extension&apos;s
+                attendance export with the recording artifact and flag no-shows automatically.
+                <br />
+                <a
+                  href="https://chromewebstore.google.com/detail/google-meet-attendance-list/appcnhiefcidclcdjeahgklghghihfok"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:no-underline"
+                >
+                  Install &ldquo;Google Meet Attendance List&rdquo; →
+                </a>
+              </li>
+            )}
           </ul>
           <p className="mt-3 text-xs text-amber-700">
             Until then, mark no-shows manually from the candidate&apos;s detail page.
