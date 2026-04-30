@@ -11,15 +11,17 @@ interface TrainingItem { id: string; title: string; slug: string }
 interface SchedulingItem { id: string; name: string; schedulingUrl: string }
 interface Rule {
   id: string; name: string; triggerType: string; flowId: string | null
-  actionType: string; emailTemplateId: string; nextStepType: string | null
+  actionType: string; emailTemplateId: string | null; nextStepType: string | null
   nextStepUrl: string | null; trainingId: string | null; schedulingConfigId: string | null
   emailDestination: 'applicant' | 'company' | 'specific'
   emailDestinationAddress: string | null
+  channel?: 'email' | 'sms'
+  smsBody?: string | null
   delayMinutes?: number
   minutesBefore?: number | null
   waitForRecording?: boolean
   isActive: boolean; createdAt: string
-  flow: Flow | null; emailTemplate: Template; training: TrainingItem | null
+  flow: Flow | null; emailTemplate: Template | null; training: TrainingItem | null
   schedulingConfig: SchedulingItem | null; _count: { executions: number }
 }
 
@@ -104,6 +106,8 @@ export default function AutomationsPage() {
   const [schedulingConfigId, setSchedulingConfigId] = useState('')
   const [delayMinutes, setDelayMinutes] = useState(0)
   const [minutesBefore, setMinutesBefore] = useState(60)
+  const [channel, setChannel] = useState<'email' | 'sms'>('email')
+  const [smsBody, setSmsBody] = useState('')
   const [waitForRecording, setWaitForRecording] = useState(false)
   const [emailDestination, setEmailDestination] = useState<'applicant' | 'company' | 'specific'>('applicant')
   const [emailDestinationAddress, setEmailDestinationAddress] = useState('')
@@ -151,9 +155,13 @@ export default function AutomationsPage() {
   }
 
   type PreviewData = {
-    subject: string
-    html: string
-    text: string | null
+    channel?: 'email' | 'sms'
+    subject?: string
+    html?: string
+    text?: string | null
+    smsBody?: string
+    length?: number
+    segments?: number
     recipient: string
     from: { name: string; email: string }
     templateName: string
@@ -181,12 +189,15 @@ export default function AutomationsPage() {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
     setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
     setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0); setMinutesBefore(60)
+    setChannel('email'); setSmsBody('')
     setEmailDestination('applicant'); setEmailDestinationAddress('')
     setShowModal(true)
   }
   const openEdit = (r: Rule) => {
     setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || (r as any).triggerAutomationId || '')
-    setTemplateId(r.emailTemplateId); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
+    setTemplateId(r.emailTemplateId || ''); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
+    setChannel(r.channel === 'sms' ? 'sms' : 'email')
+    setSmsBody(r.smsBody || '')
     setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
     setDelayMinutes((r as any).delayMinutes || 0)
     setMinutesBefore((r as any).minutesBefore || 60)
@@ -197,13 +208,16 @@ export default function AutomationsPage() {
   }
 
   const save = async () => {
-    if (!name.trim() || !templateId) return
+    if (!name.trim()) return
+    if (channel === 'email' && !templateId) return
+    if (channel === 'sms' && !smsBody.trim()) return
     setSaving(true)
     const body = {
-      name, triggerType,
+      name, triggerType, channel,
       flowId: (!SESSION_WIDE_TRIGGERS.has(triggerType)) ? (flowId || null) : null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
-      emailTemplateId: templateId,
+      emailTemplateId: channel === 'email' ? templateId : null,
+      smsBody: channel === 'sms' ? smsBody : null,
       nextStepType: nextStepType || null,
       nextStepUrl: null as string | null,
       trainingId: nextStepType === 'training' ? (trainingId || null) : null,
@@ -211,8 +225,8 @@ export default function AutomationsPage() {
       delayMinutes: triggerType === 'before_meeting' ? 0 : delayMinutes,
       minutesBefore: triggerType === 'before_meeting' ? minutesBefore : null,
       waitForRecording: triggerType === 'meeting_ended' ? waitForRecording : false,
-      emailDestination,
-      emailDestinationAddress: emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
+      emailDestination: channel === 'sms' ? 'applicant' : emailDestination,
+      emailDestinationAddress: channel === 'email' && emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
     }
     if (editing) {
       await fetch(`/api/automations/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -259,8 +273,13 @@ export default function AutomationsPage() {
   }
 
   const runTest = async (r: Rule) => {
-    const to = prompt(`Send a test email for "${r.name}" to:`, '')
-    if (!to || !to.includes('@')) return
+    const isSms = r.channel === 'sms'
+    const promptText = isSms
+      ? `Send a test SMS for "${r.name}" to (E.164, e.g. +15551234567):`
+      : `Send a test email for "${r.name}" to:`
+    const to = prompt(promptText, '')
+    if (!to) return
+    if (isSms ? !/^\+?\d[\d\s().-]{6,}$/.test(to) : !to.includes('@')) return
     setTestingId(r.id)
     try {
       const res = await fetch(`/api/automations/${r.id}/test`, {
@@ -388,7 +407,13 @@ export default function AutomationsPage() {
                   <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
                   <td className="px-5 py-4"><span className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.triggerType === 'training_completed' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-600'}`}>{TRIGGER_LABELS[r.triggerType] || r.triggerType}</span></td>
                   <td className="px-5 py-4 text-sm text-grey-35">{r.flow?.name || 'Any flow'}</td>
-                  <td className="px-5 py-4 text-sm text-grey-35">{r.emailTemplate.name}</td>
+                  <td className="px-5 py-4 text-sm text-grey-35">
+                    {r.channel === 'sms' ? (
+                      <span className="inline-flex items-center gap-1.5"><span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono uppercase tracking-wide">SMS</span><span className="truncate max-w-[200px] text-xs text-grey-40 font-mono">{(r.smsBody || '').slice(0, 60)}{(r.smsBody || '').length > 60 ? '…' : ''}</span></span>
+                    ) : (
+                      r.emailTemplate?.name || <span className="text-grey-50 italic">No template</span>
+                    )}
+                  </td>
                   <td className="px-5 py-4 text-sm text-grey-40">
                     {r.nextStepType === 'training' && r.training ? (
                       <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 font-medium">{r.training.title}</span>
@@ -453,12 +478,26 @@ export default function AutomationsPage() {
               >×</button>
             </div>
             <div className="px-6 py-4 border-b border-surface-border bg-surface-light text-[13px] space-y-1.5">
+              <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">Channel</span><span className="text-grey-15 font-medium uppercase">{preview.channel || 'email'}</span></div>
               <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">From</span><span className="text-grey-15">{preview.from.name} &lt;{preview.from.email}&gt;</span></div>
               <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">To</span><span className="text-grey-15">{preview.recipient}</span></div>
-              <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">Subject</span><span className="text-grey-15 font-medium">{preview.subject}</span></div>
+              {preview.channel !== 'sms' && (
+                <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">Subject</span><span className="text-grey-15 font-medium">{preview.subject}</span></div>
+              )}
+              {preview.channel === 'sms' && preview.length !== undefined && (
+                <div className="flex gap-2"><span className="text-grey-40 w-16 flex-shrink-0">Length</span><span className="text-grey-15 font-mono">{preview.length} chars · {preview.segments} segment{(preview.segments || 0) > 1 ? 's' : ''}</span></div>
+              )}
             </div>
             <div className="flex-1 overflow-auto">
-              <div className="p-6 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: preview.html }} />
+              {preview.channel === 'sms' ? (
+                <div className="p-6">
+                  <div className="max-w-[320px] mx-auto bg-blue-500 text-white rounded-2xl rounded-bl-sm px-4 py-3 text-sm whitespace-pre-wrap break-words shadow">
+                    {preview.smsBody}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: preview.html || '' }} />
+              )}
             </div>
             <div className="px-6 py-3 border-t border-surface-border bg-surface-light flex items-center justify-between text-xs text-grey-40">
               <span>Sample values shown for merge tokens. No email sent.</span>
@@ -485,6 +524,29 @@ export default function AutomationsPage() {
                     <button key={t.value} onClick={() => setTriggerType(t.value)} className={`py-2.5 px-3 text-xs rounded-[8px] border font-medium ${triggerType === t.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{t.label}</button>
                   ))}
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Channel</label>
+                <div className="flex gap-2">
+                  {[
+                    { v: 'email' as const, l: 'Email' },
+                    { v: 'sms' as const, l: 'SMS' },
+                  ].map(({ v, l }) => (
+                    <button
+                      key={v}
+                      onClick={() => setChannel(v)}
+                      className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${channel === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                {channel === 'sms' && (
+                  <p className="text-xs text-grey-40 mt-1.5">
+                    SMS sends to the candidate&apos;s phone via Sigcore. Requires <code className="text-grey-15">candidatePhone</code> on the application —
+                    rules will fail gracefully when the phone is missing or invalid.
+                  </p>
+                )}
               </div>
               {triggerType === 'meeting_ended' && (
                 <div className="p-3 bg-surface-weak rounded-[8px]">
@@ -524,7 +586,30 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              {nextStepType && (
+              {channel === 'sms' && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">SMS body</label>
+                  <textarea
+                    value={smsBody}
+                    onChange={(e) => setSmsBody(e.target.value)}
+                    rows={4}
+                    placeholder="Hi {{candidate_name}}, your interview starts at {{meeting_time}}. Join: {{meeting_link}}"
+                    className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+                  />
+                  <div className="flex items-center justify-between mt-1.5">
+                    <p className="text-xs text-grey-40">
+                      Plain text only. Merge tokens: <code>{'{{candidate_name}}'}</code>, <code>{'{{meeting_time}}'}</code>, <code>{'{{meeting_link}}'}</code>, <code>{'{{schedule_link}}'}</code>.
+                    </p>
+                    <span className={`text-xs font-mono ${smsBody.length > 320 ? 'text-amber-700' : smsBody.length > 160 ? 'text-grey-15' : 'text-grey-40'}`}>
+                      {smsBody.length} chars · {Math.max(1, Math.ceil(smsBody.length / 160))} segment{smsBody.length > 160 ? 's' : ''}
+                    </span>
+                  </div>
+                  {smsBody.length > 1600 && (
+                    <p className="text-xs text-amber-700 mt-1">SMS bodies above ~1600 chars (10 segments) are likely to be rejected by carriers.</p>
+                  )}
+                </div>
+              )}
+              {channel === 'email' && nextStepType && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
                   {!showNewTemplate ? (
@@ -685,7 +770,7 @@ export default function AutomationsPage() {
                 {delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Email will be sent {delayMinutes >= 1440 ? `${Math.round(delayMinutes / 1440)} day${delayMinutes >= 2880 ? 's' : ''}` : delayMinutes >= 60 ? `${Math.round(delayMinutes / 60)} hour${delayMinutes >= 120 ? 's' : ''}` : `${delayMinutes} minutes`} after trigger.</p>}
               </div>
               )}
-              {nextStepType && (
+              {channel === 'email' && nextStepType && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Destination</label>
                   <div className="flex gap-2">

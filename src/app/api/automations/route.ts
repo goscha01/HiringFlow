@@ -22,8 +22,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
-  const { name, triggerType, flowId, triggerAutomationId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes, minutesBefore, emailDestination, emailDestinationAddress, waitForRecording } = await request.json()
-  if (!name || !triggerType || !emailTemplateId) return NextResponse.json({ error: 'name, triggerType, emailTemplateId required' }, { status: 400 })
+  const { name, triggerType, flowId, triggerAutomationId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes, minutesBefore, emailDestination, emailDestinationAddress, waitForRecording, channel, smsBody } = await request.json()
+  if (!name || !triggerType) return NextResponse.json({ error: 'name and triggerType required' }, { status: 400 })
+  const ch: 'email' | 'sms' = channel === 'sms' ? 'sms' : 'email'
+  if (ch === 'email' && !emailTemplateId) {
+    return NextResponse.json({ error: 'emailTemplateId required for email channel' }, { status: 400 })
+  }
+  if (ch === 'sms' && (!smsBody || typeof smsBody !== 'string' || smsBody.trim().length === 0)) {
+    return NextResponse.json({ error: 'smsBody required for sms channel' }, { status: 400 })
+  }
   if (triggerType === 'before_meeting' && (!Number.isInteger(minutesBefore) || minutesBefore <= 0)) {
     return NextResponse.json({ error: 'before_meeting rules need minutesBefore (positive integer)' }, { status: 400 })
   }
@@ -46,7 +53,9 @@ export async function POST(request: NextRequest) {
       workspaceId: ws.workspaceId, createdById: ws.userId, name, triggerType,
       flowId: flowId || null,
       triggerAutomationId: triggerAutomationId || null,
-      emailTemplateId,
+      channel: ch,
+      emailTemplateId: ch === 'email' ? emailTemplateId : null,
+      smsBody: ch === 'sms' ? smsBody : null,
       nextStepType: nextStepType || null,
       nextStepUrl: nextStepUrl || null,
       trainingId: trainingId || null,

@@ -25,7 +25,9 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     },
   })
   if (!rule) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!rule.emailTemplate) return NextResponse.json({ error: 'Template missing' }, { status: 400 })
+  const channel = (rule.channel as 'email' | 'sms' | undefined) || 'email'
+  if (channel === 'email' && !rule.emailTemplate) return NextResponse.json({ error: 'Email template missing' }, { status: 400 })
+  if (channel === 'sms' && (!rule.smsBody || rule.smsBody.trim().length === 0)) return NextResponse.json({ error: 'SMS body missing' }, { status: 400 })
 
   // Resolve sample values for each merge token. Prefer real workspace data
   // (default scheduling URL, first training, etc.) so the preview reflects
@@ -63,9 +65,23 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     ad_name: 'Sample ad',
   }
 
-  const subject = renderTemplate(rule.emailTemplate.subject, variables)
-  const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
-  const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : null
+  if (channel === 'sms') {
+    const body = renderTemplate(rule.smsBody as string, variables)
+    return NextResponse.json({
+      channel,
+      smsBody: body,
+      recipient: '+15551230000',
+      from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
+      templateName: 'SMS body',
+      variables,
+      length: body.length,
+      segments: Math.max(1, Math.ceil(body.length / 160)),
+    })
+  }
+
+  const subject = renderTemplate(rule.emailTemplate!.subject, variables)
+  const html = renderTemplate(rule.emailTemplate!.bodyHtml, variables)
+  const text = rule.emailTemplate!.bodyText ? renderTemplate(rule.emailTemplate!.bodyText, variables) : null
 
   const recipient = rule.emailDestination === 'company'
     ? (rule.workspace?.senderEmail || 'company@example.com')
@@ -77,12 +93,13 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
   const fromName = rule.workspace?.senderName || 'HireFunnel'
 
   return NextResponse.json({
+    channel,
     subject,
     html,
     text,
     recipient,
     from: { name: fromName, email: fromAddress },
-    templateName: rule.emailTemplate.name,
+    templateName: rule.emailTemplate!.name,
     variables,
   })
 }

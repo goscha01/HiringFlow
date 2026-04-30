@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { sendEmail, renderTemplate } from './email'
+import { sendSms, normalizeToE164, SmsConfigError, SmsValidationError, SmsSendError } from './sms'
 import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { applyStageTrigger } from './funnel-stage-runtime'
@@ -551,38 +552,94 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
     ad_name: session.ad?.name || '',
   }
 
-  const subject = renderTemplate(rule.emailTemplate.subject, variables)
-  const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
-  const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
+  // ─── Channel branch ───────────────────────────────────────────────
+  // SMS rules: render rule.smsBody, validate phone, send via Sigcore.
+  // Email rules (default + everything pre-channel-field): existing pipeline.
 
-  let recipient: string | null = null
-  if (rule.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
-  else if (rule.emailDestination === 'specific') recipient = rule.emailDestinationAddress || null
-  else recipient = session.candidateEmail
+  const channel = (rule.channel as 'email' | 'sms' | undefined) || 'email'
+  let result: { success: boolean; error?: string; messageId?: string }
+  let provider: 'sendgrid' | 'sigcore' = 'sendgrid'
 
-  if (!recipient) {
-    await prisma.automationExecution.update({
-      where: { id: execution.id },
-      data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured` },
-    })
-    return
-  }
-
-  // Use workspace's custom sender if we have a valid verification:
-  //   1. Domain authentication (preferred) — any email on the validated domain
-  //   2. Legacy single-sender verification — exact email that was verified
-  // Otherwise fall back to the default noreply@hirefunnel.app.
-  let from: { email: string; name?: string } | null = null
-  const ws = rule.workspace
-  if (ws?.senderEmail && ws?.senderName) {
-    const domainOk = !!(ws.senderDomainValidatedAt && ws.senderDomain && ws.senderEmail.toLowerCase().endsWith('@' + ws.senderDomain.toLowerCase()))
-    const singleOk = !!ws.senderVerifiedAt
-    if (domainOk || singleOk) {
-      from = { email: ws.senderEmail, name: ws.senderName || undefined }
+  if (channel === 'sms') {
+    provider = 'sigcore'
+    if (!rule.smsBody || rule.smsBody.trim().length === 0) {
+      await prisma.automationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'failed', errorMessage: 'SMS rule has no body configured', channel, provider },
+      })
+      return
     }
-  }
+    if (!session.candidatePhone) {
+      await prisma.automationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'failed', errorMessage: 'Candidate has no phone number — cannot send SMS', channel, provider },
+      })
+      return
+    }
+    const normalized = normalizeToE164(session.candidatePhone)
+    if (!normalized) {
+      await prisma.automationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'failed', errorMessage: `Candidate phone is not E.164-normalizable: ${session.candidatePhone}`, channel, provider },
+      })
+      return
+    }
+    const body = renderTemplate(rule.smsBody, variables)
+    try {
+      const sent = await sendSms({
+        candidateId: sessionId,
+        workspaceId: session.workspaceId,
+        to: normalized,
+        body,
+        automationExecutionId: execution.id,
+      })
+      result = { success: true, messageId: sent.providerMessageId }
+    } catch (err) {
+      let errorMessage: string
+      if (err instanceof SmsConfigError) errorMessage = `SMS not configured: ${err.message}`
+      else if (err instanceof SmsValidationError) errorMessage = `SMS validation: ${err.message}`
+      else if (err instanceof SmsSendError) errorMessage = `Sigcore: ${err.message}`
+      else errorMessage = (err as Error).message || 'Unknown SMS error'
+      result = { success: false, error: errorMessage }
+    }
+  } else {
+    // ─── Email path ────────────────────────────────────────────────
+    if (!rule.emailTemplate) {
+      await prisma.automationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'failed', errorMessage: 'Email rule has no template configured', channel, provider },
+      })
+      return
+    }
+    const subject = renderTemplate(rule.emailTemplate.subject, variables)
+    const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
+    const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
 
-  const result = await sendEmail({ to: recipient, subject, html, text, from })
+    let recipient: string | null = null
+    if (rule.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
+    else if (rule.emailDestination === 'specific') recipient = rule.emailDestinationAddress || null
+    else recipient = session.candidateEmail
+
+    if (!recipient) {
+      await prisma.automationExecution.update({
+        where: { id: execution.id },
+        data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured`, channel, provider },
+      })
+      return
+    }
+
+    let from: { email: string; name?: string } | null = null
+    const ws = rule.workspace
+    if (ws?.senderEmail && ws?.senderName) {
+      const domainOk = !!(ws.senderDomainValidatedAt && ws.senderDomain && ws.senderEmail.toLowerCase().endsWith('@' + ws.senderDomain.toLowerCase()))
+      const singleOk = !!ws.senderVerifiedAt
+      if (domainOk || singleOk) {
+        from = { email: ws.senderEmail, name: ws.senderName || undefined }
+      }
+    }
+
+    result = await sendEmail({ to: recipient, subject, html, text, from })
+  }
 
   await prisma.automationExecution.update({
     where: { id: execution.id },
@@ -591,6 +648,8 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
       errorMessage: result.error || null,
       providerMessageId: result.messageId || null,
       sentAt: result.success ? new Date() : null,
+      channel,
+      provider,
     },
   })
 

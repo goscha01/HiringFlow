@@ -622,8 +622,19 @@ model AutomationRule {
   triggerAutomation   AutomationRule? @relation("AutomationChain", fields: [triggerAutomationId], references: [id])
   chainedBy           AutomationRule[] @relation("AutomationChain")
   actionType      String              @default("send_email") @map("action_type")
-  emailTemplateId String              @map("email_template_id")
-  emailTemplate   EmailTemplate       @relation(fields: [emailTemplateId], references: [id])
+  // 'email' (default) | 'sms'. Determines which send pipeline runs. Email
+  // rules use emailTemplateId; SMS rules use smsBody (per-rule, no template
+  // indirection in v1). Future channels: 'whatsapp'.
+  channel         String              @default("email")
+  // Nullable for SMS rules. Required when channel='email' (validated at
+  // API layer; the FK stays nullable for back-compat with future channels
+  // that don't use email templates).
+  emailTemplateId String?             @map("email_template_id")
+  emailTemplate   EmailTemplate?      @relation(fields: [emailTemplateId], references: [id])
+  // Plaintext SMS body with merge tokens like {{candidate_name}}. Only used
+  // when channel='sms'. Kept on the rule for v1 — no separate SmsTemplate
+  // model yet.
+  smsBody         String?             @map("sms_body")
   emailDestination        String  @default("applicant") @map("email_destination") // 'applicant' | 'company' | 'specific'
   emailDestinationAddress String? @map("email_destination_address")
   nextStepType    String?             @map("next_step_type")
@@ -655,8 +666,13 @@ model AutomationExecution {
   sessionId         String?         @map("session_id")
   status            String          @default("pending")
   errorMessage      String?         @map("error_message")
+  // 'sendgrid' for email, 'sigcore' for SMS via the Sigcore platform API.
   provider          String          @default("sendgrid")
   providerMessageId String?         @map("provider_message_id")
+  // Mirror of the rule's channel at execution time. Lets the timeline UI
+  // show which channel actually ran without joining to the rule (the rule's
+  // channel could change after execution).
+  channel           String          @default("email")
   // QStash messageId — captured when a delayed rule is queued so we can
   // cancel/delete the scheduled job (e.g. when a meeting is cancelled or
   // rescheduled and pending reminders need to be voided).
