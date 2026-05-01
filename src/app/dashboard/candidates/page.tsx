@@ -49,12 +49,17 @@ export default function CandidatesPage() {
   const [dragging, setDragging] = useState<string | null>(null)
   const [hoverCol, setHoverCol] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // A card must be explicitly clicked ("picked up") before its drag handle
+  // activates. Until then the card is treated as part of the board so the
+  // mousedown initiates a horizontal pan instead of an HTML5 drag.
+  const [selectedCard, setSelectedCard] = useState<string | null>(null)
 
   // Click-and-drag horizontal pan on the kanban background. Skips when the
-  // mousedown originates on a card or interactive element so card DnD and
-  // buttons keep working.
+  // mousedown originates on a *selected* card (data-card is set conditionally)
+  // or any interactive element so card DnD and buttons keep working.
   const kanbanRef = useRef<HTMLDivElement | null>(null)
   const panState = useRef<{ startX: number; startScroll: number } | null>(null)
+  const movedDuringPan = useRef(false)
   const [panning, setPanning] = useState(false)
 
   const onPanMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -64,6 +69,7 @@ export default function CandidatesPage() {
     const el = kanbanRef.current
     if (!el) return
     panState.current = { startX: e.clientX, startScroll: el.scrollLeft }
+    movedDuringPan.current = false
     setPanning(true)
   }
 
@@ -73,6 +79,7 @@ export default function CandidatesPage() {
       const el = kanbanRef.current
       const ps = panState.current
       if (!el || !ps) return
+      if (Math.abs(ev.clientX - ps.startX) > 3) movedDuringPan.current = true
       el.scrollLeft = ps.startScroll - (ev.clientX - ps.startX)
     }
     const onUp = () => { panState.current = null; setPanning(false) }
@@ -83,6 +90,13 @@ export default function CandidatesPage() {
       window.removeEventListener('mouseup', onUp)
     }
   }, [panning])
+
+  // Esc cancels the current pickup.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedCard(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
@@ -148,7 +162,7 @@ export default function CandidatesPage() {
       <PageHeader
         eyebrow={`${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`}
         title="Candidates"
-        description="Drag between columns to move candidates through your pipeline."
+        description="Drag the board to scroll. Click a candidate to pick it up, then drag to a new stage."
         actions={
           <button
             onClick={() => setSettingsOpen(true)}
@@ -202,6 +216,14 @@ export default function CandidatesPage() {
           <div
             ref={kanbanRef}
             onMouseDown={onPanMouseDown}
+            onClick={(e) => {
+              // Drop the pickup on a real background click — but not when the
+              // click is the tail of a pan gesture (mouse moved before mouseup).
+              if (movedDuringPan.current) { movedDuringPan.current = false; return }
+              const t = e.target as HTMLElement
+              if (t.closest('[data-card-body]')) return
+              setSelectedCard(null)
+            }}
             className={`flex-1 min-h-0 flex gap-3.5 overflow-x-auto overflow-y-hidden -mx-2 px-2 snap-x select-none ${
               panning ? 'cursor-grabbing' : 'cursor-grab'
             }`}
@@ -247,20 +269,29 @@ export default function CandidatesPage() {
                     ) : items.map((c) => {
                       const cardStage = resolveStage(c.pipelineStatus, stages)
                       const isDragging = dragging === c.id
+                      const isSelected = selectedCard === c.id
                       return (
                         <div
                           key={c.id}
-                          draggable
-                          data-card
+                          data-card-body
+                          {...(isSelected ? { draggable: true, 'data-card': true } : {})}
+                          onClick={(e) => {
+                            const t = e.target as HTMLElement
+                            if (t.closest('a, button')) return
+                            setSelectedCard((cur) => (cur === c.id ? null : c.id))
+                          }}
                           onDragStart={(e) => {
+                            if (!isSelected) { e.preventDefault(); return }
                             e.dataTransfer.setData('text/candidate-id', c.id)
                             e.dataTransfer.effectAllowed = 'move'
                             setDragging(c.id)
                           }}
-                          onDragEnd={() => { setDragging(null); setHoverCol(null) }}
-                          className={`group relative rounded-[10px] border border-surface-border bg-white p-3 cursor-grab active:cursor-grabbing transition-shadow ${
-                            isDragging ? 'opacity-50' : 'hover:shadow-[0_2px_6px_rgba(26,24,21,0.06)]'
-                          }`}
+                          onDragEnd={() => { setDragging(null); setHoverCol(null); setSelectedCard(null) }}
+                          className={`group relative rounded-[10px] border bg-white p-3 transition-shadow ${
+                            isSelected
+                              ? 'border-[color:var(--brand-primary)] ring-2 ring-[color:var(--brand-primary)]/40 shadow-[0_4px_12px_rgba(255,149,0,0.18)] cursor-grab active:cursor-grabbing'
+                              : 'border-surface-border cursor-pointer hover:shadow-[0_2px_6px_rgba(26,24,21,0.06)]'
+                          } ${isDragging ? 'opacity-50' : ''}`}
                         >
                           <div className="flex items-start justify-between gap-2 mb-1.5">
                             <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight pr-6">
