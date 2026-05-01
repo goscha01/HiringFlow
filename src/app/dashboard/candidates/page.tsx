@@ -33,6 +33,7 @@ interface Candidate {
   flow: { id: string; name: string } | null
   ad: { id: string; name: string; source: string } | null
   isRebook?: boolean
+  nextMeetingAt?: string | null
 }
 
 interface Flow { id: string; name: string }
@@ -310,8 +311,19 @@ export default function CandidatesPage() {
                               </>
                             )}
                           </div>
+                          {c.nextMeetingAt && (
+                            <div className="mb-2 text-[11px] text-grey-15">
+                              <span className="text-grey-40">Interview:</span>{' '}
+                              <span className="font-medium">
+                                {new Date(c.nextMeetingAt).toLocaleString(undefined, {
+                                  weekday: 'short', month: 'short', day: 'numeric',
+                                  hour: 'numeric', minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between text-[10px] font-mono text-grey-50" style={{ letterSpacing: '0.04em' }}>
-                            <span>{new Date(c.startedAt).toLocaleDateString()}</span>
+                            <span>Applied {new Date(c.startedAt).toLocaleDateString()}</span>
                             <div className="flex gap-2">
                               {c.answerCount > 0 && <span>{c.answerCount}Q</span>}
                               {c.submissionCount > 0 && <span style={{ color: 'var(--brand-fg)' }}>{c.submissionCount}🎥</span>}

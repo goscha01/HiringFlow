@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     ]
   }
 
+  const now = new Date()
   const sessions = await prisma.session.findMany({
     where: where as any,
     orderBy: { startedAt: 'desc' },
@@ -35,7 +36,14 @@ export async function GET(request: NextRequest) {
       answers: { select: { id: true } },
       submissions: { select: { id: true } },
       trainingEnrollments: { select: { id: true, status: true, completedAt: true } },
-      schedulingEvents: { select: { id: true, eventType: true, eventAt: true } },
+      schedulingEvents: { select: { id: true, eventType: true, eventAt: true, metadata: true } },
+      // Next upcoming InterviewMeeting (Meet v2 path)
+      interviewMeetings: {
+        where: { scheduledStart: { gt: now } },
+        orderBy: { scheduledStart: 'asc' },
+        take: 1,
+        select: { scheduledStart: true, meetingUri: true },
+      },
     },
   })
 
@@ -74,6 +82,25 @@ export async function GET(request: NextRequest) {
     return true
   })
 
+  // Next upcoming meeting time. Prefer the InterviewMeeting (Meet v2 row) when
+  // present; fall back to the latest meeting_scheduled / meeting_rescheduled
+  // SchedulingEvent's metadata for legacy / Calendly bookings that didn't go
+  // through the Meet v2 adoption path.
+  const computeNextMeetingAt = (s: typeof sessions[number]): Date | null => {
+    const v2 = s.interviewMeetings[0]?.scheduledStart
+    if (v2) return v2
+    const evs = s.schedulingEvents
+      .filter((e) => e.eventType === 'meeting_scheduled' || e.eventType === 'meeting_rescheduled')
+      .map((e) => {
+        const meta = e.metadata as Record<string, unknown> | null
+        const at = typeof meta?.scheduledAt === 'string' ? new Date(meta.scheduledAt) : null
+        return at && !isNaN(at.getTime()) ? at : null
+      })
+      .filter((d): d is Date => !!d && d.getTime() > now.getTime())
+      .sort((a, b) => a.getTime() - b.getTime())
+    return evs[0] ?? null
+  }
+
   return NextResponse.json(deduped.map(s => ({
     isRebook: computeIsRebook(s),
     id: s.id,
@@ -94,5 +121,6 @@ export async function GET(request: NextRequest) {
     trainingCompletedAt: s.trainingEnrollments[0]?.completedAt || null,
     schedulingEvents: s.schedulingEvents.length,
     lastSchedulingEvent: s.schedulingEvents[0]?.eventType || null,
+    nextMeetingAt: computeNextMeetingAt(s),
   })))
 }
