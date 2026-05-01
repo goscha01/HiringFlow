@@ -41,6 +41,7 @@ interface CandidateDetail {
   trainingEnrollments: TrainingEnrollment[]; schedulingEvents: SchedulingEvent[]
   automationExecutions?: AutomationExec[]
   formFieldLabels?: Record<string, string>
+  isRebook?: boolean
 }
 
 const REJECTION_PRESETS = ['No-show', 'Not qualified', 'Declined offer', 'Wrong location', 'Pay expectations']
@@ -358,7 +359,7 @@ export default function CandidateDetailPage() {
       {/* Meet integration v2: in-app Google Meet scheduling (loosely coupled —
           the panel self-hides if the feature flag / scopes aren't active, so
           this never affects workspaces still on the Calendly flow) */}
-      <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} />
+      <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} isRebook={candidate.isRebook} />
 
       {/* Form data */}
       {candidate.formData && Object.keys(candidate.formData).length > 0 && (

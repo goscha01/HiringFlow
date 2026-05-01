@@ -36,7 +36,7 @@ function stateLabel(m: InterviewMeeting): { text: string; tone: 'blue' | 'green'
   return { text: 'Scheduled', tone: 'blue' }
 }
 
-export function InterviewPanel({ candidateId, candidateEmail }: { candidateId: string; candidateEmail: string | null }) {
+export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { candidateId: string; candidateEmail: string | null; isRebook?: boolean }) {
   const [meetings, setMeetings] = useState<InterviewMeeting[] | null>(null)
   const [showDialog, setShowDialog] = useState(false)
   const [featureOn, setFeatureOn] = useState<boolean | null>(null)
@@ -93,8 +93,18 @@ export function InterviewPanel({ candidateId, candidateEmail }: { candidateId: s
               <div key={m.id} className="border border-surface-border rounded-[8px] p-3">
                 <div className="flex justify-between items-start">
                   <div>
-                    <div className="text-sm font-medium text-grey-15">
-                      {new Date(m.scheduledStart).toLocaleString()}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="text-sm font-medium text-grey-15">
+                        {new Date(m.scheduledStart).toLocaleString()}
+                      </div>
+                      {isRebook && (
+                        <span
+                          title="This candidate had a prior no-show and re-booked via the follow-up invite"
+                          className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium"
+                        >
+                          Rebook
+                        </span>
+                      )}
                     </div>
                     <a className="text-xs text-primary hover:underline break-all" href={m.meetingUri} target="_blank" rel="noopener noreferrer">
                       {m.meetingUri}

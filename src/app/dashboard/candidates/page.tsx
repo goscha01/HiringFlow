@@ -32,6 +32,7 @@ interface Candidate {
   schedulingEvents: number; lastSchedulingEvent: string | null
   flow: { id: string; name: string } | null
   ad: { id: string; name: string; source: string } | null
+  isRebook?: boolean
 }
 
 interface Flow { id: string; name: string }
@@ -276,6 +277,14 @@ export default function CandidatesPage() {
                           </div>
                           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                             <Badge tone={cardStage.tone}>{cardStage.label}</Badge>
+                            {c.isRebook && (
+                              <span
+                                title="This candidate had a prior no-show and re-booked via the follow-up invite"
+                                className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium"
+                              >
+                                Rebook
+                              </span>
+                            )}
                             {c.rejectionReason && (
                               <span
                                 title={c.rejectionReason}

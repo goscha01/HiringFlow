@@ -68,7 +68,24 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
   }
 
-  return NextResponse.json({ ...session, automationExecutions, formFieldLabels })
+  // A session is a "rebook" if the same candidate (by email) has an earlier
+  // session in the workspace with a meeting_no_show event — i.e. they took
+  // the no-show follow-up invite and started over.
+  let isRebook = false
+  if (session.candidateEmail) {
+    const earlier = await prisma.session.findFirst({
+      where: {
+        workspaceId: ws.workspaceId,
+        candidateEmail: session.candidateEmail,
+        startedAt: { lt: session.startedAt },
+        schedulingEvents: { some: { eventType: 'meeting_no_show' } },
+      },
+      select: { id: true },
+    })
+    isRebook = !!earlier
+  }
+
+  return NextResponse.json({ ...session, automationExecutions, formFieldLabels, isRebook })
 }
 
 // Update pipeline status

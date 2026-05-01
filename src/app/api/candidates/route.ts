@@ -39,6 +39,26 @@ export async function GET(request: NextRequest) {
     },
   })
 
+  // Build email → earliest meeting_no_show timestamp map. A later session for
+  // the same email is a "rebook" — i.e. the candidate took the no-show
+  // follow-up invite and started over.
+  const earliestNoShowByEmail = new Map<string, Date>()
+  for (const s of sessions) {
+    if (!s.candidateEmail) continue
+    for (const ev of s.schedulingEvents) {
+      if (ev.eventType !== 'meeting_no_show') continue
+      const key = s.candidateEmail.toLowerCase().trim()
+      const cur = earliestNoShowByEmail.get(key)
+      if (!cur || ev.eventAt < cur) earliestNoShowByEmail.set(key, ev.eventAt)
+    }
+  }
+  const computeIsRebook = (s: { candidateEmail: string | null; startedAt: Date }) => {
+    if (!s.candidateEmail) return false
+    const key = s.candidateEmail.toLowerCase().trim()
+    const at = earliestNoShowByEmail.get(key)
+    return !!at && s.startedAt > at
+  }
+
   // Dedupe by candidate email: when the same person re-applies (e.g. they
   // clicked a no-show "re-book invite" and went through the flow again), the
   // database has multiple Session rows but the kanban should show only ONE
@@ -55,6 +75,7 @@ export async function GET(request: NextRequest) {
   })
 
   return NextResponse.json(deduped.map(s => ({
+    isRebook: computeIsRebook(s),
     id: s.id,
     candidateName: s.candidateName,
     candidateEmail: s.candidateEmail,
