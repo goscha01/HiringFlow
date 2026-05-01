@@ -224,8 +224,10 @@ export default function CandidatesPage() {
               if (t.closest('[data-card-body]')) return
               setSelectedCard(null)
             }}
-            className={`flex-1 min-h-0 flex gap-3.5 overflow-x-auto overflow-y-hidden -mx-2 px-2 snap-x select-none ${
-              panning ? 'cursor-grabbing' : 'cursor-grab'
+            className={`flex-1 min-h-0 flex gap-3.5 overflow-x-auto overflow-y-hidden -mx-2 px-2 snap-x select-none transition-[opacity,filter] duration-150 ${
+              panning
+                ? 'cursor-grabbing [&_*]:!cursor-grabbing opacity-[0.92] brightness-[0.98]'
+                : 'cursor-grab'
             }`}
           >
             {stages.map((stage) => {
