@@ -226,7 +226,7 @@ export default function CandidatesPage() {
             }}
             className={`flex-1 min-h-0 flex gap-3.5 overflow-x-auto overflow-y-hidden -mx-2 px-2 snap-x select-none transition-[opacity,filter] duration-150 ${
               panning
-                ? 'cursor-grabbing [&_*]:!cursor-grabbing opacity-[0.92] brightness-[0.98]'
+                ? 'cursor-grabbing [&_*]:!cursor-grabbing opacity-80 brightness-90'
                 : 'cursor-grab'
             }`}
           >
