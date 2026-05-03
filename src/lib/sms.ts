@@ -1,21 +1,20 @@
 /**
- * Outbound SMS via Sigcore.
+ * Outbound SMS via Sigcore Platform API (v1).
  *
  * Sigcore is the multi-tenant communication platform that owns Twilio
- * credentials, A2P 10DLC registration, and pooled sender numbers for our
- * suite of products (ServiceFlow, LeadBridge, Callio — and now HiringFlow).
+ * credentials, A2P 10DLC registration, and assigned sender numbers per
+ * profile. HiringFlow is one Sigcore tenant with a single profile that
+ * owns the assigned HF sender number (e.g. +1 918 309 1938).
  *
- * v1 architecture:
- *   - HiringFlow is a single Sigcore tenant (one workspace API key).
- *   - All HF candidates' messages go through one shared pool number.
- *   - Per-HF-workspace context is encoded in the `source` field so Sigcore
- *     can log/route per workspace internally.
- *   - Outbound only — candidate replies + two-way inbox are out of scope.
+ * Endpoint: POST {SIGCORE_API_URL}/api/v1/messages
+ *   Auth:    X-API-Key: {SIGCORE_API_KEY}        (tenant-scoped: sc_tenant_*)
+ *   Body:    { toNumber, body, profileId, channel: 'sms', metadata? }
+ *   Returns: { success, data: { id, providerMessageId, status, provider, ... } }
  *
- * Endpoint: POST {SIGCORE_API_URL}/api/internal/messages/send
- *   Auth:    X-API-Key: {SIGCORE_API_KEY}   (workspace-scoped)
- *   Body:    { businessId, toPhone, body, automationId?, leadId?, source? }
- *   Returns: { messageId, status, providerSid }
+ * Sigcore's outbound resolver looks up the assigned sender number for
+ * `profileId` (via profile_phone_assignments → tenant_phone_numbers) and
+ * routes through the right provider (Twilio/OpenPhone) automatically.
+ * No fromNumber, businessId, or phoneNumberId is required from the caller.
  */
 
 const E164 = /^\+[1-9]\d{6,14}$/
@@ -29,32 +28,24 @@ export class SmsSendError extends Error {
 }
 
 export interface SmsSendInput {
-  /** HF Session.id — passed to Sigcore as `leadId` for downstream lookup. */
+  /** HF Session.id — passed as metadata for downstream lookup. */
   candidateId: string
-  /** HF workspace UUID — encoded into `source` so Sigcore can attribute usage. */
+  /** HF workspace UUID — passed as metadata so Sigcore can attribute usage. */
   workspaceId: string
   /** Candidate's phone, ideally already E.164 (`+15551234567`). */
   to: string
   /** Plain-text SMS body, post-merge-token rendering. */
   body: string
-  /** AutomationExecution.id, for tracing. */
+  /** AutomationExecution.id, passed as metadata for tracing. */
   automationExecutionId?: string
 }
 
 export interface SmsSendResult {
+  /** Twilio SID (preferred) or Sigcore message UUID (fallback). */
   providerMessageId: string
   status: string
 }
 
-/**
- * Best-effort E.164 normalization. If the input already looks E.164, returns
- * as-is. Otherwise strips formatting and prepends +1 for 10/11-digit US-style
- * numbers. Returns null if we can't confidently produce an E.164.
- *
- * For non-US workspaces this will be wrong — callers should ideally normalize
- * upstream (e.g. when capturing the form field) and only use this as a
- * defensive fallback.
- */
 export function normalizeToE164(input: string): string | null {
   if (!input) return null
   const trimmed = input.trim()
@@ -69,20 +60,13 @@ export function isE164(value: string): boolean {
   return E164.test(value)
 }
 
-/**
- * Send an SMS via Sigcore. Throws SmsConfigError if env not configured,
- * SmsValidationError for bad input, SmsSendError for upstream failures.
- *
- * The caller is expected to wrap this in try/catch and translate failures
- * into AutomationExecution status='failed' with the error message.
- */
 export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
   const apiUrl = process.env.SIGCORE_API_URL
   const apiKey = process.env.SIGCORE_API_KEY
-  const businessId = process.env.SIGCORE_HF_BUSINESS_ID
+  const profileId = process.env.SIGCORE_HF_PROFILE_ID
   if (!apiUrl) throw new SmsConfigError('SIGCORE_API_URL is not configured')
   if (!apiKey) throw new SmsConfigError('SIGCORE_API_KEY is not configured')
-  if (!businessId) throw new SmsConfigError('SIGCORE_HF_BUSINESS_ID is not configured')
+  if (!profileId) throw new SmsConfigError('SIGCORE_HF_PROFILE_ID is not configured')
 
   if (!input.body || input.body.trim().length === 0) {
     throw new SmsValidationError('SMS body is empty')
@@ -92,14 +76,18 @@ export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
     throw new SmsValidationError(`Invalid recipient phone: ${input.to}`)
   }
 
-  const endpoint = `${apiUrl.replace(/\/+$/, '')}/api/internal/messages/send`
+  const endpoint = `${apiUrl.replace(/\/+$/, '')}/api/v1/messages`
   const payload = {
-    businessId,
-    toPhone: normalized,
+    toNumber: normalized,
     body: input.body,
-    leadId: input.candidateId,
-    automationId: input.automationExecutionId,
-    source: `hiringflow:${input.workspaceId}`,
+    profileId,
+    channel: 'sms',
+    metadata: {
+      candidateId: input.candidateId,
+      workspaceId: input.workspaceId,
+      automationExecutionId: input.automationExecutionId,
+      source: `hiringflow:${input.workspaceId}`,
+    },
   }
 
   let res: Response
@@ -125,13 +113,18 @@ export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
     )
   }
 
-  const data = await res.json().catch(() => null) as { messageId?: string; status?: string; providerSid?: string } | null
-  const providerMessageId = data?.providerSid || data?.messageId
+  const json = await res.json().catch(() => null) as
+    | { success?: boolean; data?: { id?: string; providerMessageId?: string; status?: string } }
+    | null
+  const msg = json?.data
+  const providerMessageId = msg?.providerMessageId || msg?.id
   if (!providerMessageId) {
-    throw new SmsSendError(`Sigcore response missing providerSid/messageId: ${JSON.stringify(data).slice(0, 200)}`)
+    throw new SmsSendError(
+      `Sigcore response missing providerMessageId/id: ${JSON.stringify(json).slice(0, 200)}`,
+    )
   }
   return {
     providerMessageId,
-    status: data?.status || 'queued',
+    status: msg?.status || 'queued',
   }
 }
