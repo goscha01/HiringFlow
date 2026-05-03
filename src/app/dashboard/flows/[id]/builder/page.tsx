@@ -617,9 +617,15 @@ export default function FlowBuilderPage() {
   }
 
   const renderCombineConfig = (step: Step) => {
-    const combinedId = step.combinedWithId
+    const forwardId = step.combinedWithId || null
+    const reverseStep = flow?.steps.find(s => s.combinedWithId === step.id) || null
+    const combinedId = forwardId || reverseStep?.id || null
     const isCombined = !!combinedId
-    const otherSteps = flow?.steps.filter(s => s.id !== step.id && !s.combinedWithId) || []
+    const otherSteps = flow?.steps.filter(s =>
+      s.id !== step.id
+      && !s.combinedWithId
+      && !flow.steps.some(o => o.combinedWithId === s.id)
+    ) || []
 
     return (
       <div className="border-t border-surface-border pt-4 mt-4">
@@ -628,9 +634,10 @@ export default function FlowBuilderPage() {
           <button
             onClick={() => {
               if (isCombined || combineEnabled) {
-                // Turn off — separate
+                // Turn off — separate (clear both directions of the relationship)
                 setCombineEnabled(false)
-                if (isCombined) updateStep(step.id, { combinedWithId: null } as any)
+                if (forwardId) updateStep(step.id, { combinedWithId: null } as any)
+                if (reverseStep) updateStep(reverseStep.id, { combinedWithId: null } as any)
               } else {
                 // Turn on — show dropdown
                 setCombineEnabled(true)

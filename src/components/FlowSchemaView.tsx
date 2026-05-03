@@ -619,23 +619,48 @@ export default function FlowSchemaView({
       const pos1 = positions[step.id]
       const pos2 = positions[step.combinedWithId]
       if (!pos1 || !pos2) continue
-      // Draw bracket connecting the two cards
+
       const minX = Math.min(pos1.x, pos2.x) - 6
       const minY = Math.min(pos1.y, pos2.y) - 6
       const maxX = Math.max(pos1.x + NODE_W, pos2.x + NODE_W) + 6
       const maxY = Math.max(pos1.y + NODE_H, pos2.y + NODE_H) + 6
-      ctx.beginPath()
-      ctx.roundRect(minX, minY, maxX - minX, maxY - minY, 16)
+
+      // If any unrelated card overlaps the bounding box, the rectangle bracket would
+      // visually engulf it — fall back to outlining each combined card individually.
+      const wouldEngulfOther = steps.some((s) => {
+        if (s.id === step.id || s.id === step.combinedWithId) return false
+        const p = positions[s.id]
+        if (!p) return false
+        return !(p.x + NODE_W < minX || p.x > maxX || p.y + NODE_H < minY || p.y > maxY)
+      })
+
       ctx.strokeStyle = '#FF9500'
       ctx.lineWidth = 2
       ctx.setLineDash([6, 4])
-      ctx.stroke()
-      ctx.setLineDash([])
-      // "Combined" label
-      ctx.font = 'bold 9px "Be Vietnam Pro", system-ui'
-      ctx.fillStyle = '#FF9500'
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
-      ctx.fillText('Combined', (minX + maxX) / 2, minY - 2)
+
+      if (wouldEngulfOther) {
+        for (const p of [pos1, pos2]) {
+          ctx.beginPath()
+          ctx.roundRect(p.x - 6, p.y - 6, NODE_W + 12, NODE_H + 12, 16)
+          ctx.stroke()
+        }
+        ctx.setLineDash([])
+        ctx.font = 'bold 9px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#FF9500'
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+        for (const p of [pos1, pos2]) {
+          ctx.fillText('Combined', p.x + NODE_W / 2, p.y - 8)
+        }
+      } else {
+        ctx.beginPath()
+        ctx.roundRect(minX, minY, maxX - minX, maxY - minY, 16)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.font = 'bold 9px "Be Vietnam Pro", system-ui'
+        ctx.fillStyle = '#FF9500'
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'
+        ctx.fillText('Combined', (minX + maxX) / 2, minY - 2)
+      }
     }
 
     // --- Draw step nodes ---
