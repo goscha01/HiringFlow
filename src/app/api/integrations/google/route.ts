@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { stopWatch, hasMeetScopes } from '@/lib/google'
+import { stopWatch, hasMeetScopes, hasSheetsScope } from '@/lib/google'
 import { capabilityMessage } from '@/lib/meet/recording-capability'
 import type { RecordingCapabilityReason } from '@/lib/meet/recording-capability'
 import { globalKillswitchActive } from '@/lib/meet/feature-flag'
@@ -51,6 +51,7 @@ export async function GET() {
         transcriptionCapabilityMessage: capabilityMessage(integration.transcriptionCapabilityReason as RecordingCapabilityReason | null),
         transcriptionCapabilityCheckedAt: integration.transcriptionCapabilityCheckedAt,
         attendanceExtensionEnabled: integration.attendanceExtensionEnabled,
+        sheetsScopeGranted: hasSheetsScope(integration.grantedScopes),
       }
     : null
 

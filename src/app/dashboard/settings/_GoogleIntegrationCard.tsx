@@ -10,6 +10,12 @@ interface MeetV2 {
   recordingCapabilityReason: string | null
   recordingCapabilityMessage: string
   recordingCapabilityCheckedAt: string | null
+  transcriptionCapable: boolean | null
+  transcriptionCapabilityReason: string | null
+  transcriptionCapabilityMessage: string
+  transcriptionCapabilityCheckedAt: string | null
+  attendanceExtensionEnabled: boolean
+  sheetsScopeGranted?: boolean
 }
 
 interface Status {
@@ -372,52 +378,14 @@ export function GoogleIntegrationCard() {
       )}
 
       {status?.connected && meetV2 && !meetV2.hostedDomain && (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
-          <p className="font-medium text-amber-900">Automatic no-show detection isn&apos;t available on this account</p>
-          <p className="mt-1 text-amber-800">
-            Your Google account isn&apos;t on a Workspace Business plan, so Google doesn&apos;t expose Meet
-            attendance to our integration. Recordings still get linked to candidates automatically — but
-            who actually joined the call has to come from somewhere else.
-          </p>
-          <p className="mt-3 text-xs text-amber-900 font-medium">
-            {meetV2.recordingCapable ? 'Two ways to fix:' : 'How to fix:'}
-          </p>
-          <ul className="mt-1 space-y-2 text-amber-800 text-xs">
-            <li>
-              <strong>Upgrade to Google Workspace Business or higher</strong> (custom-domain email like
-              <span className="font-mono"> you@yourcompany.com</span>). Unlocks the full Meet API:
-              automatic attendance, no-show detection, recording links, transcripts.
-              <br />
-              <a
-                href="https://workspace.google.com/pricing.html"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:no-underline"
-              >
-                See Workspace pricing →
-              </a>
-            </li>
-            {meetV2.recordingCapable && (
-              <li>
-                <strong>Install a Meet attendance Chrome extension</strong> that exports attendance to your
-                Drive. Since your plan already supports recording, we can pair the extension&apos;s
-                attendance export with the recording artifact and flag no-shows automatically.
-                <br />
-                <a
-                  href="https://chromewebstore.google.com/detail/google-meet-attendance-list/appcnhiefcidclcdjeahgklghghihfok"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:no-underline"
-                >
-                  Install &ldquo;Google Meet Attendance List&rdquo; →
-                </a>
-              </li>
-            )}
-          </ul>
-          <p className="mt-3 text-xs text-amber-700">
-            Until then, mark no-shows manually from the candidate&apos;s detail page.
-          </p>
-        </div>
+        <AttendanceFallbackPanel
+          meetV2={meetV2}
+          onChange={async () => {
+            const fresh = await fetch('/api/integrations/google').then(r => r.json())
+            setStatus(fresh)
+          }}
+          onBanner={setBanner}
+        />
       )}
 
       <div className="mt-5 flex gap-3">
@@ -443,6 +411,142 @@ export function GoogleIntegrationCard() {
           </a>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Attendance-fallback panel for personal-Gmail / Workspace Individual tenants.
+ * Renders one of four states based on the workspace's
+ * `attendanceExtensionEnabled` flag and whether the spreadsheets.readonly scope
+ * has been granted. Always closes with the "manual upload" affordance, since
+ * that route is available regardless of extension state.
+ */
+function AttendanceFallbackPanel({
+  meetV2,
+  onChange,
+  onBanner,
+}: {
+  meetV2: MeetV2
+  onChange: () => Promise<void> | void
+  onBanner: (b: { type: 'success' | 'error'; text: string }) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const enabled = meetV2.attendanceExtensionEnabled
+  const sheetsScopeGranted = !!meetV2.sheetsScopeGranted
+
+  const toggle = async (next: boolean) => {
+    setBusy(true)
+    try {
+      const r = await fetch('/api/integrations/google/attendance-extension', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      })
+      const d = await r.json()
+      if (!r.ok) {
+        onBanner({ type: 'error', text: d.error || 'Failed to update extension fallback' })
+      } else if (d.needsReconnect) {
+        onBanner({
+          type: 'success',
+          text: 'Attendance-extension fallback enabled. Reconnect Google to grant Sheets read access so we can parse exported attendance sheets.',
+        })
+      } else {
+        onBanner({ type: 'success', text: next ? 'Attendance-extension fallback enabled.' : 'Attendance-extension fallback disabled.' })
+      }
+      await onChange()
+    } catch (e) {
+      onBanner({ type: 'error', text: e instanceof Error ? e.message : 'Failed to update extension fallback' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-surface-border bg-surface-weak p-4 text-sm">
+      <p className="font-medium text-grey-15">Attendance &amp; no-show detection</p>
+      <p className="mt-1 text-grey-40">
+        Recording is working. Attendance/no-show detection requires either Google Meet API attendance, a
+        readable extension export, or manual upload.
+      </p>
+
+      <div className="mt-4 rounded-md bg-white border border-surface-border p-3">
+        <label className="flex items-start justify-between gap-3 cursor-pointer">
+          <span>
+            <span className="font-medium text-grey-15">Use attendance Chrome extension fallback</span>
+            <span className="block text-xs text-grey-40 mt-0.5">
+              When enabled, we look in your connected Google Drive for attendance sheets exported by extensions like
+              &ldquo;Google Meet Attendance List&rdquo; and use them to flag attendance + no-shows automatically.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={busy}
+            onChange={(e) => toggle(e.target.checked)}
+            className="h-4 w-4 mt-0.5 shrink-0"
+          />
+        </label>
+
+        {/* State-specific copy */}
+        {!enabled && (
+          <p className="mt-3 text-xs text-grey-40">
+            Extension fallback is disabled. Attendance detection currently relies on Gemini Notes presence (proves
+            the meeting happened, not who attended) and on manual upload below.
+          </p>
+        )}
+
+        {enabled && !sheetsScopeGranted && (
+          <div className="mt-3 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs">
+            <p className="text-amber-900 font-medium">Reconnect Google to grant Sheets read access</p>
+            <p className="text-amber-800 mt-1">
+              The fallback is enabled but we don&apos;t yet have permission to read Google Sheets. Reconnecting will
+              add the <span className="font-mono">spreadsheets.readonly</span> scope; nothing else you&apos;ve set
+              up will change.
+            </p>
+            <a
+              href="/api/integrations/google/connect"
+              className="inline-block mt-2 underline hover:no-underline text-amber-900"
+            >
+              Reconnect Google →
+            </a>
+          </div>
+        )}
+
+        {enabled && sheetsScopeGranted && (
+          <div className="mt-3 rounded-md bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900">
+            <p className="font-medium">Extension fallback active.</p>
+            <p className="mt-1 text-blue-800">
+              We scan your Drive around each meeting&apos;s scheduled window for attendance sheets. If your
+              extension exports to a different Google account, to local Downloads, or in a format we can&apos;t
+              read, that scan won&apos;t see anything — &ldquo;Extension ran, but no readable attendance export
+              was found in the connected Google Drive.&rdquo; In that case, use the manual upload option on the
+              candidate&apos;s detail page.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 rounded-md bg-white border border-surface-border p-3 text-xs text-grey-40">
+        <p className="font-medium text-grey-15">Manual attendance upload is always available.</p>
+        <p className="mt-1">
+          Open a candidate&apos;s detail page → past interview → &ldquo;Upload attendance file&rdquo; to import a
+          CSV or Google Sheets-exported file. We&apos;ll parse it and flag attendance/no-show automatically.
+        </p>
+      </div>
+
+      <p className="mt-3 text-xs text-grey-40">
+        Plan-based upgrade (Workspace Business+) unlocks Google Meet API attendance and removes the need for
+        either path.{' '}
+        <a
+          href="https://workspace.google.com/pricing.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:no-underline"
+        >
+          See Workspace pricing →
+        </a>
+      </p>
     </div>
   )
 }

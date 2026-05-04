@@ -312,8 +312,11 @@ async function ensureFolderId(
  *
  * Returns true if any event was emitted (so the caller can record `updated`).
  */
-async function applyAttendanceSignal(
-  meeting: SyncableMeeting,
+export type ApplyAttendanceMeeting = Pick<InterviewMeeting,
+  'id' | 'workspaceId' | 'sessionId' | 'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd'
+>
+export async function applyAttendanceSignal(
+  meeting: ApplyAttendanceMeeting,
   attendance: AttendanceSignal | null,
   driveOutcome: { recordingFileId: string | null; createdAt: Date | null },
 ): Promise<boolean> {

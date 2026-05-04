@@ -41,6 +41,8 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
   const [showDialog, setShowDialog] = useState(false)
   const [featureOn, setFeatureOn] = useState<boolean | null>(null)
   const [markingNoShow, setMarkingNoShow] = useState<string | null>(null)
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null)
+  const [uploadResult, setUploadResult] = useState<Record<string, { ok: boolean; text: string }>>({})
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/candidates/${candidateId}/interview-meetings`)
@@ -48,6 +50,30 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
     const body = await res.json()
     setMeetings(body.meetings || [])
   }, [candidateId])
+
+  const uploadAttendance = useCallback(async (meetingId: string, file: File) => {
+    setUploadingFor(meetingId)
+    setUploadResult((p) => ({ ...p, [meetingId]: { ok: false, text: 'Uploading…' } }))
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`/api/interview-meetings/${meetingId}/attendance-upload`, { method: 'POST', body: fd })
+      const body = await res.json()
+      if (!res.ok) {
+        setUploadResult((p) => ({ ...p, [meetingId]: { ok: false, text: body.message || body.error || 'Upload failed' } }))
+        return
+      }
+      const summary = body.candidatePresent
+        ? `${body.rowCount} rows imported. Candidate found in attendance — meeting marked as completed.`
+        : `${body.rowCount} rows imported. Candidate not found — flagged as no-show.`
+      setUploadResult((p) => ({ ...p, [meetingId]: { ok: true, text: summary } }))
+      await load()
+    } catch (err) {
+      setUploadResult((p) => ({ ...p, [meetingId]: { ok: false, text: err instanceof Error ? err.message : 'Upload failed' } }))
+    } finally {
+      setUploadingFor(null)
+    }
+  }, [load])
 
   const markNoShow = useCallback(async (meetingId: string) => {
     if (!confirm('Mark this meeting as a no-show? The candidate will be moved to Rejected and the no-show follow-up automation (if configured) will run.')) return
@@ -150,14 +176,39 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                 )}
 
                 {new Date(m.scheduledEnd).getTime() < Date.now() && (
-                  <div className="mt-3 pt-3 border-t border-surface-border">
-                    <button
-                      onClick={() => markNoShow(m.id)}
-                      disabled={markingNoShow === m.id}
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                    >
-                      {markingNoShow === m.id ? 'Marking…' : 'Mark as no-show'}
-                    </button>
+                  <div className="mt-3 pt-3 border-t border-surface-border space-y-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => markNoShow(m.id)}
+                        disabled={markingNoShow === m.id || uploadingFor === m.id}
+                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                      >
+                        {markingNoShow === m.id ? 'Marking…' : 'Mark as no-show'}
+                      </button>
+                      <span className="text-grey-40 text-xs">·</span>
+                      <label className="text-xs text-primary hover:underline cursor-pointer">
+                        <input
+                          type="file"
+                          accept=".csv,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,.tsv"
+                          className="hidden"
+                          disabled={uploadingFor === m.id}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0]
+                            if (f) uploadAttendance(m.id, f)
+                            e.currentTarget.value = ''
+                          }}
+                        />
+                        {uploadingFor === m.id ? 'Uploading…' : 'Upload attendance file'}
+                      </label>
+                    </div>
+                    {uploadResult[m.id] && (
+                      <p className={`text-xs ${uploadResult[m.id].ok ? 'text-green-700' : 'text-red-700'}`}>
+                        {uploadResult[m.id].text}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-grey-40">
+                      CSV or Google Sheets-exported file. Columns we look for: name, email, joined, left, duration.
+                    </p>
                   </div>
                 )}
               </div>

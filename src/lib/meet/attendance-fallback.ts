@@ -266,6 +266,126 @@ export async function findAttendanceForMeeting(
 }
 
 /**
+ * Parse a CSV (or TSV / pipe-delimited) blob exported from the attendance
+ * Chrome extension or from Google Sheets (File → Download → CSV). Detects the
+ * delimiter from the header row, looks up `name` / `email` / `joined` /
+ * `left` / `duration` columns by header label rather than position so we
+ * tolerate the schema variation between extensions.
+ *
+ * Trims + lowercases emails to match `isAttendeePresent`'s expectations.
+ *
+ * No PII beyond what we already need is retained: the returned rows hold
+ * exactly the fields used for matching + actualStart/End derivation; the
+ * raw CSV is discarded by the caller.
+ */
+export function parseAttendanceCsv(text: string): AttendanceRow[] {
+  const trimmed = text.replace(/^﻿/, '').trim()  // strip BOM
+  if (!trimmed) return []
+  const lines = splitCsvLines(trimmed)
+  if (lines.length < 2) return []
+
+  const delim = detectDelimiter(lines[0])
+  const header = splitCsvRow(lines[0], delim).map(h => h.trim().toLowerCase())
+  const idxName = header.findIndex(h => h === 'name' || h === 'full name' || h === 'display name' || h === 'participant' || h === 'attendee')
+  const idxEmail = header.findIndex(h => h === 'email' || h === 'email address' || h === 'e-mail')
+  // Header matching is loose to handle "Joined", "Joined At", "Time Joined",
+  // "Join Time", "Left", "Leave Time", etc. across extension variants.
+  const idxJoined = header.findIndex(h => /\bjoin/i.test(h))
+  const idxLeft = header.findIndex(h => /\b(left|leave|leaved)/i.test(h))
+  // duration is parsed only to derive leftAt when it's missing but joinedAt + duration are present
+  const idxDuration = header.findIndex(h => /duration|minutes/i.test(h))
+
+  const rows: AttendanceRow[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvRow(lines[i], delim)
+    if (cells.every(c => !c.trim())) continue
+    const name = idxName >= 0 ? (cells[idxName] || '').toString().trim() : null
+    const email = idxEmail >= 0 ? (cells[idxEmail] || '').toString().trim().toLowerCase() : null
+    if (!name && !email) continue
+    const joinedAt = idxJoined >= 0 ? parseLooseDate(cells[idxJoined]) : null
+    let leftAt = idxLeft >= 0 ? parseLooseDate(cells[idxLeft]) : null
+    if (!leftAt && joinedAt && idxDuration >= 0) {
+      const minutes = parseLooseMinutes(cells[idxDuration])
+      if (minutes != null) leftAt = new Date(joinedAt.getTime() + minutes * 60_000)
+    }
+    rows.push({ name: name || null, email: email || null, joinedAt, leftAt })
+  }
+  return rows
+}
+
+function detectDelimiter(headerLine: string): ',' | '\t' | ';' | '|' {
+  const counts = { ',': 0, '\t': 0, ';': 0, '|': 0 } as Record<',' | '\t' | ';' | '|', number>
+  for (const ch of headerLine) if (ch in counts) counts[ch as ',']++
+  return (Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] as ',' | '\t' | ';' | '|') || ','
+}
+
+/**
+ * Split a CSV body into logical lines, respecting quoted newlines.
+ *
+ * Tracks quote state only to know whether a newline is a line break or part
+ * of a quoted field; does NOT unescape `""` pairs here — that's
+ * splitCsvRow's job. Two-pass parsing where one pass mutates makes the
+ * second pass mis-quote.
+ */
+function splitCsvLines(text: string): string[] {
+  const out: string[] = []
+  let buf = ''
+  let inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === '"') {
+      // Doubled quote inside a quoted field stays as `""` in the line buffer
+      // and gets unescaped during row splitting.
+      if (inQuotes && text[i + 1] === '"') { buf += '""'; i++; continue }
+      inQuotes = !inQuotes
+      buf += ch
+    } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+      if (buf.length > 0) out.push(buf)
+      buf = ''
+      if (ch === '\r' && text[i + 1] === '\n') i++
+    } else {
+      buf += ch
+    }
+  }
+  if (buf.length > 0) out.push(buf)
+  return out
+}
+
+/** Split a single CSV/TSV row into cells, unquoting quoted fields. */
+function splitCsvRow(line: string, delim: string): string[] {
+  const out: string[] = []
+  let buf = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { buf += '"'; i++; continue }
+      inQuotes = !inQuotes
+    } else if (ch === delim && !inQuotes) {
+      out.push(buf); buf = ''
+    } else {
+      buf += ch
+    }
+  }
+  out.push(buf)
+  return out
+}
+
+function parseLooseMinutes(s: unknown): number | null {
+  if (s == null) return null
+  const str = String(s).trim()
+  if (!str) return null
+  // Accept "12", "12.5", "12 min", "12:30" (= 12m30s → 12.5min), "1:23:45" (h:m:s)
+  if (/^\d+(\.\d+)?$/.test(str)) return Number(str)
+  const colon = str.split(':').map(p => p.trim())
+  if (colon.length === 2 && colon.every(p => /^\d+$/.test(p))) return Number(colon[0]) + Number(colon[1]) / 60
+  if (colon.length === 3 && colon.every(p => /^\d+$/.test(p))) return Number(colon[0]) * 60 + Number(colon[1]) + Number(colon[2]) / 60
+  const m = str.match(/(\d+(?:\.\d+)?)\s*(?:m|min|minutes?)/i)
+  if (m) return Number(m[1])
+  return null
+}
+
+/**
  * Returns true if any row in the attendance sheet matches the candidate by
  * email (preferred — exact, case-insensitive) or by name (looser substring
  * match either direction). Exported for unit testing.

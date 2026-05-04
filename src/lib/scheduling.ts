@@ -57,6 +57,11 @@ export type SchedulingEventType =
   | 'meeting_no_show'
   | 'recording_ready'
   | 'transcript_ready'
+  // Manual attendance import via the candidate detail page upload UI. Audit
+  // record only — the lifecycle events that result are still
+  // meeting_started / meeting_ended / meeting_no_show, fired by the same
+  // fallback pipeline sync-on-read uses.
+  | 'attendance_uploaded'
 
 export async function logSchedulingEvent(opts: {
   sessionId: string

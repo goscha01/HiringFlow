@@ -24,10 +24,18 @@ const MEET_SCOPES = [
 
 const DRIVE_READONLY_FALLBACK = 'https://www.googleapis.com/auth/drive.readonly'
 
-export function getScopes(): string[] {
+// Sheets API readonly scope — requested only when the workspace opts into the
+// "Meet Attendance" Chrome extension fallback or manual Google Sheet import.
+// Most workspaces won't need it; it's added on demand and triggers re-OAuth.
+export const SHEETS_READONLY_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly'
+
+export function getScopes(opts: { includeSheets?: boolean } = {}): string[] {
   const scopes = [...BASE_SCOPES, ...MEET_SCOPES]
   if (process.env.DRIVE_ARTIFACT_SCOPE_ESCALATION === '1') {
     scopes.push(DRIVE_READONLY_FALLBACK)
+  }
+  if (opts.includeSheets) {
+    scopes.push(SHEETS_READONLY_SCOPE)
   }
   return scopes
 }
@@ -44,12 +52,6 @@ export function hasMeetScopes(grantedScopes: string | null | undefined): boolean
   const granted = new Set(grantedScopes.split(/\s+/).filter(Boolean))
   return REQUIRED_MEET_SCOPES.every((s) => granted.has(s))
 }
-
-// Sheets API readonly scope — needed only when the workspace opted into the
-// "attendance Chrome extension" fallback. We don't include this in the base
-// scopes (most workspaces won't need it); it's added on demand when the user
-// enables the extension toggle in Settings, which forces a re-OAuth.
-export const SHEETS_READONLY_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly'
 
 export function hasSheetsScope(grantedScopes: string | null | undefined): boolean {
   if (!grantedScopes) return false
@@ -76,11 +78,11 @@ export function getOAuthClient() {
   return new google.auth.OAuth2(clientId, clientSecret, getRedirectUri())
 }
 
-export function buildConsentUrl(stateToken: string): string {
+export function buildConsentUrl(stateToken: string, opts: { includeSheets?: boolean } = {}): string {
   return getOAuthClient().generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: getScopes(),
+    scope: getScopes(opts),
     state: stateToken,
     include_granted_scopes: true,
   })
