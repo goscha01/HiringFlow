@@ -257,6 +257,60 @@ export default function AutomationsPage() {
 
   const refresh = async () => { const r = await fetch('/api/automations'); if (r.ok) setRules(await r.json()) }
 
+  // Inject a {{xxx_link}} CTA into a workspace template's bodyHtml so the
+  // recruiter doesn't have to hand-edit the template. Idempotent — does
+  // nothing if the token is already present. The CTA uses the configured
+  // training/scheduling name as the label when available, falling back to
+  // a generic "Continue" / "Book interview" / "Join interview".
+  //
+  // Placement: inserts a new <p> immediately BEFORE the last <p> in the
+  // body so the link sits above the signature line ("Best,/The Hiring
+  // Team") — a sensible default. The recruiter can move it later by
+  // hand-editing the template; we don't lock placement.
+  const insertTokenInTemplate = async (
+    templateId: string,
+    kind: 'training' | 'scheduling' | 'meet_link',
+    label: string,
+  ): Promise<boolean> => {
+    const tpl = templates.find((t) => t.id === templateId)
+    if (!tpl || !tpl.bodyHtml) return false
+    const tokenMap = { training: '{{training_link}}', scheduling: '{{schedule_link}}', meet_link: '{{meeting_link}}' }
+    const token = tokenMap[kind]
+    if (tpl.bodyHtml.includes(token)) return true // already present
+    const ctaHtml = `<p style="margin:24px 0"><a href="${token}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold">${label}</a></p>`
+    const lastOpen = tpl.bodyHtml.lastIndexOf('<p')
+    const newBody = lastOpen === -1
+      ? tpl.bodyHtml + '\n' + ctaHtml
+      : tpl.bodyHtml.slice(0, lastOpen) + ctaHtml + '\n' + tpl.bodyHtml.slice(lastOpen)
+    try {
+      const r = await fetch(`/api/email-templates/${templateId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bodyHtml: newBody }),
+      })
+      if (!r.ok) return false
+      const refreshed = await fetch('/api/email-templates')
+      if (refreshed.ok) setTemplates(await refreshed.json())
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // Same idea for SMS — inject token at end of step.smsBody (in step
+  // state, no API call). The step is saved when the recruiter clicks
+  // Save on the rule modal.
+  const insertTokenInSmsBody = (stepIdx: number, kind: 'training' | 'scheduling' | 'meet_link') => {
+    const tokenMap = { training: '{{training_link}}', scheduling: '{{schedule_link}}', meet_link: '{{meeting_link}}' }
+    const token = tokenMap[kind]
+    setSteps((prev) => prev.map((s, i) => {
+      if (i !== stepIdx) return s
+      const cur = s.smsBody || ''
+      if (cur.includes(token)) return s
+      return { ...s, smsBody: cur ? `${cur}\n${token}` : token }
+    }))
+  }
+
   // One-click "create from default" — used by the StepCard's template
   // dropdown when the recruiter picks a default that isn't yet in the
   // workspace. Returns the new template's id (or null on failure).
@@ -878,6 +932,8 @@ export default function AutomationsPage() {
                       onCompanyMissing={() => setShowCompanyEmailWarning(true)}
                       onPreview={(channelOverride) => previewDraftStep(idx, channelOverride)}
                       onCreateDefaultDirect={createDefaultTemplate}
+                      onInsertTokenInTemplate={insertTokenInTemplate}
+                      onInsertTokenInSmsBody={(kind) => insertTokenInSmsBody(idx, kind)}
                       onCreateTemplate={() => {
                         setTemplateEditorStepIdx(idx)
                         setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
@@ -985,6 +1041,8 @@ function StepCard(props: {
   onCompanyMissing: () => void
   onPreview: (channel?: 'email' | 'sms') => void
   onCreateDefaultDirect: (tpl: { name: string; subject: string; bodyHtml: string }) => Promise<string | null>
+  onInsertTokenInTemplate: (templateId: string, kind: 'training' | 'scheduling' | 'meet_link', label: string) => Promise<boolean>
+  onInsertTokenInSmsBody: (kind: 'training' | 'scheduling' | 'meet_link') => void
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
 }) {
@@ -1256,7 +1314,50 @@ function StepCard(props: {
 
         {/* Next-step config */}
         <div>
-          <label className="block text-xs font-medium text-grey-20 mb-1.5">Includes link to</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-medium text-grey-20">Includes link to</label>
+            {(() => {
+              if (!step.nextStepType || step.nextStepType === '') return null
+              const tokenMap: Record<string, string> = {
+                training: '{{training_link}}',
+                scheduling: '{{schedule_link}}',
+                meet_link: '{{meeting_link}}',
+              }
+              const expectedToken = tokenMap[step.nextStepType]
+              if (!expectedToken) return null
+              const tpl = step.emailTemplateId ? templates.find((t) => t.id === step.emailTemplateId) : null
+              const labelMap: Record<string, string> = {
+                training:   step.training?.title || trainings.find((t) => t.id === step.trainingId)?.title || 'Continue',
+                scheduling: step.schedulingConfig?.name || schedulingConfigs.find((s) => s.id === step.schedulingConfigId)?.name || 'Book interview',
+                meet_link:  'Join interview',
+              }
+              const ctaLabel = labelMap[step.nextStepType] || 'Continue'
+              const emailNeedsInsert = wantsEmail && tpl && !(tpl.bodyHtml || '').includes(expectedToken)
+              const smsNeedsInsert = wantsSms && !(step.smsBody || '').includes(expectedToken)
+              if (!emailNeedsInsert && !smsNeedsInsert) return null
+              return (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (emailNeedsInsert && tpl) {
+                      await props.onInsertTokenInTemplate(tpl.id, step.nextStepType as 'training' | 'scheduling' | 'meet_link', ctaLabel)
+                    }
+                    if (smsNeedsInsert) {
+                      props.onInsertTokenInSmsBody(step.nextStepType as 'training' | 'scheduling' | 'meet_link')
+                    }
+                  }}
+                  className="text-[11px] px-2.5 py-1 rounded-[6px] bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-200 font-medium whitespace-nowrap"
+                  title={emailNeedsInsert && smsNeedsInsert
+                    ? `Insert ${expectedToken} into the template & SMS body`
+                    : emailNeedsInsert
+                      ? `Insert ${expectedToken} into "${tpl?.name}"`
+                      : `Insert ${expectedToken} into the SMS body`}
+                >
+                  + Insert {expectedToken}
+                </button>
+              )
+            })()}
+          </div>
           <div className="flex gap-2">
             {[
               { v: '', l: 'Nothing' },
