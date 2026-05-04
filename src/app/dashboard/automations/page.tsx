@@ -1234,6 +1234,27 @@ function StepCard(props: {
             if (!step.nextStepType && detected) {
               return <p className="text-[11px] text-brand-700/80 mt-1.5">✦ Detected <code>{detected === 'meet_link' ? '{{meeting_link}}' : detected === 'training' ? '{{training_link}}' : '{{schedule_link}}'}</code> in the template — click to confirm.</p>
             }
+            // Mismatch warning: picker is set but the actual template/SMS body
+            // doesn't use the corresponding merge token, so the link won't
+            // appear in the rendered message.
+            if (step.nextStepType) {
+              const tokenMap: Record<string, string> = {
+                training: '{{training_link}}',
+                scheduling: '{{schedule_link}}',
+                meet_link: '{{meeting_link}}',
+              }
+              const expectedToken = tokenMap[step.nextStepType]
+              if (!expectedToken) return null
+              const tpl = step.emailTemplateId ? templates.find((t) => t.id === step.emailTemplateId) : null
+              const haystack = [tpl?.subject || '', tpl?.bodyHtml || '', tpl?.bodyText || '', step.smsBody || ''].join(' ')
+              if (haystack && !haystack.includes(expectedToken)) {
+                return (
+                  <div className="mt-2 px-2.5 py-2 rounded-[6px] bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                    ⚠ The selected {wantsEmail && wantsSms ? 'template / SMS body' : wantsEmail ? 'template' : 'SMS body'} doesn&apos;t include <code className="bg-white px-1 rounded">{expectedToken}</code> — the link will be generated but won&apos;t appear in the rendered message. Either pick a template/body that contains <code className="bg-white px-1 rounded">{expectedToken}</code>, or change &ldquo;Includes link to&rdquo; above.
+                  </div>
+                )
+              }
+            }
             return null
           })()}
           {step.nextStepType === 'training' && (
