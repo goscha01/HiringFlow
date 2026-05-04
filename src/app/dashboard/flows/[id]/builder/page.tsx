@@ -592,6 +592,31 @@ export default function FlowBuilderPage() {
     }
   }
 
+  const updateButtonConfigNext = async (stepId: string, nextStepId: string | null) => {
+    if (!flow) return
+    markChanged()
+    const step = flow.steps.find((s) => s.id === stepId)
+    const newButton = {
+      ...(step?.buttonConfig ?? { enabled: true, text: 'Continue' }),
+      nextStepId,
+    }
+    setFlow((f) =>
+      f
+        ? {
+            ...f,
+            steps: f.steps.map((s) =>
+              s.id === stepId ? { ...s, buttonConfig: newButton } : s
+            ),
+          }
+        : null
+    )
+    await fetch(`/api/steps/${stepId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ buttonConfig: newButton }),
+    })
+  }
+
   const insertStepOnArrow = (
     info:
       | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
@@ -1092,6 +1117,7 @@ export default function FlowBuilderPage() {
             onChangeEndStep={changeEndStep}
             onAddStep={addStep}
             onInsertStepOnArrow={insertStepOnArrow}
+            onButtonConfigUpdate={updateButtonConfigNext}
           />
 
           {/* Popup editor overlay — key forces re-render on flow change */}

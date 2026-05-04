@@ -45,6 +45,7 @@ interface FlowSchemaViewProps {
       | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
       | { kind: 'button'; fromStepId: string; toStepId: string }
   ) => void
+  onButtonConfigUpdate?: (stepId: string, nextStepId: string | null) => void
   selectedStepId?: string | null
 }
 
@@ -60,14 +61,18 @@ type InteractionMode =
   | { type: 'connecting'; fromStepId: string; fromX: number; fromY: number; mouseX: number; mouseY: number }
   | { type: 'reconnecting'; optionId: string; fromStepId: string; fromX: number; fromY: number; mouseX: number; mouseY: number }
   | { type: 'reconnecting_source'; optionId: string; targetStepId: string; toX: number; toY: number; mouseX: number; mouseY: number }
+  | { type: 'reconnecting_button'; fromStepId: string; fromX: number; fromY: number; mouseX: number; mouseY: number }
+  | { type: 'reconnecting_button_source'; oldFromStepId: string; targetStepId: string; toX: number; toY: number; mouseX: number; mouseY: number }
   | { type: 'reconnecting_start'; fromX: number; fromY: number; mouseX: number; mouseY: number }
   | { type: 'reconnecting_end'; fromStepId: string; fromX: number; fromY: number; mouseX: number; mouseY: number }
 
 interface SelectedArrow {
   optionId: string
   stepId: string
-  kind?: 'option' | 'start' | 'end'
+  kind?: 'option' | 'start' | 'end' | 'button'
 }
+
+const BUTTON_ARROW_SENTINEL = '__button_arrow__'
 
 const NODE_W = 280
 const THUMB_H = 140
@@ -115,6 +120,7 @@ export default function FlowSchemaView({
   onChangeEndStep,
   onAddStep,
   onInsertStepOnArrow,
+  onButtonConfigUpdate,
   selectedStepId,
 }: FlowSchemaViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -159,7 +165,11 @@ export default function FlowSchemaView({
         } else if (selectedArrow) {
           e.preventDefault()
           if (confirm('Remove this connection?')) {
-            onOptionUpdate?.(selectedArrow.optionId, { nextStepId: null })
+            if (selectedArrow.kind === 'button') {
+              onButtonConfigUpdate?.(selectedArrow.stepId, null)
+            } else if (selectedArrow.kind === 'option' || !selectedArrow.kind) {
+              onOptionUpdate?.(selectedArrow.optionId, { nextStepId: null })
+            }
             setSelectedArrow(null)
           }
         }
@@ -167,7 +177,7 @@ export default function FlowSchemaView({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedStepId, selectedArrow, onDeleteStep, onOptionUpdate])
+  }, [selectedStepId, selectedArrow, onDeleteStep, onOptionUpdate, onButtonConfigUpdate])
 
   // Find terminal options (options with no nextStepId) and submission steps
   const getTerminalOptionIds = useCallback(() => {
@@ -499,7 +509,7 @@ export default function FlowSchemaView({
   }, [steps])
 
   // Hit test: arrow line (returns the option that owns it)
-  const hitTestArrow = useCallback((cx: number, cy: number): { optionId: string; stepId: string } | null => {
+  const hitTestArrow = useCallback((cx: number, cy: number): { optionId: string; stepId: string; kind: 'option' | 'button' } | null => {
     for (const step of steps) {
       const pos = posRef.current[step.id]
       if (!pos) continue
@@ -510,7 +520,17 @@ export default function FlowSchemaView({
         if (!targetPos) continue
         const inp = getInputPort(targetPos)
         if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 10)) {
-          return { optionId: option.id, stepId: step.id }
+          return { optionId: option.id, stepId: step.id, kind: 'option' }
+        }
+      }
+      const btnNext = (step as any).buttonConfig?.nextStepId
+      if (btnNext && btnNext !== '__end__') {
+        const targetPos = posRef.current[btnNext]
+        if (targetPos) {
+          const inp = getInputPort(targetPos)
+          if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 10)) {
+            return { optionId: BUTTON_ARROW_SENTINEL, stepId: step.id, kind: 'button' }
+          }
         }
       }
     }
@@ -624,17 +644,24 @@ export default function FlowSchemaView({
         const targetPos = positions[btnNext]
         if (targetPos) {
           const inp = getInputPort(targetPos)
+          const isButtonSelected = selectedArrow?.kind === 'button' && selectedArrow.stepId === step.id
           drawConnection(ctx, out.x, out.y, inp.x, inp.y, (step as any).buttonConfig?.text || 'Continue', false, '#FF9500')
 
-          // Insert "+" button at midpoint — only when hovering this connection
-          const isHovering = hoveredArrow?.kind === 'button' && hoveredArrow.fromStepId === step.id
-          if (isHovering) {
-            const ddx = Math.abs(inp.x - out.x)
-            const cpOff = Math.max(ddx * 0.5, 50)
-            const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-            const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
-            const isPlusHovered = hoveredPort === `__insert_btn_${step.id}`
-            drawInsertButton(ctx, midX, midY, isPlusHovered)
+          const ddx = Math.abs(inp.x - out.x)
+          const cpOff = Math.max(ddx * 0.5, 50)
+          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+
+          if (isButtonSelected) {
+            drawDragHandle(ctx, inp.x, inp.y)
+            drawDragHandle(ctx, out.x, out.y)
+            drawDeleteButton(ctx, midX, midY)
+          } else {
+            const isHovering = hoveredArrow?.kind === 'button' && hoveredArrow.fromStepId === step.id
+            if (isHovering) {
+              const isPlusHovered = hoveredPort === `__insert_btn_${step.id}`
+              drawInsertButton(ctx, midX, midY, isPlusHovered)
+            }
           }
         }
       }
@@ -697,10 +724,10 @@ export default function FlowSchemaView({
 
     // Draw in-progress connection or reconnection
     const m = modeRef.current
-    if (m.type === 'connecting' || m.type === 'reconnecting' || m.type === 'reconnecting_start' || m.type === 'reconnecting_end') {
+    if (m.type === 'connecting' || m.type === 'reconnecting' || m.type === 'reconnecting_button' || m.type === 'reconnecting_start' || m.type === 'reconnecting_end') {
       drawConnection(ctx, m.fromX, m.fromY, m.mouseX, m.mouseY, '', true)
     }
-    if (m.type === 'reconnecting_source') {
+    if (m.type === 'reconnecting_source' || m.type === 'reconnecting_button_source') {
       drawConnection(ctx, m.mouseX, m.mouseY, m.toX, m.toY, '', true)
     }
 
@@ -820,16 +847,25 @@ export default function FlowSchemaView({
     return null
   }, [selectedStepId])
 
-  // Hit test: arrow delete button (midpoint of selected arrow)
+  // Hit test: arrow delete button (midpoint of selected arrow). Handles both
+  // option arrows and button arrows.
   const hitTestArrowDelete = useCallback((cx: number, cy: number): boolean => {
     if (!selectedArrow) return false
     const step = steps.find((s) => s.id === selectedArrow.stepId)
     if (!step) return false
     const pos = posRef.current[step.id]
     if (!pos) return false
-    const option = step.options.find((o) => o.id === selectedArrow.optionId)
-    if (!option?.nextStepId) return false
-    const targetPos = posRef.current[option.nextStepId]
+
+    let targetStepId: string | null = null
+    if (selectedArrow.kind === 'button') {
+      const btnNext = step.buttonConfig?.nextStepId
+      if (btnNext && btnNext !== '__end__') targetStepId = btnNext
+    } else {
+      const option = step.options.find((o) => o.id === selectedArrow.optionId)
+      targetStepId = option?.nextStepId ?? null
+    }
+    if (!targetStepId) return false
+    const targetPos = posRef.current[targetStepId]
     if (!targetPos) return false
 
     const out = getOutputPort(pos)
@@ -928,6 +964,10 @@ export default function FlowSchemaView({
           }
         }
 
+        // Skip button arrow if it's currently selected
+        const isThisButtonSelected =
+          selectedArrow?.kind === 'button' && selectedArrow.stepId === step.id
+        if (isThisButtonSelected) continue
         const btnNext = (step as any).buttonConfig?.nextStepId
         if (btnNext && btnNext !== '__end__') {
           const targetPos = posRef.current[btnNext]
@@ -964,9 +1004,13 @@ export default function FlowSchemaView({
       return
     }
 
-    // Check arrow delete button (only for option arrows, not Start/End)
-    if (selectedArrow?.kind === 'option' && hitTestArrowDelete(cx, cy)) {
-      onOptionUpdate?.(selectedArrow.optionId, { nextStepId: null })
+    // Check arrow delete button (option or button arrows)
+    if ((selectedArrow?.kind === 'option' || selectedArrow?.kind === 'button') && hitTestArrowDelete(cx, cy)) {
+      if (selectedArrow.kind === 'button') {
+        onButtonConfigUpdate?.(selectedArrow.stepId, null)
+      } else {
+        onOptionUpdate?.(selectedArrow.optionId, { nextStepId: null })
+      }
       setSelectedArrow(null)
       return
     }
@@ -1014,6 +1058,46 @@ export default function FlowSchemaView({
               fromStepId: selectedArrow.stepId,
               fromX: ep.x,
               fromY: ep.y + SPECIAL_H / 2,
+              mouseX: cx,
+              mouseY: cy,
+            })
+            return
+          }
+        }
+      }
+    }
+
+    // Check button arrow target/source endpoint drag
+    if (selectedArrow?.kind === 'button') {
+      const srcStep = steps.find((s) => s.id === selectedArrow.stepId)
+      const btnNext = srcStep?.buttonConfig?.nextStepId
+      const srcPos = positions[selectedArrow.stepId]
+      if (btnNext && btnNext !== '__end__' && srcPos) {
+        const targetPos = positions[btnNext]
+        if (targetPos) {
+          const inp = getInputPort(targetPos)
+          // Target endpoint
+          if (dist(cx, cy, inp.x, inp.y) <= 18) {
+            const out = getOutputPort(srcPos)
+            setMode({
+              type: 'reconnecting_button',
+              fromStepId: selectedArrow.stepId,
+              fromX: out.x,
+              fromY: out.y,
+              mouseX: cx,
+              mouseY: cy,
+            })
+            return
+          }
+          // Source endpoint
+          const out = getOutputPort(srcPos)
+          if (dist(cx, cy, out.x, out.y) <= 18) {
+            setMode({
+              type: 'reconnecting_button_source',
+              oldFromStepId: selectedArrow.stepId,
+              targetStepId: btnNext,
+              toX: inp.x,
+              toY: inp.y,
               mouseX: cx,
               mouseY: cy,
             })
@@ -1111,7 +1195,7 @@ export default function FlowSchemaView({
     // Check arrow click for selection (before node check so arrows near nodes work)
     const arrow = hitTestArrow(cx, cy)
     if (arrow) {
-      setSelectedArrow({ ...arrow, kind: 'option' })
+      setSelectedArrow({ optionId: arrow.optionId, stepId: arrow.stepId, kind: arrow.kind })
       return
     }
 
@@ -1230,6 +1314,24 @@ export default function FlowSchemaView({
       return
     }
 
+    if (mode.type === 'reconnecting_button') {
+      setMode({ ...mode, mouseX: cx, mouseY: cy })
+      const targetStep = hitTestInputPort(cx, cy)
+      if (targetStep && targetStep !== mode.fromStepId) {
+        setHoveredPort(`inp_${targetStep}`)
+      } else {
+        setHoveredPort(null)
+      }
+      return
+    }
+
+    if (mode.type === 'reconnecting_button_source') {
+      setMode({ ...mode, mouseX: cx, mouseY: cy })
+      const outStepId = hitTestOutputPort(cx, cy)
+      setHoveredPort(outStepId ? `out_${outStepId}` : null)
+      return
+    }
+
     if (mode.type === 'reconnecting_start') {
       setMode({ ...mode, mouseX: cx, mouseY: cy })
       const targetStep = hitTestInputPort(cx, cy)
@@ -1342,6 +1444,36 @@ export default function FlowSchemaView({
         // Disconnect old option, create connection from new step
         onOptionUpdate?.(mode.optionId, { nextStepId: null })
         onConnectSteps?.(outStepId, mode.targetStepId)
+      }
+      setSelectedArrow(null)
+      setHoveredPort(null)
+      setMode({ type: 'idle' })
+      return
+    }
+
+    if (mode.type === 'reconnecting_button') {
+      const { x: cx, y: cy } = toCanvas(e.clientX, e.clientY)
+      let targetStep = hitTestInputPort(cx, cy)
+      if (!targetStep) {
+        const nodeId = hitTestNode(cx, cy)
+        if (nodeId && nodeId !== START_ID && nodeId !== END_ID) targetStep = nodeId
+      }
+      if (targetStep && targetStep !== mode.fromStepId) {
+        onButtonConfigUpdate?.(mode.fromStepId, targetStep)
+      }
+      setSelectedArrow(null)
+      setHoveredPort(null)
+      setMode({ type: 'idle' })
+      return
+    }
+
+    if (mode.type === 'reconnecting_button_source') {
+      const { x: cx, y: cy } = toCanvas(e.clientX, e.clientY)
+      const outStepId = hitTestOutputPort(cx, cy)
+      if (outStepId && outStepId !== mode.oldFromStepId) {
+        // Move buttonConfig.nextStepId from old source step to new source step
+        onButtonConfigUpdate?.(mode.oldFromStepId, null)
+        onButtonConfigUpdate?.(outStepId, mode.targetStepId)
       }
       setSelectedArrow(null)
       setHoveredPort(null)
@@ -1492,7 +1624,7 @@ export default function FlowSchemaView({
   const getCursor = () => {
     if (mode.type === 'panning') return 'grabbing'
     if (mode.type === 'dragging') return 'move'
-    if (mode.type === 'connecting' || (mode as any).type === 'connecting_reverse' || mode.type === 'reconnecting' || mode.type === 'reconnecting_source' || mode.type === 'reconnecting_start' || mode.type === 'reconnecting_end') return 'crosshair'
+    if (mode.type === 'connecting' || (mode as any).type === 'connecting_reverse' || mode.type === 'reconnecting' || mode.type === 'reconnecting_source' || mode.type === 'reconnecting_button' || mode.type === 'reconnecting_button_source' || mode.type === 'reconnecting_start' || mode.type === 'reconnecting_end') return 'crosshair'
     if (hoveredPort === '__delete__' || hoveredPort === '__arrow_delete__') return 'pointer'
     if (hoveredPort === '__arrow__') return 'pointer'
     if (hoveredPort) return 'pointer'
