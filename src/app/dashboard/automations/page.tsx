@@ -167,7 +167,7 @@ const TRIGGER_TO_TEMPLATE_NAME: Record<string, string> = {
   flow_passed:        'Training Invitation',
   training_completed: 'Scheduling Invitation',
   meeting_scheduled:  'Interview Confirmation',
-  before_meeting:     'Interview Reminder (24h)',
+  before_meeting:     'Interview Reminder',
   meeting_started:    'Generic Follow-up',
   meeting_ended:      'Interview Follow-up (Post-meeting)',
   meeting_no_show:    'Rejection Email',
