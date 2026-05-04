@@ -18,8 +18,6 @@ interface Video {
   filename: string
   displayName?: string
   summary?: string
-  transcript?: string | null
-  bulletPoints?: string[] | null
   mimeType: string
   sizeBytes: number
   durationSeconds?: number | null
@@ -64,6 +62,21 @@ export default function MediaPage() {
   const [uploading, setUploading] = useState(false)
   const [uploads, setUploads] = useState<UploadProgress[]>([])
   const [playing, setPlaying] = useState<string | null>(null)
+  // Global display preference: show AI displayName or fall back to file name.
+  // Persisted in localStorage so it survives reloads.
+  const [useAutoName, setUseAutoName] = useState(true)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = window.localStorage.getItem('media:useAutoName')
+    if (stored === 'false') setUseAutoName(false)
+    else if (stored === 'true') setUseAutoName(true)
+  }, [])
+  const toggleUseAutoName = (next: boolean) => {
+    setUseAutoName(next)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('media:useAutoName', next ? 'true' : 'false')
+    }
+  }
 
   const fetchVideos = useCallback(async () => {
     const res = await fetch('/api/videos')
@@ -87,61 +100,6 @@ export default function MediaPage() {
     setVideos((prev) => prev.filter((v) => v.id !== id))
     await fetch(`/api/videos/${id}`, { method: 'DELETE' })
   }
-  const setVideoNameMode = async (v: Video, useAuto: boolean) => {
-    if (!useAuto) {
-      // Filename mode: clear displayName so the UI falls back to filename
-      setVideos((prev) => prev.map((x) => (x.id === v.id ? { ...x, displayName: undefined } : x)))
-      await fetch(`/api/videos/${v.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: null }),
-      })
-      return
-    }
-    // Auto mode: regenerate displayName. If transcript exists, just generate a
-    // title from it; otherwise run full analyze (transcribe + summarize + name).
-    if (v.transcript) {
-      const r = await fetch('/api/ai/generate-title', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: v.transcript,
-          summary: v.summary,
-          bulletPoints: v.bulletPoints?.join(', '),
-        }),
-      })
-      if (r.ok) {
-        const { title } = await r.json()
-        if (title) {
-          setVideos((prev) => prev.map((x) => (x.id === v.id ? { ...x, displayName: title } : x)))
-          await fetch(`/api/videos/${v.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ displayName: title }),
-          })
-        }
-      }
-    } else {
-      // No transcript yet — kick off full analysis; analyze sets displayName
-      // server-side. Refetch when it finishes.
-      const r = await fetch(`/api/videos/${v.id}/analyze`, { method: 'POST' })
-      if (r.ok) {
-        const data = await r.json().catch(() => null)
-        if (data?.displayName) {
-          setVideos((prev) =>
-            prev.map((x) =>
-              x.id === v.id
-                ? { ...x, displayName: data.displayName, transcript: data.transcript, summary: data.summary }
-                : x
-            )
-          )
-        } else {
-          await fetchVideos()
-        }
-      }
-    }
-  }
-
   const reclassifyVideo = async (id: string, kind: VideoKind) => {
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, kind } : v)))
     await fetch(`/api/videos/${id}`, {
@@ -241,18 +199,33 @@ export default function MediaPage() {
       </div>
 
       <div className="px-8 pt-4">
-        <div className="inline-flex gap-1 rounded-[10px] bg-surface-weak p-1">
-          {tabs.map((t) => (
-            <button
-              key={t.k}
-              onClick={() => setTab(t.k)}
-              className={`px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-colors ${
-                tab === t.k ? 'bg-white text-ink shadow-sm' : 'text-grey-35 hover:text-ink'
-              }`}
-            >
-              {t.l} <span className="ml-1 font-mono text-[11px] text-grey-50">{t.count}</span>
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-4">
+          <div className="inline-flex gap-1 rounded-[10px] bg-surface-weak p-1">
+            {tabs.map((t) => (
+              <button
+                key={t.k}
+                onClick={() => setTab(t.k)}
+                className={`px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-colors ${
+                  tab === t.k ? 'bg-white text-ink shadow-sm' : 'text-grey-35 hover:text-ink'
+                }`}
+              >
+                {t.l} <span className="ml-1 font-mono text-[11px] text-grey-50">{t.count}</span>
+              </button>
+            ))}
+          </div>
+          {tab !== 'pictures' && (
+            <label className="inline-flex items-center gap-2 text-[12px] text-grey-35 cursor-pointer select-none">
+              <span>{useAutoName ? 'Auto-generated name' : 'File name'}</span>
+              <button
+                type="button"
+                onClick={() => toggleUseAutoName(!useAutoName)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${useAutoName ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                title={useAutoName ? 'Switch to file name' : 'Switch to auto-generated name'}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${useAutoName ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </button>
+            </label>
+          )}
         </div>
         <p className="mt-2 text-[12px] text-grey-35">{activeHint}</p>
       </div>
@@ -368,25 +341,11 @@ export default function MediaPage() {
                     </div>
                     <div className="p-3.5">
                       <div className="font-mono text-[11px] text-ink truncate mb-1" title={v.filename} style={{ letterSpacing: '0.02em' }}>
-                        {v.displayName || v.filename}
+                        {useAutoName ? (v.displayName || v.filename) : v.filename}
                       </div>
                       {v.summary && (
                         <p className="text-[11px] text-grey-35 line-clamp-2 mb-2">{v.summary}</p>
                       )}
-                      <label
-                        className="flex items-center justify-between mb-2 text-[11px] text-grey-35 cursor-pointer"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <span>{v.displayName ? 'Auto-generated name' : 'File name'}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setVideoNameMode(v, !v.displayName) }}
-                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${v.displayName ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
-                          title={v.displayName ? 'Switch to file name' : 'Switch to auto-generated name'}
-                        >
-                          <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${v.displayName ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                        </button>
-                      </label>
                       <div className="flex items-center justify-between text-[11px]">
                         <span className="font-mono text-grey-35">
                           {fmtFileSize(v.sizeBytes)} · {new Date(v.createdAt).toLocaleDateString()}
