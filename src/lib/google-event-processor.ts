@@ -14,7 +14,7 @@ import { logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { fireMeetingScheduledAutomations, cancelBeforeMeetingReminders, rescheduleBeforeMeetingReminders } from './automation'
 import { meetIntegrationEnabled } from './meet/feature-flag'
 import { getSpaceByMeetingCode, parseMeetingCodeFromUrl, updateSpaceSettings } from './meet/google-meet'
-import { subscribeSpace } from './meet/workspace-events'
+import { subscribeSpace, deleteSubscription } from './meet/workspace-events'
 import { getAuthedClientForWorkspace, hasMeetScopes } from './google'
 
 export interface ProcessEventResult {
@@ -104,6 +104,12 @@ export async function processCalendarEvent(
     // Re-key any pending before_meeting reminders to the new scheduledStart.
     await rescheduleBeforeMeetingReminders(sessionId, new Date(start)).catch((err) => {
       console.error('[GCal] rescheduleBeforeMeetingReminders failed:', err)
+    })
+    // Calendar's "regenerate Meet link" produces a new Meet space; re-bind
+    // our InterviewMeeting + subscription + recording config to it. No-op if
+    // the meeting code didn't change.
+    await reconcileExternalMeetReschedule(workspaceId, event, start, end, meetingUrl).catch((err) => {
+      console.error('[GCal] reconcileExternalMeetReschedule failed (non-fatal):', (err as Error).message)
     })
   }
 
@@ -233,4 +239,137 @@ function extractMeetingLink(text: string | null | undefined): string | null {
   if (!text) return null
   const match = text.match(/https?:\/\/[^\s<>"']+(meet\.google\.com|zoom\.us|teams\.microsoft\.com|whereby\.com)[^\s<>"']*/i)
   return match ? match[0] : null
+}
+
+/**
+ * Reschedule reconciliation: when a calendar event is updated and Google
+ * regenerates the Meet link (different meeting code), our existing
+ * InterviewMeeting row still references the old space — recording config we
+ * patched, the Workspace Events subscription, and the Drive recording artifact
+ * lookup all become useless. This function detects the URL change and
+ * re-binds the row to the new space:
+ *
+ *   - Updates scheduledStart/scheduledEnd unconditionally (even on no-op URL).
+ *   - When the meeting code differs:
+ *       - Best-effort delete the old Workspace Events subscription.
+ *       - Patches the new space to autoRecording=ON / autoTranscription=ON
+ *         per the workspace's per-feature capability flags.
+ *       - Subscribes to the new space.
+ *       - Updates meetSpaceName/meetingCode/meetingUri/sub fields on the row
+ *         and resets the recording state to 'requested' (or 'disabled').
+ *
+ * No-ops when the calendar event has no Meet link, when there is no existing
+ * InterviewMeeting for the event, or when the meeting code is unchanged
+ * (besides the scheduled-window update).
+ */
+async function reconcileExternalMeetReschedule(
+  workspaceId: string,
+  event: calendar_v3.Schema$Event,
+  start: string | null | undefined,
+  end: string | null | undefined,
+  meetingUrl: string | null,
+): Promise<void> {
+  if (!event.id || !start || !end) return
+  const existing = await prisma.interviewMeeting.findUnique({ where: { googleCalendarEventId: event.id } })
+  if (!existing) return
+
+  const newScheduledStart = new Date(start)
+  const newScheduledEnd = new Date(end)
+  const newCode = parseMeetingCodeFromUrl(meetingUrl || event.hangoutLink)
+
+  // Same meeting code (or new event has no Meet link): only refresh the
+  // scheduled window if it shifted.
+  if (!newCode || newCode === existing.meetingCode) {
+    if (
+      existing.scheduledStart.getTime() !== newScheduledStart.getTime() ||
+      existing.scheduledEnd.getTime() !== newScheduledEnd.getTime()
+    ) {
+      await prisma.interviewMeeting.update({
+        where: { id: existing.id },
+        data: { scheduledStart: newScheduledStart, scheduledEnd: newScheduledEnd },
+      })
+    }
+    return
+  }
+
+  const enabled = await meetIntegrationEnabled(workspaceId)
+  if (!enabled) return
+
+  const authed = await getAuthedClientForWorkspace(workspaceId)
+  if (!authed) return
+  if (!hasMeetScopes(authed.integration.grantedScopes)) return
+
+  let newSpace
+  try {
+    newSpace = await getSpaceByMeetingCode(authed.client, newCode)
+  } catch (err) {
+    console.warn('[ReconcileReschedule] spaces.get failed for new code', newCode, (err as Error).message)
+    return
+  }
+
+  // Best-effort delete the old subscription so we stop receiving (none) events
+  // for a space we no longer care about. Failures are common (already expired,
+  // or never created) and non-fatal.
+  if (existing.workspaceEventsSubName) {
+    try { await deleteSubscription(authed.client, existing.workspaceEventsSubName) }
+    catch (err) { console.warn('[ReconcileReschedule] deleteSubscription (old) failed:', (err as Error).message) }
+  }
+
+  // Patch new space to ON for whatever the workspace can actually do.
+  let recordingTurnedOn = newSpace.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON'
+  let transcriptionTurnedOn = newSpace.config?.artifactConfig?.transcriptionConfig?.autoTranscriptionGeneration === 'ON'
+  const wantRecording = authed.integration.recordingCapable === true && !recordingTurnedOn
+  const wantTranscription = authed.integration.transcriptionCapable !== false && !transcriptionTurnedOn
+  if (wantRecording || wantTranscription) {
+    try {
+      const patched = await updateSpaceSettings(authed.client, newSpace.name, {
+        ...(wantRecording ? { autoRecording: 'ON' as const } : {}),
+        ...(wantTranscription ? { autoTranscription: 'ON' as const } : {}),
+      })
+      recordingTurnedOn = patched.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON'
+      transcriptionTurnedOn = patched.config?.artifactConfig?.transcriptionConfig?.autoTranscriptionGeneration === 'ON'
+    } catch (err) {
+      console.warn('[ReconcileReschedule] updateSpaceSettings (new) failed:', (err as Error).message)
+    }
+  }
+
+  // Subscribe to the new space (best-effort).
+  let subName: string | null = null
+  let subExpires: Date | null = null
+  try {
+    const sub = await subscribeSpace(authed.client, newSpace.name)
+    subName = sub.name
+    subExpires = sub.expireTime ? new Date(sub.expireTime) : null
+  } catch (err) {
+    console.warn('[ReconcileReschedule] subscribeSpace (new) failed:', (err as Error).message)
+  }
+
+  await prisma.interviewMeeting.update({
+    where: { id: existing.id },
+    data: {
+      meetSpaceName: newSpace.name,
+      meetingCode: newSpace.meetingCode || newCode,
+      meetingUri: newSpace.meetingUri || meetingUrl || '',
+      scheduledStart: newScheduledStart,
+      scheduledEnd: newScheduledEnd,
+      recordingEnabled: recordingTurnedOn,
+      recordingProvider: recordingTurnedOn ? 'google_meet' : null,
+      recordingState: recordingTurnedOn ? 'requested' : 'disabled',
+      transcriptState: transcriptionTurnedOn ? 'processing' : 'disabled',
+      workspaceEventsSubName: subName,
+      workspaceEventsSubExpiresAt: subExpires,
+      spaceAdoptedFromReschedule: true,
+      // Clear cached artifacts; they belonged to the old space.
+      driveRecordingFileId: null,
+      driveTranscriptFileId: null,
+      driveGeminiNotesFileId: null,
+      attendanceSheetFileId: null,
+      meetApiSyncedAt: null,
+      actualStart: null,
+      actualEnd: null,
+      participants: undefined,
+      rawEvents: undefined,
+    },
+  })
+  console.log('[ReconcileReschedule] re-bound meeting', existing.id, 'to space', newSpace.name)
 }

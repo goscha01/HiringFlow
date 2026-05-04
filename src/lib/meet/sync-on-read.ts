@@ -24,9 +24,10 @@
 import type { InterviewMeeting, Prisma } from '@prisma/client'
 import type { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../prisma'
-import { fetchUserInfo, getAuthedClientForWorkspace } from '../google'
+import { fetchUserInfo, getAuthedClientForWorkspace, hasSheetsScope } from '../google'
 import { withWorkspaceMeetClient, listConferenceRecords, listParticipants, listRecordings, type Participant } from './google-meet'
 import { findMeetRecordingsFolderId, searchMeetRecordings } from './google-drive'
+import { findAttendanceForMeeting, type AttendanceSignal } from './attendance-fallback'
 import { logSchedulingEvent } from '../scheduling'
 import { fireMeetingLifecycleAutomations } from '../automation'
 
@@ -41,7 +42,7 @@ const MIN_RESYNC_INTERVAL_MS = 5 * 60 * 1000
 
 type SyncableMeeting = Pick<InterviewMeeting,
   'id' | 'workspaceId' | 'sessionId' | 'meetSpaceName' |
-  'scheduledStart' | 'scheduledEnd' | 'actualEnd' | 'recordingState' |
+  'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd' | 'recordingState' |
   'meetApiSyncedAt'
 >
 
@@ -99,20 +100,44 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
         // gated.
         const integ = await prisma.googleIntegration.findUnique({
           where: { workspaceId: meeting.workspaceId },
-          select: { hostedDomain: true, meetRecordingsFolderId: true },
+          select: {
+            hostedDomain: true, meetRecordingsFolderId: true,
+            attendanceExtensionEnabled: true, grantedScopes: true,
+          },
         })
         if (integ?.hostedDomain) {
           // Workspace tenant — empty really means no conference happened.
           await maybeFlagNoShow(meeting, [], { reason: 'no_conference_started' })
           return false
         }
-        // Personal Gmail / Workspace Individual fallback path: link the Drive
-        // recording artifact only. We don't auto-flag no-show because Meet
-        // names recordings from the calendar event title, not from who
-        // actually attended — recruiters mark manually.
-        const driveOutcome = await syncFromDriveRecording(client, meeting, integ?.meetRecordingsFolderId ?? null)
+        // Personal Gmail / Workspace Individual fallback path. Two signals:
+        //   1. Attendance-extension spreadsheet (true present/absent answer)
+        //   2. Drive Recording / Gemini Notes (proves the meeting happened,
+        //      can't disambiguate attendees → meeting_started/ended only)
+        const session = await prisma.session.findUnique({
+          where: { id: meeting.sessionId },
+          select: { candidateName: true, candidateEmail: true },
+        })
+        const folderId = await ensureFolderId(client, meeting.workspaceId, integ?.meetRecordingsFolderId ?? null)
+        const driveOutcome = await syncFromDriveRecording(client, meeting, folderId)
         if (driveOutcome.updated) updated = true
-        return driveOutcome.updated
+
+        const attendance = await findAttendanceForMeeting(client, {
+          windowStart: meeting.scheduledStart,
+          windowEnd: meeting.scheduledEnd,
+          folderId,
+          candidateName: session?.candidateName ?? null,
+          candidateEmail: session?.candidateEmail ?? null,
+          extensionEnabled: !!integ?.attendanceExtensionEnabled,
+          sheetsScopeGranted: hasSheetsScope(integ?.grantedScopes),
+        }).catch((err) => {
+          console.warn('[meet-sync] attendance fallback failed:', (err as Error).message)
+          return null
+        })
+
+        const lifecycleFired = await applyAttendanceSignal(meeting, attendance, driveOutcome)
+        if (lifecycleFired) updated = true
+        return updated
       }
 
       // Use the most recent conference. (Multiple are possible if the host
@@ -168,7 +193,7 @@ export async function syncWorkspaceMeetings(workspaceId: string): Promise<number
     where: { workspaceId },
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
-      scheduledStart: true, scheduledEnd: true, actualEnd: true,
+      scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
       recordingState: true, meetApiSyncedAt: true,
     },
   })
@@ -197,53 +222,27 @@ function toParticipantRow(p: Participant): { email: string | null; displayName: 
 }
 
 /**
- * Drive-recording fallback for personal Gmail / Workspace Individual tenants.
+ * Drive recording artifact lookup. Links the recording file to the meeting
+ * but does not infer attendance from the filename (Meet derives the filename
+ * from the calendar event title, not actual attendees).
  *
- * Looks up the recording artifact in the user's Meet Recordings folder and
- * links it to the meeting (driveRecordingFileId, recordingState='ready'). We
- * do **not** infer attendance from the filename: Meet names recordings using
- * the calendar event title, not actual attendees, so "<Candidate> and <Host>"
- * appears whether or not the candidate joined.
- *
- * Personal Gmail tenants therefore never get an automatic no-show flag — the
- * recording presence proves only that *someone* (typically the host) joined.
- * Recruiters mark no-show manually; UI surfaces a notice explaining the
- * limitation and the two paths to fix it (Workspace Business+ or a Chrome
- * extension that exports attendance to Drive).
- *
- * Returns whether anything was written to the InterviewMeeting row.
+ * The file's existence is still useful as a "meeting happened" signal —
+ * applyAttendanceSignal consumes the returned `recordingFileId` to emit a
+ * meeting_started/ended pair when no attendance sheet is available.
  */
 async function syncFromDriveRecording(
   client: OAuth2Client,
   meeting: SyncableMeeting,
-  cachedFolderId: string | null,
-): Promise<{ updated: boolean }> {
+  folderId: string | null,
+): Promise<{ updated: boolean; recordingFileId: string | null; createdAt: Date | null }> {
+  if (!folderId) return { updated: false, recordingFileId: null, createdAt: null }
   const session = await prisma.session.findUnique({
     where: { id: meeting.sessionId },
     select: { candidateName: true },
   })
-  if (!session?.candidateName) return { updated: false }
-
-  // Resolve folder id (cache hit or one Drive call).
-  let folderId = cachedFolderId
-  if (!folderId) {
-    folderId = await findMeetRecordingsFolderId(client).catch((err) => {
-      console.error('[meet-sync] findMeetRecordingsFolderId failed:', (err as Error).message)
-      return null
-    })
-    if (folderId) {
-      await prisma.googleIntegration.update({
-        where: { workspaceId: meeting.workspaceId },
-        data: { meetRecordingsFolderId: folderId },
-      }).catch(() => {})
-    }
-    // No folder yet → user has never recorded a Meet call. Nothing to link.
-    if (!folderId) return { updated: false }
-  }
+  if (!session?.candidateName) return { updated: false, recordingFileId: null, createdAt: null }
 
   // Search window: 1h before scheduledStart through 3h after scheduledEnd.
-  // Recording files are written at the *end* of the meeting; the lower bound
-  // only matters if Drive's createdTime races with the meeting start.
   const start = meeting.scheduledStart ?? new Date(0)
   const end = meeting.scheduledEnd ?? new Date(Date.now() + 24 * 60 * 60 * 1000)
   const candidates = await searchMeetRecordings(client, {
@@ -257,23 +256,150 @@ async function syncFromDriveRecording(
     return []
   })
 
-  // Most-recent matching file wins. We don't try to be clever — if multiple
-  // recordings landed in the window matching the candidate's name (rare),
-  // we link the latest one and the recruiter can correct it.
   const chosen = candidates[0]
-  if (!chosen) return { updated: false }
+  if (!chosen) return { updated: false, recordingFileId: null, createdAt: null }
 
+  const createdAt = chosen.createdTime ? new Date(chosen.createdTime) : new Date()
   const data: Prisma.InterviewMeetingUpdateInput = {
     driveRecordingFileId: chosen.id,
     recordingState: 'ready',
-    // We don't have precise actualStart/End from Drive, but the recording's
-    // createdTime is right after the meeting ends — close enough that the UI
-    // shows "Ended" instead of "Missed". scheduledStart stays authoritative
-    // for the start time.
-    actualEnd: chosen.createdTime ? new Date(chosen.createdTime) : new Date(),
+    // Recording's createdTime is right after the meeting ends — close enough
+    // for "Ended" UI. scheduledStart stays authoritative for the start time.
+    actualEnd: createdAt,
   }
   await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
-  return { updated: true }
+  return { updated: true, recordingFileId: chosen.id, createdAt }
+}
+
+/**
+ * Resolve the cached "Meet Recordings" folder id, looking it up + caching on
+ * first use. Returns null if the user has never recorded a Meet call.
+ */
+async function ensureFolderId(
+  client: OAuth2Client,
+  workspaceId: string,
+  cached: string | null,
+): Promise<string | null> {
+  if (cached) return cached
+  const folderId = await findMeetRecordingsFolderId(client).catch((err) => {
+    console.error('[meet-sync] findMeetRecordingsFolderId failed:', (err as Error).message)
+    return null
+  })
+  if (folderId) {
+    await prisma.googleIntegration.update({
+      where: { workspaceId },
+      data: { meetRecordingsFolderId: folderId },
+    }).catch(() => {})
+  }
+  return folderId
+}
+
+/**
+ * Apply a personal-Gmail attendance signal to the meeting:
+ *
+ *   - **attendance_sheet** with `candidatePresent=true`:
+ *       emit meeting_started (idempotent) and meeting_ended (idempotent).
+ *       Clear hint of true attendance.
+ *   - **attendance_sheet** with `candidatePresent=false`:
+ *       emit meeting_no_show (via the existing maybeFlagNoShow path).
+ *   - **gemini_notes** or **recording**:
+ *       proves *someone* met but can't disambiguate. Emit meeting_started +
+ *       meeting_ended so the kanban card advances; recruiter still uses the
+ *       manual "Mark as no-show" button if the candidate didn't show up.
+ *
+ * Idempotency guard: each event type is only emitted if no SchedulingEvent
+ * with the same `(sessionId, eventType, interviewMeetingId)` already exists.
+ *
+ * Returns true if any event was emitted (so the caller can record `updated`).
+ */
+async function applyAttendanceSignal(
+  meeting: SyncableMeeting,
+  attendance: AttendanceSignal | null,
+  driveOutcome: { recordingFileId: string | null; createdAt: Date | null },
+): Promise<boolean> {
+  // Persist file pointers so the UI can deep-link them, even if we don't end
+  // up emitting any lifecycle events from this run.
+  const linkUpdate: Prisma.InterviewMeetingUpdateInput = {}
+  if (attendance?.source === 'gemini_notes') linkUpdate.driveGeminiNotesFileId = attendance.driveFileId
+  if (attendance?.source === 'attendance_sheet') linkUpdate.attendanceSheetFileId = attendance.driveFileId
+  if (Object.keys(linkUpdate).length > 0) {
+    await prisma.interviewMeeting.update({ where: { id: meeting.id }, data: linkUpdate }).catch(() => {})
+  }
+
+  // Decide what happened.
+  const recordingPresent = !!driveOutcome.recordingFileId
+  const sheetSaysAbsent = attendance?.source === 'attendance_sheet' && attendance.candidatePresent === false
+
+  if (sheetSaysAbsent) {
+    // Definitive no-show from the extension's row data.
+    await maybeFlagNoShow(meeting, [], { reason: 'attendance_sheet_candidate_absent' })
+    return true
+  }
+
+  // Anything that proves the meeting *occurred*: attendance sheet (any
+  // present row), Gemini Notes, or a recording artifact.
+  const happened =
+    (attendance?.source === 'attendance_sheet' && attendance.candidatePresent === true) ||
+    attendance?.source === 'gemini_notes' ||
+    recordingPresent
+  if (!happened) return false
+
+  // End time: prefer the artifact's createdTime (recording or Gemini Notes
+  // both finalize a few minutes after the meeting ends), else scheduledEnd.
+  const endAt = attendance?.createdAt ?? driveOutcome.createdAt ?? meeting.scheduledEnd ?? new Date()
+  // Start time: prefer scheduledStart (we have no better signal in fallback
+  // mode); only override if we already had an actualStart from a prior sync.
+  const startAt = meeting.actualStart ?? meeting.scheduledStart ?? new Date(endAt.getTime() - 30 * 60 * 1000)
+
+  // Persist actualStart/End so the UI shows real timing.
+  const stateUpdate: Prisma.InterviewMeetingUpdateInput = {}
+  if (!meeting.actualStart) stateUpdate.actualStart = startAt
+  if (!meeting.actualEnd) stateUpdate.actualEnd = endAt
+  if (Object.keys(stateUpdate).length > 0) {
+    await prisma.interviewMeeting.update({ where: { id: meeting.id }, data: stateUpdate }).catch(() => {})
+  }
+
+  const startedSource = attendance?.source ?? 'recording'
+  let any = false
+  any = (await emitLifecycleEventOnce(meeting, 'meeting_started', startAt, {
+    source: 'meet_api_sync_fallback', signal: startedSource,
+  })) || any
+  any = (await emitLifecycleEventOnce(meeting, 'meeting_ended', endAt, {
+    source: 'meet_api_sync_fallback', signal: startedSource,
+  })) || any
+  return any
+}
+
+/**
+ * Insert a SchedulingEvent + fire its lifecycle automations exactly once per
+ * (sessionId, eventType, interviewMeetingId) tuple. Returns true if a new
+ * event was actually emitted (false on idempotent skip).
+ */
+async function emitLifecycleEventOnce(
+  meeting: { id: string; sessionId: string },
+  eventType: 'meeting_started' | 'meeting_ended',
+  at: Date,
+  extra: Record<string, unknown>,
+): Promise<boolean> {
+  const existing = await prisma.schedulingEvent.findFirst({
+    where: {
+      sessionId: meeting.sessionId,
+      eventType,
+      metadata: { path: ['interviewMeetingId'], equals: meeting.id },
+    },
+    select: { id: true },
+  })
+  if (existing) return false
+
+  await logSchedulingEvent({
+    sessionId: meeting.sessionId,
+    eventType,
+    metadata: { interviewMeetingId: meeting.id, at: at.toISOString(), ...extra },
+  })
+  await fireMeetingLifecycleAutomations(meeting.sessionId, eventType).catch((err) => {
+    console.error(`[meet-sync] ${eventType} automations failed:`, err)
+  })
+  return true
 }
 
 /**

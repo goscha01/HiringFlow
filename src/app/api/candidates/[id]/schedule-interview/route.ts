@@ -22,8 +22,8 @@ import { getAuthedClientForWorkspace, hasMeetScopes } from '@/lib/google'
 import { meetIntegrationEnabled } from '@/lib/meet/feature-flag'
 import { createSpace, MeetApiError } from '@/lib/meet/google-meet'
 import { subscribeSpace, WorkspaceEventsError } from '@/lib/meet/workspace-events'
-import { ensureRecordingCapability, capabilityMessage } from '@/lib/meet/recording-capability'
-import type { RecordingCapabilityReason } from '@/lib/meet/recording-capability'
+import { ensureRecordingCapability, probeRecordingCapability, capabilityMessage } from '@/lib/meet/recording-capability'
+import type { RecordingCapabilityReason, CombinedCapability } from '@/lib/meet/recording-capability'
 import { selectRecorder } from '@/lib/meet/meeting-recorder'
 import { logSchedulingEvent, updatePipelineStatus } from '@/lib/scheduling'
 import { fireMeetingScheduledAutomations } from '@/lib/automation'
@@ -69,32 +69,53 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ error: 'reconnect_required', message: 'Reconnect your Google account to enable Meet scheduling' }, { status: 409 })
   }
 
-  // Resolve recording capability (probes lazily if unknown and requested)
-  let recordingCapableResult: Awaited<ReturnType<typeof ensureRecordingCapability>> = {
-    capable: null, reason: 'probe_not_run', checkedAt: null, fromCache: true,
+  // Resolve recording + transcription capability independently. When the
+  // caller explicitly requested recording, force a *fresh* probe whenever the
+  // cached value is anything other than `true` — Google's plan tier or admin
+  // policy can change between probes, and a stale `false` would silently strip
+  // the recording flag from the new space without retrying.
+  const noneCap: CombinedCapability = {
+    recording:    { capable: null, reason: 'probe_not_run', checkedAt: null, fromCache: true },
+    transcription:{ capable: null, reason: 'probe_not_run', checkedAt: null, fromCache: true },
   }
-  if (record) {
-    try { recordingCapableResult = await ensureRecordingCapability(ws.workspaceId) }
-    catch (err) { console.error('[Schedule-interview] capability probe failed:', err) }
-  }
-  const selection = selectRecorder({ record, capable: recordingCapableResult.capable })
+  let capabilityResult = noneCap
+  try {
+    if (record) {
+      const cached = await ensureRecordingCapability(ws.workspaceId)
+      if (cached.recording.capable === true) {
+        capabilityResult = cached
+      } else {
+        // Stale cache or never-true → re-probe authoritatively.
+        capabilityResult = await probeRecordingCapability(ws.workspaceId)
+      }
+    } else {
+      capabilityResult = await ensureRecordingCapability(ws.workspaceId)
+    }
+  } catch (err) { console.error('[Schedule-interview] capability probe failed:', err) }
+
+  const selection = selectRecorder({ record, capable: capabilityResult.recording.capable })
+  const transcriptionEnabledFinal = capabilityResult.transcription.capable !== false
   const warnings: string[] = []
   if (record && !selection.recordingEnabled) {
-    warnings.push(capabilityMessage(recordingCapableResult.reason as RecordingCapabilityReason))
+    warnings.push(capabilityMessage(capabilityResult.recording.reason as RecordingCapabilityReason))
   }
 
   // --- Create Meet space ---
+  // Recording and transcription are independent. Transcription doesn't gate on
+  // recording capability; if the workspace can transcribe, we always try to
+  // turn it on so personal-Gmail tenants still get Gemini-style notes/captions
+  // even when their plan tier blocks recording.
   let space
   try {
     space = await createSpace(client, {
       accessType: 'TRUSTED',
       entryPointAccess: 'ALL',
       autoRecording: selection.recordingEnabled ? 'ON' : 'OFF',
-      autoTranscription: selection.recordingEnabled ? 'ON' : 'OFF',
+      autoTranscription: transcriptionEnabledFinal ? 'ON' : 'OFF',
     })
   } catch (err) {
-    // If the recording request itself was rejected, retry without recording
-    // (treat as "scheduled without recording") and cache the capability.
+    // If the request was rejected for recording specifically, retry without
+    // recording (transcription stays as requested) and cache the negative.
     if (selection.recordingEnabled && err instanceof MeetApiError && err.status === 403) {
       const reason = err.recordingReason ?? 'permission_denied_other'
       await prisma.googleIntegration.update({
@@ -106,7 +127,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         },
       }).catch(() => {})
       try {
-        space = await createSpace(client, { accessType: 'TRUSTED', entryPointAccess: 'ALL', autoRecording: 'OFF' })
+        space = await createSpace(client, {
+          accessType: 'TRUSTED',
+          entryPointAccess: 'ALL',
+          autoRecording: 'OFF',
+          autoTranscription: transcriptionEnabledFinal ? 'ON' : 'OFF',
+        })
         warnings.push(capabilityMessage(reason as RecordingCapabilityReason))
       } catch (err2) {
         console.error('[Schedule-interview] Meet space creation failed:', err2)
@@ -117,7 +143,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'meet_space_failed', message: (err as Error).message }, { status: 502 })
     }
   }
-  const recordingEnabledFinal = selection.recordingEnabled && warnings.length === 0
+  // Trust what the server actually persisted, not what we requested. The Meet
+  // API silently drops unsupported flags on certain plan tiers (e.g.
+  // Workspace Individual will accept transcription but drop recording even
+  // when the request didn't 403).
+  const persistedRecording = space!.config?.artifactConfig?.recordingConfig?.autoRecordingGeneration === 'ON'
+  const persistedTranscription = space!.config?.artifactConfig?.transcriptionConfig?.autoTranscriptionGeneration === 'ON'
+  const recordingEnabledFinal = persistedRecording
+  const transcriptOnFinal = persistedTranscription
+  if (selection.recordingEnabled && !persistedRecording) {
+    warnings.push(capabilityMessage('permission_denied_plan' as RecordingCapabilityReason))
+  }
 
   // --- Create Calendar event ---
   const calendar = google.calendar({ version: 'v3', auth: client })
@@ -189,7 +225,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       recordingEnabled: recordingEnabledFinal,
       recordingProvider: recordingEnabledFinal ? 'google_meet' : null,
       recordingState: recordingEnabledFinal ? 'requested' : 'disabled',
-      transcriptState: recordingEnabledFinal ? 'processing' : 'disabled',
+      transcriptState: transcriptOnFinal ? 'processing' : 'disabled',
       workspaceEventsSubName: subName,
       workspaceEventsSubExpiresAt: subExpires,
     },

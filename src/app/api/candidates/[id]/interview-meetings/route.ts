@@ -26,7 +26,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     where: { sessionId: session.id },
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
-      scheduledStart: true, scheduledEnd: true, actualEnd: true,
+      scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
       recordingState: true, meetApiSyncedAt: true,
     },
   })
@@ -51,6 +51,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       transcriptState: true,
       driveRecordingFileId: true,
       driveTranscriptFileId: true,
+      driveGeminiNotesFileId: true,
+      attendanceSheetFileId: true,
       participants: true,
       createdAt: true,
     },

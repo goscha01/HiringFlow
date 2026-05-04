@@ -23,7 +23,7 @@ async function main() {
     where: meetingId ? { id: meetingId } : {},
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
-      scheduledStart: true, scheduledEnd: true, actualEnd: true,
+      scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
       recordingState: true, meetApiSyncedAt: true,
       session: { select: { candidateName: true, pipelineStatus: true } },
     },

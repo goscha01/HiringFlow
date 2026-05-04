@@ -45,6 +45,17 @@ export function hasMeetScopes(grantedScopes: string | null | undefined): boolean
   return REQUIRED_MEET_SCOPES.every((s) => granted.has(s))
 }
 
+// Sheets API readonly scope — needed only when the workspace opted into the
+// "attendance Chrome extension" fallback. We don't include this in the base
+// scopes (most workspaces won't need it); it's added on demand when the user
+// enables the extension toggle in Settings, which forces a re-OAuth.
+export const SHEETS_READONLY_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly'
+
+export function hasSheetsScope(grantedScopes: string | null | undefined): boolean {
+  if (!grantedScopes) return false
+  return grantedScopes.split(/\s+/).includes(SHEETS_READONLY_SCOPE)
+}
+
 export function getAppUrl(): string {
   return process.env.APP_URL
     || process.env.NEXT_PUBLIC_APP_URL

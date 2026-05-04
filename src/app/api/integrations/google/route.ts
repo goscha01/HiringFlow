@@ -23,6 +23,10 @@ export async function GET() {
       recordingCapable: true,
       recordingCapabilityReason: true,
       recordingCapabilityCheckedAt: true,
+      transcriptionCapable: true,
+      transcriptionCapabilityReason: true,
+      transcriptionCapabilityCheckedAt: true,
+      attendanceExtensionEnabled: true,
     },
   })
 
@@ -42,6 +46,11 @@ export async function GET() {
         recordingCapabilityReason: integration.recordingCapabilityReason as RecordingCapabilityReason | null,
         recordingCapabilityMessage: capabilityMessage(integration.recordingCapabilityReason as RecordingCapabilityReason | null),
         recordingCapabilityCheckedAt: integration.recordingCapabilityCheckedAt,
+        transcriptionCapable: integration.transcriptionCapable,
+        transcriptionCapabilityReason: integration.transcriptionCapabilityReason as RecordingCapabilityReason | null,
+        transcriptionCapabilityMessage: capabilityMessage(integration.transcriptionCapabilityReason as RecordingCapabilityReason | null),
+        transcriptionCapabilityCheckedAt: integration.transcriptionCapabilityCheckedAt,
+        attendanceExtensionEnabled: integration.attendanceExtensionEnabled,
       }
     : null
 

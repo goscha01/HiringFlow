@@ -25,9 +25,15 @@ export async function POST() {
 
   const result = await probeRecordingCapability(ws.workspaceId)
   return NextResponse.json({
-    capable: result.capable,
-    reason: result.reason,
-    message: capabilityMessage(result.reason as RecordingCapabilityReason),
-    checkedAt: result.checkedAt,
+    capable: result.recording.capable,
+    reason: result.recording.reason,
+    message: capabilityMessage(result.recording.reason as RecordingCapabilityReason),
+    checkedAt: result.recording.checkedAt,
+    transcription: {
+      capable: result.transcription.capable,
+      reason: result.transcription.reason,
+      message: capabilityMessage(result.transcription.reason as RecordingCapabilityReason),
+      checkedAt: result.transcription.checkedAt,
+    },
   })
 }

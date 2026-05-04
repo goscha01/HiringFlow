@@ -123,6 +123,16 @@ model GoogleIntegration {
   // Machine-readable reason, e.g. probe_ok, permission_denied_plan,
   // permission_denied_admin_policy, probe_not_run, probe_error.
   recordingCapabilityReason  String?   @map("recording_capability_reason")
+  // Tri-state transcription capability — probed independently from recording
+  // because Workspace Individual / personal Gmail commonly allows
+  // autoTranscription but not autoRecording. Same probe-cache lifecycle.
+  transcriptionCapable           Boolean?  @map("transcription_capable")
+  transcriptionCapabilityCheckedAt DateTime? @map("transcription_capability_checked_at")
+  transcriptionCapabilityReason  String?   @map("transcription_capability_reason")
+  // True if the workspace owner has confirmed the "Meet Attendance" Chrome
+  // extension is installed and the integration should scan Drive for its
+  // exported spreadsheets to derive attendance for personal Gmail tenants.
+  attendanceExtensionEnabled Boolean   @default(false) @map("attendance_extension_enabled")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -172,6 +182,16 @@ model InterviewMeeting {
   // sync attempts when many concurrent listings hit a stale meeting; null
   // means we've never synced via the API path.
   meetApiSyncedAt           DateTime? @map("meet_api_synced_at")
+  // True if this row's Meet space was changed via reschedule adoption (the
+  // calendar event's Meet link was regenerated). Diagnostic only.
+  spaceAdoptedFromReschedule Boolean   @default(false) @map("space_adopted_from_reschedule")
+  // Drive file id of the "Notes by Gemini" doc associated with this meeting
+  // (when present). Personal Gmail tenants get attendance from this artifact's
+  // existence even when conferenceRecords is empty.
+  driveGeminiNotesFileId    String?   @map("drive_gemini_notes_file_id")
+  // Drive file id of the attendance-extension spreadsheet matched to this
+  // meeting (when present + enabled).
+  attendanceSheetFileId     String?   @map("attendance_sheet_file_id")
   createdAt                 DateTime  @default(now()) @map("created_at")
   updatedAt                 DateTime  @updatedAt @map("updated_at")
 
