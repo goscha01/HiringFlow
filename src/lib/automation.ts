@@ -23,6 +23,17 @@ type SessionCtx = {
   source: string | null
 }
 
+// Triggers that represent the "pre-meeting" phase. Any pending follow-up step
+// from a rule with one of these triggers gets cancelled when the candidate
+// books a meeting (meeting_scheduled fires) — the follow-up was a nudge to
+// book, and they've now booked. Same idea applies on hire/reject.
+const PRE_MEETING_TRIGGERS = new Set([
+  'flow_completed',
+  'flow_passed',
+  'training_started',
+  'training_completed',
+])
+
 export async function fireAutomations(sessionId: string, outcome: string) {
   try {
     const session = await prisma.session.findUnique({
@@ -35,8 +46,6 @@ export async function fireAutomations(sessionId: string, outcome: string) {
     if (!triggerType) return
 
     const legacyStatus = outcome === 'passed' ? 'passed' : 'completed_flow'
-    // Auto-stage trigger first (overwrites legacy status if a matching stage
-    // is configured); falls back to the legacy string otherwise.
     await applyStageTrigger({
       sessionId,
       workspaceId: session.workspaceId,
@@ -71,9 +80,6 @@ export async function fireTrainingCompletedAutomations(sessionId: string, traini
   }
 }
 
-// Fired when a candidate first opens / progresses a training. Mirrors the
-// existing "training_in_progress" pipeline marker but routes through the
-// stage trigger system so workspaces can map per-training started events.
 export async function fireTrainingStartedAutomations(sessionId: string, trainingId: string) {
   try {
     const session = await prisma.session.findUnique({
@@ -106,12 +112,15 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
       event: 'meeting_scheduled',
       flowId: session.flowId,
     }).catch(() => {})
+
+    // The candidate booked. Cancel any pending follow-up steps queued by
+    // pre-meeting rules ("haven't booked yet?" nudges) — they're moot now.
+    await cancelPendingStepsForSession(sessionId, {
+      ruleTriggerTypes: PRE_MEETING_TRIGGERS,
+    }).catch((err) => console.error('[Automation] cancel pre-meeting follow-ups failed:', err))
+
     await dispatchRulesForTrigger(sessionId, 'meeting_scheduled', session)
 
-    // Schedule any before_meeting reminder rules. We need the absolute
-    // scheduledStart to compute fire times; pull it from the candidate's
-    // newest InterviewMeeting (the one that just got created via Calendly
-    // adoption or the in-app scheduler).
     const upcoming = await prisma.interviewMeeting.findFirst({
       where: { sessionId },
       orderBy: { scheduledStart: 'desc' },
@@ -138,11 +147,6 @@ export async function rescheduleBeforeMeetingReminders(sessionId: string, newSch
 /**
  * Generic lifecycle dispatcher for Meet integration v2 events
  * (meeting_started / meeting_ended / recording_ready / transcript_ready).
- * Each is a distinct automation trigger.
- *
- * For meeting_ended rules with waitForRecording=true, the rule is queued in
- * a 'waiting_for_recording' state with a 4h hard cutoff (scheduledFor). The
- * recording_ready trigger and the cron both release such queued executions.
  */
 export async function fireMeetingLifecycleAutomations(
   sessionId: string,
@@ -155,13 +159,7 @@ export async function fireMeetingLifecycleAutomations(
     })
     if (!session) return
 
-    // Stage trigger for the meeting lifecycle event (covers meeting_started,
-    // meeting_ended, and meeting_no_show; recording / transcript events are
-    // not user-facing funnel transitions).
     if (trigger === 'meeting_started' || trigger === 'meeting_ended' || trigger === 'meeting_no_show') {
-      // No-shows: default to the Rejected stage when no workspace stage is
-      // wired to meeting_no_show. legacyStatus='rejected' resolves to the
-      // built-in Rejected column via mapLegacyStatusToStageId.
       const legacyStatus = trigger === 'meeting_no_show' ? 'rejected' : undefined
       await applyStageTrigger({
         sessionId,
@@ -171,9 +169,6 @@ export async function fireMeetingLifecycleAutomations(
         legacyStatus,
       }).catch(() => {})
 
-      // Stamp a rejection reason for no-shows so the candidate card shows
-      // *why* they ended up in Rejected. Recruiters can edit it afterwards
-      // from the candidate page.
       if (trigger === 'meeting_no_show') {
         await prisma.session.update({
           where: { id: sessionId },
@@ -186,20 +181,23 @@ export async function fireMeetingLifecycleAutomations(
     }
 
     if (trigger === 'recording_ready') {
-      // Release any meeting_ended rules that were waiting on the recording.
+      // Release any executions that were waiting on the recording. Each row
+      // represents one (step, channel) pair that should now run.
       const pending = await prisma.automationExecution.findMany({
         where: { sessionId, status: 'waiting_for_recording' },
-        select: { id: true, automationRuleId: true },
+        select: { id: true, stepId: true, channel: true },
       })
       for (const e of pending) {
-        await executeRule(e.automationRuleId, sessionId).catch((err) =>
+        if (!e.stepId) continue
+        await executeStep(e.stepId, sessionId, e.channel as 'email' | 'sms').catch((err) =>
           console.error('[Automation] waiting release failed', e.id, err))
       }
     }
 
     if (trigger === 'meeting_ended') {
-      // Dispatch meeting_ended rules — but if waitForRecording is set on the
-      // rule, park it in a 'waiting_for_recording' row with a 4h cutoff.
+      // For meeting_ended rules, waitForRecording is a per-rule flag that
+      // parks the rule's first step. (Multi-step meeting_ended rules are
+      // supported but the wait only applies before step 0.)
       const rules = await prisma.automationRule.findMany({
         where: {
           isActive: true,
@@ -207,27 +205,34 @@ export async function fireMeetingLifecycleAutomations(
           workspaceId: session.workspaceId,
           OR: [{ flowId: session.flowId }, { flowId: null }],
         },
-        select: { id: true, delayMinutes: true, waitForRecording: true },
+        select: {
+          id: true,
+          waitForRecording: true,
+          steps: { orderBy: { order: 'asc' } },
+        },
       })
       for (const rule of rules) {
+        if (rule.steps.length === 0) continue
         if (rule.waitForRecording) {
           const cutoff = new Date(Date.now() + 4 * 60 * 60 * 1000)
-          const existing = await prisma.automationExecution.findUnique({
-            where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
-          })
-          if (existing?.status === 'sent') continue
-          if (existing) {
-            await prisma.automationExecution.update({
-              where: { id: existing.id },
-              data: { status: 'waiting_for_recording', scheduledFor: cutoff, errorMessage: null },
-            })
-          } else {
-            await prisma.automationExecution.create({
-              data: { automationRuleId: rule.id, sessionId, status: 'waiting_for_recording', scheduledFor: cutoff },
+          const firstStep = rule.steps[0]
+          const channels = expandChannels(firstStep.channel)
+          for (const channel of channels) {
+            await upsertExecution({
+              ruleId: rule.id,
+              stepId: firstStep.id,
+              sessionId,
+              channel,
+              status: 'waiting_for_recording',
+              scheduledFor: cutoff,
             })
           }
+          // Subsequent steps still queue at their delays (they don't wait).
+          for (let i = 1; i < rule.steps.length; i++) {
+            await dispatchStep(rule.id, rule.steps[i], sessionId)
+          }
         } else {
-          await dispatchRule(rule.id, sessionId, rule.delayMinutes || 0)
+          await dispatchRule(rule.id, sessionId)
         }
       }
       return
@@ -239,6 +244,51 @@ export async function fireMeetingLifecycleAutomations(
   }
 }
 
+/**
+ * Cancel pending step executions for a session. Used to invalidate
+ * queued follow-ups when the candidate's state moves past the point at
+ * which the follow-up made sense.
+ *
+ *   - ruleTriggerTypes: only cancel executions whose parent rule has one of
+ *     these trigger types. e.g. PRE_MEETING_TRIGGERS to nuke pre-booking
+ *     follow-ups when the candidate books.
+ */
+export async function cancelPendingStepsForSession(
+  sessionId: string,
+  opts?: { ruleTriggerTypes?: Set<string> },
+): Promise<number> {
+  const where: {
+    sessionId: string
+    status: { in: string[] }
+    automationRule?: { triggerType: { in: string[] } }
+  } = {
+    sessionId,
+    status: { in: ['queued', 'pending', 'waiting_for_recording'] },
+  }
+  if (opts?.ruleTriggerTypes && opts.ruleTriggerTypes.size > 0) {
+    where.automationRule = { triggerType: { in: Array.from(opts.ruleTriggerTypes) } }
+  }
+  const queued = await prisma.automationExecution.findMany({
+    where,
+    select: { id: true, qstashMessageId: true },
+  })
+  if (queued.length === 0) return 0
+  for (const e of queued) {
+    if (e.qstashMessageId && qstash) {
+      try {
+        await (qstash.messages as unknown as { delete: (id: string) => Promise<unknown> }).delete(e.qstashMessageId)
+      } catch (err) {
+        console.warn('[Automation] qstash.messages.delete failed (likely already fired):', (err as Error).message)
+      }
+    }
+    await prisma.automationExecution.update({
+      where: { id: e.id },
+      data: { status: 'cancelled', errorMessage: null },
+    }).catch(() => {})
+  }
+  return queued.length
+}
+
 async function dispatchRulesForTrigger(sessionId: string, triggerType: string, session: SessionCtx) {
   const rules = await prisma.automationRule.findMany({
     where: {
@@ -247,58 +297,144 @@ async function dispatchRulesForTrigger(sessionId: string, triggerType: string, s
       workspaceId: session.workspaceId,
       OR: [{ flowId: session.flowId }, { flowId: null }],
     },
-    select: { id: true, delayMinutes: true },
+    select: { id: true },
   })
   if (rules.length === 0) return
   console.log(`[Automation] Dispatching ${rules.length} rules for session ${sessionId} (${triggerType})`)
   for (const rule of rules) {
-    await dispatchRule(rule.id, sessionId, rule.delayMinutes || 0)
+    await dispatchRule(rule.id, sessionId)
   }
 }
 
 /**
- * Queue a rule for execution — either via QStash (delay > 0 and QStash configured)
- * or inline. Inline path is used for immediate sends and as a fallback in local dev.
- */
-async function dispatchRule(ruleId: string, sessionId: string, delayMinutes: number) {
-  if (delayMinutes > 0 && qstash) {
-    return queueAtDelay(ruleId, sessionId, delayMinutes * 60)
-  }
-  await executeRule(ruleId, sessionId)
-}
-
-/**
- * Lower-level: queue a rule via QStash with an arbitrary delay (seconds).
- * Captures the QStash messageId on the execution row so the rule can later
- * be cancelled (e.g. when a meeting is cancelled or rescheduled).
+ * Dispatch a rule: queue every step at its configured delay. Each step
+ * runs independently, but they share the same QStash callback shape so
+ * cancellation / replay works the same way.
  *
- * Returns true if the QStash publish succeeded; false if it fell back to
- * inline execution.
+ * Steps run independently (not chained sequentially); a later step does NOT
+ * wait for an earlier step to complete. delayMinutes is interpreted relative
+ * to the trigger event, so step 0 at delay=0 fires immediately, step 1 at
+ * delay=60 fires 1h after the trigger regardless of whether step 0 succeeded.
  */
-async function queueAtDelay(ruleId: string, sessionId: string, delaySeconds: number): Promise<boolean> {
+async function dispatchRule(ruleId: string, sessionId: string) {
+  const rule = await prisma.automationRule.findUnique({
+    where: { id: ruleId },
+    select: {
+      id: true,
+      steps: { orderBy: { order: 'asc' } },
+    },
+  })
+  if (!rule) return
+  if (rule.steps.length === 0) {
+    console.warn(`[Automation] Rule ${ruleId} has no steps configured — skipping`)
+    return
+  }
+  for (const step of rule.steps) {
+    await dispatchStep(rule.id, step, sessionId)
+  }
+}
+
+/**
+ * Queue a single step for a session at its delayMinutes. Splits step.channel='both'
+ * into one execution per channel.
+ */
+async function dispatchStep(
+  ruleId: string,
+  step: { id: string; delayMinutes: number; channel: string },
+  sessionId: string,
+) {
+  const channels = expandChannels(step.channel)
+  for (const channel of channels) {
+    if (step.delayMinutes > 0 && qstash) {
+      await queueStepAtDelay(ruleId, step.id, sessionId, channel, step.delayMinutes * 60)
+    } else {
+      await executeStep(step.id, sessionId, channel)
+    }
+  }
+}
+
+/**
+ * Expand a step.channel value to the channels we'll actually send on. 'both'
+ * fans out into [email, sms]; the literal channel passes through.
+ */
+function expandChannels(channel: string): Array<'email' | 'sms'> {
+  if (channel === 'both') return ['email', 'sms']
+  if (channel === 'sms') return ['sms']
+  return ['email']
+}
+
+/**
+ * Find-or-create the AutomationExecution row for (step, session, channel).
+ * Mirrors the prior single-row-per-execution model but keyed on the step.
+ */
+async function upsertExecution(opts: {
+  ruleId: string
+  stepId: string
+  sessionId: string
+  channel: 'email' | 'sms'
+  status: string
+  scheduledFor?: Date | null
+}) {
+  const existing = await prisma.automationExecution.findUnique({
+    where: {
+      stepId_sessionId_channel: {
+        stepId: opts.stepId,
+        sessionId: opts.sessionId,
+        channel: opts.channel,
+      },
+    },
+  })
+  if (existing) {
+    return prisma.automationExecution.update({
+      where: { id: existing.id },
+      data: {
+        status: opts.status,
+        scheduledFor: opts.scheduledFor ?? null,
+        errorMessage: null,
+        qstashMessageId: null,
+      },
+    })
+  }
+  return prisma.automationExecution.create({
+    data: {
+      automationRuleId: opts.ruleId,
+      stepId: opts.stepId,
+      sessionId: opts.sessionId,
+      channel: opts.channel,
+      status: opts.status,
+      scheduledFor: opts.scheduledFor ?? null,
+    },
+  })
+}
+
+/**
+ * Lower-level: queue a step+channel via QStash with an arbitrary delay.
+ */
+async function queueStepAtDelay(
+  ruleId: string,
+  stepId: string,
+  sessionId: string,
+  channel: 'email' | 'sms',
+  delaySeconds: number,
+): Promise<boolean> {
   if (!qstash || delaySeconds <= 0) {
-    await executeRule(ruleId, sessionId)
+    await executeStep(stepId, sessionId, channel)
     return false
   }
   const scheduledFor = new Date(Date.now() + delaySeconds * 1000)
   const existing = await prisma.automationExecution.findUnique({
-    where: { automationRuleId_sessionId: { automationRuleId: ruleId, sessionId } },
+    where: { stepId_sessionId_channel: { stepId, sessionId, channel } },
   })
-  if (existing?.status === 'sent') {
-    return false
-  }
-  const row = existing
-    ? await prisma.automationExecution.update({
-        where: { id: existing.id },
-        data: { status: 'queued', scheduledFor, errorMessage: null, qstashMessageId: null },
-      })
-    : await prisma.automationExecution.create({
-        data: { automationRuleId: ruleId, sessionId, status: 'queued', scheduledFor },
-      })
+  if (existing?.status === 'sent') return false
+  const row = await upsertExecution({
+    ruleId, stepId, sessionId, channel,
+    status: 'queued',
+    scheduledFor,
+  })
   try {
     const res = await qstash.publishJSON({
       url: `${APP_URL}/api/automations/run`,
-      body: { ruleId, sessionId },
+      body: { stepId, sessionId, channel },
       delay: delaySeconds,
     })
     const messageId = (res as { messageId?: string })?.messageId
@@ -308,24 +444,22 @@ async function queueAtDelay(ruleId: string, sessionId: string, delaySeconds: num
         data: { qstashMessageId: messageId },
       }).catch(() => {})
     }
-    console.log(`[Automation] Queued rule ${ruleId} for session ${sessionId} (delay ${delaySeconds}s, fires ${scheduledFor.toISOString()}, qstash=${messageId ?? 'unknown'})`)
+    console.log(`[Automation] Queued step ${stepId} (${channel}) for session ${sessionId} (delay ${delaySeconds}s, fires ${scheduledFor.toISOString()}, qstash=${messageId ?? 'unknown'})`)
     return true
   } catch (err) {
     console.error('[Automation] QStash publish failed, running inline:', err)
-    await executeRule(ruleId, sessionId)
+    await executeStep(stepId, sessionId, channel)
     return false
   }
 }
 
 /**
  * Schedule (or re-schedule) all `before_meeting` reminder rules for a
- * session. Called when a meeting is first scheduled and again after a
- * reschedule (the caller must cancel old queued reminders first).
- *
- * Each rule fires at `scheduledStart - rule.minutesBefore`. Reminders whose
- * computed fire time is in the past or within the next 60 s are skipped —
- * sending a "1 hour before" email after the meeting starts is worse than
- * sending nothing.
+ * session. Fires only the first step of each rule at `scheduledStart -
+ * rule.minutesBefore`. Multi-step before_meeting rules are not yet exposed
+ * in the UI, but if they exist, subsequent steps fire `step.delayMinutes`
+ * minutes AFTER the first step's fire time (i.e. closer to / after the
+ * meeting start).
  */
 export async function scheduleBeforeMeetingReminders(sessionId: string, scheduledStart: Date) {
   try {
@@ -341,20 +475,33 @@ export async function scheduleBeforeMeetingReminders(sessionId: string, schedule
         workspaceId: session.workspaceId,
         OR: [{ flowId: session.flowId }, { flowId: null }],
       },
-      select: { id: true, minutesBefore: true },
+      select: {
+        id: true,
+        minutesBefore: true,
+        steps: { orderBy: { order: 'asc' } },
+      },
     })
     if (rules.length === 0) return
     const now = Date.now()
     for (const rule of rules) {
       const minutesBefore = rule.minutesBefore ?? 0
       if (minutesBefore <= 0) continue
-      const fireAtMs = scheduledStart.getTime() - minutesBefore * 60_000
-      const delaySeconds = Math.floor((fireAtMs - now) / 1000)
-      if (delaySeconds < 60) {
-        console.log(`[Automation] Skipping reminder rule ${rule.id} for session ${sessionId} — fire time too close (delay ${delaySeconds}s)`)
-        continue
+      const firstFireAtMs = scheduledStart.getTime() - minutesBefore * 60_000
+      for (let i = 0; i < rule.steps.length; i++) {
+        const step = rule.steps[i]
+        // Step 0 fires `minutesBefore` before the meeting; step N fires
+        // step.delayMinutes minutes after step 0's fire time.
+        const fireAtMs = firstFireAtMs + (i === 0 ? 0 : step.delayMinutes) * 60_000
+        const delaySeconds = Math.floor((fireAtMs - now) / 1000)
+        if (delaySeconds < 60) {
+          console.log(`[Automation] Skipping reminder step ${step.id} for session ${sessionId} — fire time too close (delay ${delaySeconds}s)`)
+          continue
+        }
+        const channels = expandChannels(step.channel)
+        for (const channel of channels) {
+          await queueStepAtDelay(rule.id, step.id, sessionId, channel, delaySeconds)
+        }
       }
-      await queueAtDelay(rule.id, sessionId, delaySeconds)
     }
   } catch (err) {
     console.error('[Automation] scheduleBeforeMeetingReminders failed:', err)
@@ -362,53 +509,42 @@ export async function scheduleBeforeMeetingReminders(sessionId: string, schedule
 }
 
 /**
- * Cancel all queued `before_meeting` reminders for a session. Deletes the
- * underlying QStash messages (best-effort) and marks each execution row as
- * status='cancelled' so the timeline reflects the void.
- *
- * Safe to call multiple times — already-sent or already-cancelled rows are
- * skipped.
+ * Cancel all queued before_meeting reminders for a session.
  */
 export async function cancelBeforeMeetingReminders(sessionId: string): Promise<number> {
-  const queued = await prisma.automationExecution.findMany({
-    where: {
-      sessionId,
-      status: 'queued',
-      automationRule: { triggerType: 'before_meeting' },
-    },
-    select: { id: true, qstashMessageId: true },
+  return cancelPendingStepsForSession(sessionId, {
+    ruleTriggerTypes: new Set(['before_meeting']),
   })
-  if (queued.length === 0) return 0
-  for (const e of queued) {
-    if (e.qstashMessageId && qstash) {
-      try {
-        await (qstash.messages as unknown as { delete: (id: string) => Promise<unknown> }).delete(e.qstashMessageId)
-      } catch (err) {
-        // Already-fired or already-deleted messages return 404. Non-fatal — we
-        // still mark the row cancelled so the timeline is accurate.
-        console.warn('[Automation] qstash.messages.delete failed (likely already fired):', (err as Error).message)
-      }
-    }
-    await prisma.automationExecution.update({
-      where: { id: e.id },
-      data: { status: 'cancelled', errorMessage: null },
-    }).catch(() => {})
-  }
-  return queued.length
 }
 
 /**
- * Execute a single rule for a session: render template, send email, chain.
- * Called inline for immediate rules, or from the QStash callback for delayed ones.
+ * Execute a single step for a session on a specific channel: render content,
+ * send, write the execution row, fire chained rules if this was the rule's
+ * last step and the send succeeded.
  */
-export async function executeRule(ruleId: string, sessionId: string, options?: { ignoreActive?: boolean }) {
-  console.log(`[Automation] executeRule start ruleId=${ruleId} sessionId=${sessionId}`)
-  const rule = await prisma.automationRule.findUnique({
-    where: { id: ruleId },
-    include: { emailTemplate: true, training: true, schedulingConfig: true, workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true } } },
+export async function executeStep(
+  stepId: string,
+  sessionId: string,
+  channel: 'email' | 'sms',
+  options?: { ignoreActive?: boolean },
+) {
+  console.log(`[Automation] executeStep start stepId=${stepId} sessionId=${sessionId} channel=${channel}`)
+  const step = await prisma.automationStep.findUnique({
+    where: { id: stepId },
+    include: {
+      emailTemplate: true,
+      training: true,
+      schedulingConfig: true,
+      rule: {
+        include: {
+          workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true } },
+        },
+      },
+    },
   })
-  if (!rule) { console.log(`[Automation] Rule ${ruleId} NOT FOUND`); return }
-  if (!rule.isActive && !options?.ignoreActive) { console.log(`[Automation] Rule ${ruleId} INACTIVE`); return }
+  if (!step) { console.log(`[Automation] Step ${stepId} NOT FOUND`); return }
+  const rule = step.rule
+  if (!rule.isActive && !options?.ignoreActive) { console.log(`[Automation] Rule ${rule.id} INACTIVE — skipping step ${stepId}`); return }
 
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
@@ -417,52 +553,43 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
   if (!session) { console.log(`[Automation] Session ${sessionId} NOT FOUND`); return }
 
   const existing = await prisma.automationExecution.findUnique({
-    where: { automationRuleId_sessionId: { automationRuleId: rule.id, sessionId } },
+    where: { stepId_sessionId_channel: { stepId, sessionId, channel } },
   })
   if (existing && existing.status === 'sent') {
-    console.log(`[Automation] Rule ${rule.id} already sent for session ${sessionId}`)
+    console.log(`[Automation] Step ${stepId} already sent on ${channel} for session ${sessionId}`)
     return
   }
 
-  const execution = existing
-    ? await prisma.automationExecution.update({
-        where: { id: existing.id },
-        data: { status: 'pending', errorMessage: null, scheduledFor: null },
-      })
-    : await prisma.automationExecution.create({
-        data: { automationRuleId: rule.id, sessionId, status: 'pending' },
-      })
+  const execution = await upsertExecution({
+    ruleId: rule.id, stepId, sessionId, channel,
+    status: 'pending',
+  })
 
-  // Training link
+  // ─── Resolve merge tokens (training link, scheduling link, meeting info) ──
   let trainingLink = ''
-  if (rule.nextStepType === 'training' && rule.trainingId && rule.training) {
+  if (step.nextStepType === 'training' && step.trainingId && step.training) {
     try {
-      const { token } = await createAccessToken({ sessionId, trainingId: rule.trainingId, sourceRefId: rule.id })
-      trainingLink = buildTrainingLink(rule.training.slug, token)
+      const { token } = await createAccessToken({ sessionId, trainingId: step.trainingId, sourceRefId: rule.id })
+      trainingLink = buildTrainingLink(step.training.slug, token)
     } catch (err) {
       console.error('[Automation] Failed to generate training token:', err)
-      trainingLink = rule.nextStepUrl || ''
+      trainingLink = step.nextStepUrl || ''
     }
-  } else if (rule.nextStepType === 'training' && rule.nextStepUrl) {
-    trainingLink = rule.nextStepUrl
+  } else if (step.nextStepType === 'training' && step.nextStepUrl) {
+    trainingLink = step.nextStepUrl
   }
 
-  // Scheduling link
   let scheduleLink = ''
-  if (rule.nextStepType === 'scheduling') {
+  if (step.nextStepType === 'scheduling') {
     try {
-      const resolved = await resolveSchedulingUrl(rule.schedulingConfigId, session.workspaceId)
+      const resolved = await resolveSchedulingUrl(step.schedulingConfigId, session.workspaceId)
       if (resolved) scheduleLink = buildScheduleRedirectUrl(sessionId, resolved.configId)
     } catch (err) {
       console.error('[Automation] Failed to resolve scheduling URL:', err)
     }
-    if (!scheduleLink && rule.nextStepUrl) scheduleLink = rule.nextStepUrl
+    if (!scheduleLink && step.nextStepUrl) scheduleLink = step.nextStepUrl
   }
 
-  // Meeting details — prefer the typed InterviewMeeting row for this session
-  // (written by the Meet integration v2 schedule flow). Fall back to the
-  // legacy SchedulingEvent.metadata JSON path so pre-v2 Calendly bookings
-  // keep working.
   let meetingTime = ''
   let meetingLink = ''
   let recordingLink = ''
@@ -552,20 +679,16 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
     ad_name: session.ad?.name || '',
   }
 
-  // ─── Channel branch ───────────────────────────────────────────────
-  // SMS rules: render rule.smsBody, validate phone, send via Sigcore.
-  // Email rules (default + everything pre-channel-field): existing pipeline.
-
-  const channel = (rule.channel as 'email' | 'sms' | undefined) || 'email'
+  // ─── Send on the requested channel ─────────────────────────────────
   let result: { success: boolean; error?: string; messageId?: string }
   let provider: 'sendgrid' | 'sigcore' = 'sendgrid'
 
   if (channel === 'sms') {
     provider = 'sigcore'
-    if (!rule.smsBody || rule.smsBody.trim().length === 0) {
+    if (!step.smsBody || step.smsBody.trim().length === 0) {
       await prisma.automationExecution.update({
         where: { id: execution.id },
-        data: { status: 'failed', errorMessage: 'SMS rule has no body configured', channel, provider },
+        data: { status: 'failed', errorMessage: 'SMS step has no body configured', channel, provider },
       })
       return
     }
@@ -584,7 +707,7 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
       })
       return
     }
-    const body = renderTemplate(rule.smsBody, variables)
+    const body = renderTemplate(step.smsBody, variables)
     try {
       const sent = await sendSms({
         candidateId: sessionId,
@@ -603,27 +726,26 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
       result = { success: false, error: errorMessage }
     }
   } else {
-    // ─── Email path ────────────────────────────────────────────────
-    if (!rule.emailTemplate) {
+    if (!step.emailTemplate) {
       await prisma.automationExecution.update({
         where: { id: execution.id },
-        data: { status: 'failed', errorMessage: 'Email rule has no template configured', channel, provider },
+        data: { status: 'failed', errorMessage: 'Email step has no template configured', channel, provider },
       })
       return
     }
-    const subject = renderTemplate(rule.emailTemplate.subject, variables)
-    const html = renderTemplate(rule.emailTemplate.bodyHtml, variables)
-    const text = rule.emailTemplate.bodyText ? renderTemplate(rule.emailTemplate.bodyText, variables) : undefined
+    const subject = renderTemplate(step.emailTemplate.subject, variables)
+    const html = renderTemplate(step.emailTemplate.bodyHtml, variables)
+    const text = step.emailTemplate.bodyText ? renderTemplate(step.emailTemplate.bodyText, variables) : undefined
 
     let recipient: string | null = null
-    if (rule.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
-    else if (rule.emailDestination === 'specific') recipient = rule.emailDestinationAddress || null
+    if (step.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
+    else if (step.emailDestination === 'specific') recipient = step.emailDestinationAddress || null
     else recipient = session.candidateEmail
 
     if (!recipient) {
       await prisma.automationExecution.update({
         where: { id: execution.id },
-        data: { status: 'failed', errorMessage: `No ${rule.emailDestination} email configured`, channel, provider },
+        data: { status: 'failed', errorMessage: `No ${step.emailDestination} email configured`, channel, provider },
       })
       return
     }
@@ -653,36 +775,95 @@ export async function executeRule(ruleId: string, sessionId: string, options?: {
     },
   })
 
-  if (result.success && rule.nextStepType === 'scheduling') {
-    const resolved = await resolveSchedulingUrl(rule.schedulingConfigId).catch(() => null)
+  if (result.success && step.nextStepType === 'scheduling') {
+    const resolved = await resolveSchedulingUrl(step.schedulingConfigId).catch(() => null)
     await logSchedulingEvent({
       sessionId,
       schedulingConfigId: resolved?.configId || null,
       eventType: 'invite_sent',
-      metadata: { automationRuleId: rule.id, executionId: execution.id },
+      metadata: { automationRuleId: rule.id, automationStepId: step.id, executionId: execution.id },
     }).catch(() => {})
-    // Move to "invited_to_schedule" only when this is a *first* scheduling
-    // invite — typically the post-flow-pass / post-training-completed hand-off.
-    // No-show re-book invites are a courtesy email; the candidate must stay
-    // in Rejected so recruiters see the no-show outcome on the funnel board.
     if (rule.triggerType !== 'meeting_no_show') {
       await updatePipelineStatus(sessionId, 'invited_to_schedule').catch(() => {})
     }
   }
 
-  // Chain: dispatch rules triggered by this one completing
+  // Chain: fire automation_completed rules only when the *last* step of this
+  // rule has succeeded across all of its channels. Otherwise downstream rules
+  // would fire mid-sequence.
   if (result.success) {
-    const chained = await prisma.automationRule.findMany({
-      where: {
-        isActive: true,
-        triggerType: 'automation_completed',
-        triggerAutomationId: rule.id,
-        workspaceId: session.workspaceId,
-      },
-      select: { id: true, delayMinutes: true },
-    })
-    for (const c of chained) {
-      await dispatchRule(c.id, sessionId, c.delayMinutes || 0)
+    await maybeFireChainedRules(rule.id, sessionId, session)
+  }
+}
+
+/**
+ * Backwards-compatible entry point: execute a rule for a session as a single
+ * unit. New code should use dispatchRule instead. Kept because the test
+ * harness ([id]/test/route.ts) wants to run a rule end-to-end and assert on
+ * its execution status, and because the QStash callback may still be holding
+ * old-shape messages with { ruleId, sessionId }.
+ *
+ * Runs every step inline (ignoring delay) on every channel. The `ignoreActive`
+ * flag propagates to executeStep so paused rules can be tested.
+ */
+export async function executeRule(ruleId: string, sessionId: string, options?: { ignoreActive?: boolean }) {
+  const rule = await prisma.automationRule.findUnique({
+    where: { id: ruleId },
+    select: { id: true, isActive: true, steps: { orderBy: { order: 'asc' } } },
+  })
+  if (!rule) return
+  if (!rule.isActive && !options?.ignoreActive) return
+  for (const step of rule.steps) {
+    for (const channel of expandChannels(step.channel)) {
+      await executeStep(step.id, sessionId, channel, options)
     }
+  }
+}
+
+/**
+ * Fire any automation_completed rules chained off the given rule, but only
+ * once all of its steps' executions for this session have terminated
+ * (status=sent or failed) — not while later steps are still queued. This
+ * keeps "after automation X" semantics intact for multi-step parents.
+ */
+async function maybeFireChainedRules(ruleId: string, sessionId: string, session: SessionCtx) {
+  const rule = await prisma.automationRule.findUnique({
+    where: { id: ruleId },
+    select: {
+      id: true,
+      workspaceId: true,
+      steps: {
+        select: {
+          id: true,
+          channel: true,
+          executions: { where: { sessionId }, select: { id: true, status: true, channel: true } },
+        },
+      },
+    },
+  })
+  if (!rule) return
+
+  // Did every (step, channel) pair we *were going to send* land in a
+  // terminal state? If any are still queued/pending/waiting, defer.
+  for (const step of rule.steps) {
+    const expected = expandChannels(step.channel)
+    for (const ch of expected) {
+      const ex = step.executions.find((e) => e.channel === ch)
+      if (!ex) return
+      if (ex.status !== 'sent' && ex.status !== 'failed') return
+    }
+  }
+
+  const chained = await prisma.automationRule.findMany({
+    where: {
+      isActive: true,
+      triggerType: 'automation_completed',
+      triggerAutomationId: ruleId,
+      workspaceId: session.workspaceId,
+    },
+    select: { id: true },
+  })
+  for (const c of chained) {
+    await dispatchRule(c.id, sessionId)
   }
 }

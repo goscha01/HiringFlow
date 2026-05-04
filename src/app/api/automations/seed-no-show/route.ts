@@ -83,12 +83,24 @@ export async function POST() {
       createdById: ws.userId,
       name: DEFAULT_RULE_NAME,
       triggerType: 'meeting_no_show',
+      // Legacy mirror fields. Source of truth is the step row below.
       emailTemplateId: template.id,
       emailDestination: 'applicant',
       nextStepType: defaultSchedConfig ? 'scheduling' : null,
       schedulingConfigId: defaultSchedConfig?.id ?? null,
       delayMinutes: 0,
       isActive: true,
+      steps: {
+        create: [{
+          order: 0,
+          delayMinutes: 0,
+          channel: 'email',
+          emailTemplateId: template.id,
+          emailDestination: 'applicant',
+          nextStepType: defaultSchedConfig ? 'scheduling' : null,
+          schedulingConfigId: defaultSchedConfig?.id ?? null,
+        }],
+      },
     },
     select: { id: true },
   })

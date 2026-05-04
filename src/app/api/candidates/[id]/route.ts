@@ -39,12 +39,17 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     include: {
       automationRule: {
         select: {
-          id: true, name: true, triggerType: true, nextStepType: true, emailDestination: true,
-          emailDestinationAddress: true, delayMinutes: true,
+          id: true, name: true, triggerType: true,
+          chainedBy: { select: { id: true, name: true, steps: { orderBy: { order: 'asc' }, select: { delayMinutes: true } } } },
+        },
+      },
+      step: {
+        select: {
+          id: true, order: true, channel: true, delayMinutes: true,
+          nextStepType: true, emailDestination: true, emailDestinationAddress: true,
           training: { select: { title: true, slug: true } },
           schedulingConfig: { select: { name: true, schedulingUrl: true } },
           emailTemplate: { select: { name: true, subject: true } },
-          chainedBy: { select: { id: true, name: true, delayMinutes: true } },
         },
       },
     },

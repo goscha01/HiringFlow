@@ -107,22 +107,23 @@ export async function GET(request: NextRequest) {
   }
 
   // --- Release waiting_for_recording automations past their cutoff ---
-  // The cutoff is encoded as AutomationExecution.scheduledFor.
+  // The cutoff is encoded as AutomationExecution.scheduledFor. Each execution
+  // row represents one (step, channel) pair; release them individually so a
+  // step.channel='both' rule doesn't accidentally re-run an already-sent half.
   const waiting = await prisma.automationExecution.findMany({
     where: {
       status: 'waiting_for_recording',
       scheduledFor: { lt: now },
     },
-    select: { id: true, automationRuleId: true, sessionId: true },
+    select: { id: true, stepId: true, sessionId: true, channel: true },
     take: 200,
   })
   let released = 0, releaseFailed = 0
   for (const w of waiting) {
-    if (!w.sessionId) continue
+    if (!w.sessionId || !w.stepId) continue
     try {
-      // Dynamic import to avoid circular dep with automation.ts
-      const { executeRule } = await import('@/lib/automation')
-      await executeRule(w.automationRuleId, w.sessionId)
+      const { executeStep } = await import('@/lib/automation')
+      await executeStep(w.stepId, w.sessionId, w.channel === 'sms' ? 'sms' : 'email')
       released++
     } catch (err) {
       releaseFailed++

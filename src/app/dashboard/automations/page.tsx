@@ -9,24 +9,47 @@ interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string }
 interface TrainingItem { id: string; title: string; slug: string }
 interface SchedulingItem { id: string; name: string; schedulingUrl: string }
-interface Rule {
-  id: string; name: string; triggerType: string; flowId: string | null
-  actionType: string; emailTemplateId: string | null; nextStepType: string | null
-  nextStepUrl: string | null; trainingId: string | null; schedulingConfigId: string | null
+
+interface StepShape {
+  id?: string
+  order: number
+  delayMinutes: number
+  channel: 'email' | 'sms' | 'both'
+  emailTemplateId: string | null
+  smsBody: string | null
   emailDestination: 'applicant' | 'company' | 'specific'
   emailDestinationAddress: string | null
+  nextStepType: string | null
+  nextStepUrl: string | null
+  trainingId: string | null
+  schedulingConfigId: string | null
+  // For UI display only — populated by the API on GET.
+  emailTemplate?: Template | null
+  training?: TrainingItem | null
+  schedulingConfig?: SchedulingItem | null
+}
+
+interface Rule {
+  id: string; name: string; triggerType: string; flowId: string | null
+  // Legacy mirror fields — still populated, but not authoritative.
   channel?: 'email' | 'sms'
   smsBody?: string | null
   delayMinutes?: number
   minutesBefore?: number | null
   waitForRecording?: boolean
+  emailDestination?: 'applicant' | 'company' | 'specific'
+  emailDestinationAddress?: string | null
+  emailTemplateId?: string | null
+  nextStepType?: string | null
+  nextStepUrl?: string | null
+  trainingId?: string | null
+  schedulingConfigId?: string | null
   isActive: boolean; createdAt: string
   flow: Flow | null; emailTemplate: Template | null; training: TrainingItem | null
   schedulingConfig: SchedulingItem | null; _count: { executions: number }
+  steps: StepShape[]
 }
 
-// Canonical pipeline order (left-to-right). automation_completed is chained
-// and shown as a separate tail section, not on the main pipeline.
 const PIPELINE_ORDER: Array<{ value: string; label: string; group: 'flow' | 'training' | 'meeting' }> = [
   { value: 'flow_completed',     label: 'Flow Completed',   group: 'flow' },
   { value: 'flow_passed',        label: 'Flow Passed',      group: 'flow' },
@@ -56,8 +79,6 @@ const TRIGGERS = [
   { value: 'automation_completed', label: 'After Automation' },
 ]
 
-// Triggers that are session-wide (not tied to a specific flow). Used to hide
-// the Flow picker from the rule form when these are selected.
 const SESSION_WIDE_TRIGGERS = new Set([
   'training_completed',
   'automation_completed',
@@ -84,6 +105,39 @@ const TRIGGER_LABELS: Record<string, string> = {
   automation_completed: 'After Automation',
 }
 
+const DELAY_PRESETS: Array<{ value: number; label: string }> = [
+  { value: 0, label: 'Immediately' },
+  { value: 15, label: '15 min' },
+  { value: 60, label: '1 hour' },
+  { value: 360, label: '6 hours' },
+  { value: 1440, label: '1 day' },
+  { value: 4320, label: '3 days' },
+  { value: 10080, label: '7 days' },
+]
+
+function newStep(order: number, defaultTemplateId?: string): StepShape {
+  return {
+    order,
+    delayMinutes: 0,
+    channel: 'email',
+    emailTemplateId: defaultTemplateId ?? null,
+    smsBody: null,
+    emailDestination: 'applicant',
+    emailDestinationAddress: null,
+    nextStepType: null,
+    nextStepUrl: null,
+    trainingId: null,
+    schedulingConfigId: null,
+  }
+}
+
+function formatDelay(m: number): string {
+  if (m <= 0) return 'Instant'
+  if (m >= 1440) return `${Math.round(m / 1440)}d`
+  if (m >= 60) return `${Math.round(m / 60)}h`
+  return `${m}m`
+}
+
 export default function AutomationsPage() {
   const [rules, setRules] = useState<Rule[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
@@ -99,24 +153,17 @@ export default function AutomationsPage() {
   const [name, setName] = useState('')
   const [triggerType, setTriggerType] = useState('flow_completed')
   const [flowId, setFlowId] = useState('')
-  const [templateId, setTemplateId] = useState('')
-  const [nextStepType, setNextStepType] = useState('')
-  const [nextStepUrl, setNextStepUrl] = useState('')
-  const [trainingId, setTrainingId] = useState('')
-  const [schedulingConfigId, setSchedulingConfigId] = useState('')
-  const [delayMinutes, setDelayMinutes] = useState(0)
   const [minutesBefore, setMinutesBefore] = useState(60)
-  const [channel, setChannel] = useState<'email' | 'sms'>('email')
-  const [smsBody, setSmsBody] = useState('')
   const [waitForRecording, setWaitForRecording] = useState(false)
-  const [emailDestination, setEmailDestination] = useState<'applicant' | 'company' | 'specific'>('applicant')
-  const [emailDestinationAddress, setEmailDestinationAddress] = useState('')
+  const [steps, setSteps] = useState<StepShape[]>([newStep(0)])
+  // Index of the step the inline template creator is currently bound to.
+  const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
   const [companyEmail, setCompanyEmail] = useState<string | null>(null)
   const [showCompanyEmailWarning, setShowCompanyEmailWarning] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
   // Inline template creator
-  const [showNewTemplate, setShowNewTemplate] = useState(false)
   const [newTplName, setNewTplName] = useState('')
   const [newTplSubject, setNewTplSubject] = useState('')
   const [newTplBody, setNewTplBody] = useState('<p>Hi {{candidate_name}},</p>\n<p></p>')
@@ -166,6 +213,7 @@ export default function AutomationsPage() {
     from: { name: string; email: string }
     templateName: string
     ruleName: string
+    stepOrder?: number
   } | null
   const [previewLoading, setPreviewLoading] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewData>(null)
@@ -187,53 +235,116 @@ export default function AutomationsPage() {
 
   const openCreate = () => {
     setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
-    setTemplateId(templates[0]?.id || ''); setNextStepType(''); setNextStepUrl('')
-    setTrainingId(''); setSchedulingConfigId(''); setDelayMinutes(0); setMinutesBefore(60)
-    setChannel('email'); setSmsBody('')
-    setEmailDestination('applicant'); setEmailDestinationAddress('')
+    setMinutesBefore(60); setWaitForRecording(false)
+    setSteps([newStep(0, templates[0]?.id)])
+    setTemplateEditorStepIdx(null)
+    setSaveError(null)
     setShowModal(true)
   }
   const openEdit = (r: Rule) => {
-    setEditing(r); setName(r.name); setTriggerType(r.triggerType); setFlowId(r.flowId || (r as any).triggerAutomationId || '')
-    setTemplateId(r.emailTemplateId || ''); setNextStepType(r.nextStepType || ''); setNextStepUrl(r.nextStepUrl || '')
-    setChannel(r.channel === 'sms' ? 'sms' : 'email')
-    setSmsBody(r.smsBody || '')
-    setTrainingId(r.trainingId || ''); setSchedulingConfigId(r.schedulingConfigId || '')
-    setDelayMinutes((r as any).delayMinutes || 0)
-    setMinutesBefore((r as any).minutesBefore || 60)
-    setWaitForRecording(!!(r as any).waitForRecording)
-    setEmailDestination(((r as any).emailDestination as 'applicant' | 'company' | 'specific') || 'applicant')
-    setEmailDestinationAddress((r as any).emailDestinationAddress || '')
+    setEditing(r); setName(r.name); setTriggerType(r.triggerType)
+    setFlowId(r.flowId || (r as { triggerAutomationId?: string }).triggerAutomationId || '')
+    setMinutesBefore(r.minutesBefore || 60)
+    setWaitForRecording(!!r.waitForRecording)
+    // Hydrate steps. Older rules may have an empty steps[] (pre-backfill).
+    // Synthesize a single step from the legacy rule fields in that case so
+    // the editor stays usable until the backfill runs.
+    if (r.steps && r.steps.length > 0) {
+      setSteps(r.steps.map((s, i) => ({
+        ...s,
+        order: i,
+        channel: (s.channel === 'sms' || s.channel === 'both') ? s.channel : 'email',
+        emailDestination: (s.emailDestination as StepShape['emailDestination']) || 'applicant',
+      })))
+    } else {
+      setSteps([{
+        order: 0,
+        delayMinutes: r.delayMinutes ?? 0,
+        channel: r.channel === 'sms' ? 'sms' : 'email',
+        emailTemplateId: r.emailTemplateId ?? null,
+        smsBody: r.smsBody ?? null,
+        emailDestination: (r.emailDestination as StepShape['emailDestination']) || 'applicant',
+        emailDestinationAddress: r.emailDestinationAddress ?? null,
+        nextStepType: r.nextStepType ?? null,
+        nextStepUrl: r.nextStepUrl ?? null,
+        trainingId: r.trainingId ?? null,
+        schedulingConfigId: r.schedulingConfigId ?? null,
+      }])
+    }
+    setTemplateEditorStepIdx(null)
+    setSaveError(null)
     setShowModal(true)
   }
 
+  const updateStep = (idx: number, patch: Partial<StepShape>) => {
+    setSteps((prev) => prev.map((s, i) => i === idx ? { ...s, ...patch } : s))
+  }
+  const addStep = () => {
+    setSteps((prev) => [...prev, {
+      ...newStep(prev.length, templates[0]?.id),
+      delayMinutes: 1440, // follow-ups default to 1 day after the trigger
+    }])
+  }
+  const removeStep = (idx: number) => {
+    setSteps((prev) => prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx).map((s, i) => ({ ...s, order: i })))
+    if (templateEditorStepIdx === idx) setTemplateEditorStepIdx(null)
+  }
+  const moveStep = (idx: number, dir: -1 | 1) => {
+    setSteps((prev) => {
+      const next = [...prev]
+      const swap = idx + dir
+      if (swap < 0 || swap >= next.length) return prev
+      ;[next[idx], next[swap]] = [next[swap], next[idx]]
+      return next.map((s, i) => ({ ...s, order: i }))
+    })
+  }
+
   const save = async () => {
-    if (!name.trim()) return
-    if (channel === 'email' && !templateId) return
-    if (channel === 'sms' && !smsBody.trim()) return
+    setSaveError(null)
+    if (!name.trim()) { setSaveError('Name is required'); return }
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i]
+      const wantsEmail = s.channel === 'email' || s.channel === 'both'
+      const wantsSms = s.channel === 'sms' || s.channel === 'both'
+      if (wantsEmail && !s.emailTemplateId) { setSaveError(`Step ${i + 1}: pick an email template`); return }
+      if (wantsSms && (!s.smsBody || !s.smsBody.trim())) { setSaveError(`Step ${i + 1}: SMS body is required`); return }
+    }
+
     setSaving(true)
     const body = {
-      name, triggerType, channel,
+      name, triggerType,
       flowId: (!SESSION_WIDE_TRIGGERS.has(triggerType)) ? (flowId || null) : null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
-      emailTemplateId: channel === 'email' ? templateId : null,
-      smsBody: channel === 'sms' ? smsBody : null,
-      nextStepType: nextStepType || null,
-      nextStepUrl: null as string | null,
-      trainingId: nextStepType === 'training' ? (trainingId || null) : null,
-      schedulingConfigId: nextStepType === 'scheduling' ? (schedulingConfigId || null) : null,
-      delayMinutes: triggerType === 'before_meeting' ? 0 : delayMinutes,
       minutesBefore: triggerType === 'before_meeting' ? minutesBefore : null,
       waitForRecording: triggerType === 'meeting_ended' ? waitForRecording : false,
-      emailDestination: channel === 'sms' ? 'applicant' : emailDestination,
-      emailDestinationAddress: channel === 'email' && emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
+      steps: steps.map((s, i) => ({
+        order: i,
+        delayMinutes: s.delayMinutes ?? 0,
+        channel: s.channel,
+        emailTemplateId: s.emailTemplateId,
+        smsBody: s.smsBody,
+        emailDestination: s.emailDestination,
+        emailDestinationAddress: s.emailDestinationAddress,
+        nextStepType: s.nextStepType,
+        nextStepUrl: s.nextStepUrl,
+        trainingId: s.trainingId,
+        schedulingConfigId: s.schedulingConfigId,
+      })),
     }
-    if (editing) {
-      await fetch(`/api/automations/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    } else {
-      await fetch('/api/automations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    try {
+      const url = editing ? `/api/automations/${editing.id}` : '/api/automations'
+      const method = editing ? 'PATCH' : 'POST'
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setSaveError(data.error || `Save failed (${res.status})`)
+        return
+      }
+      setShowModal(false)
+      refresh()
+    } finally {
+      setSaving(false)
     }
-    setSaving(false); setShowModal(false); refresh()
   }
 
   const createTemplate = async () => {
@@ -246,11 +357,13 @@ export default function AutomationsPage() {
     })
     if (r.ok) {
       const newTpl = await r.json()
-      // Refresh templates list and pre-select the new one
       const tplRes = await fetch('/api/email-templates')
       if (tplRes.ok) setTemplates(await tplRes.json())
-      setTemplateId(newTpl.id)
-      setShowNewTemplate(false)
+      // Bind the new template to the step that opened the editor.
+      if (templateEditorStepIdx !== null) {
+        updateStep(templateEditorStepIdx, { emailTemplateId: newTpl.id })
+      }
+      setTemplateEditorStepIdx(null)
       setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
     }
     setSavingTpl(false)
@@ -273,7 +386,8 @@ export default function AutomationsPage() {
   }
 
   const runTest = async (r: Rule) => {
-    const isSms = r.channel === 'sms'
+    const firstStepChannel = r.steps?.[0]?.channel ?? r.channel ?? 'email'
+    const isSms = firstStepChannel === 'sms'
     const promptText = isSms
       ? `Send a test SMS for "${r.name}" to (E.164, e.g. +15551234567):`
       : `Send a test email for "${r.name}" to:`
@@ -289,9 +403,9 @@ export default function AutomationsPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
-        alert(`Test email sent to ${data.sentTo}.\nA tracked candidate was created (source: test) — view it in Candidates to follow the path.`)
+        alert(`Test sent to ${data.sentTo}.\nA tracked candidate was created (source: test) — view it in Candidates to follow the path.`)
       } else if (res.ok && data.sessionId) {
-        alert(`Candidate was created but the email did not send: ${data.error || 'unknown error'}.\nYou can still view the candidate in Candidates.`)
+        alert(`Candidate was created but the message did not send: ${data.error || 'unknown error'}.\nYou can still view the candidate in Candidates.`)
       } else {
         alert(`Test failed: ${data.error || 'Unknown error'}`)
       }
@@ -307,7 +421,7 @@ export default function AutomationsPage() {
       <PageHeader
         eyebrow={`${rules.length} rule${rules.length === 1 ? '' : 's'}`}
         title="Automations"
-        description="Trigger emails when candidates complete flows, trainings, or interviews."
+        description="Trigger emails and SMS when candidates complete flows, trainings, or interviews."
         actions={
           <>
             <Link href="/dashboard/content" className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-[10px] text-[13px] font-medium text-ink bg-transparent border border-surface-border hover:bg-surface-light transition-colors">
@@ -348,8 +462,8 @@ export default function AutomationsPage() {
           <span className="text-xs text-grey-40 mr-2">Filter:</span>
           {([
             { v: 'all' as const, l: `All (${rules.length})` },
-            { v: 'applicant' as const, l: `Applicant (${rules.filter(r => r.emailDestination === 'applicant').length})` },
-            { v: 'company' as const, l: `Company (${rules.filter(r => r.emailDestination !== 'applicant').length})` },
+            { v: 'applicant' as const, l: `Applicant (${rules.filter(r => firstStepDest(r) === 'applicant').length})` },
+            { v: 'company' as const, l: `Company (${rules.filter(r => firstStepDest(r) !== 'applicant').length})` },
           ]).map((o) => (
             <button key={o.v} onClick={() => setDestinationFilter(o.v)}
               className={`text-xs px-3 py-1.5 rounded-full border font-medium ${destinationFilter === o.v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>
@@ -389,9 +503,8 @@ export default function AutomationsPage() {
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Name</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Trigger</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Flow</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Template</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Next Step</th>
-                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Delay</th>
+                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Steps</th>
+                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">First step</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Sent</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Status</th>
                 <th className="px-5 py-3 text-right text-xs font-medium text-grey-40 uppercase">Actions</th>
@@ -399,60 +512,59 @@ export default function AutomationsPage() {
             </thead>
             <tbody className="divide-y divide-surface-border">
               {rules
-                .filter(r => destinationFilter === 'all' || (destinationFilter === 'applicant' ? r.emailDestination === 'applicant' : r.emailDestination !== 'applicant'))
+                .filter(r => destinationFilter === 'all' || (destinationFilter === 'applicant' ? firstStepDest(r) === 'applicant' : firstStepDest(r) !== 'applicant'))
                 .filter(r => !activeOnly || r.isActive)
                 .filter(r => !triggerFilter || r.triggerType === triggerFilter)
-                .map((r) => (
-                <tr key={r.id} className="hover:bg-surface-light">
-                  <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
-                  <td className="px-5 py-4"><span className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.triggerType === 'training_completed' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-600'}`}>{TRIGGER_LABELS[r.triggerType] || r.triggerType}</span></td>
-                  <td className="px-5 py-4 text-sm text-grey-35">{r.flow?.name || 'Any flow'}</td>
-                  <td className="px-5 py-4 text-sm text-grey-35">
-                    {r.channel === 'sms' ? (
-                      <span className="inline-flex items-center gap-1.5"><span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono uppercase tracking-wide">SMS</span><span className="truncate max-w-[200px] text-xs text-grey-40 font-mono">{(r.smsBody || '').slice(0, 60)}{(r.smsBody || '').length > 60 ? '…' : ''}</span></span>
-                    ) : (
-                      r.emailTemplate?.name || <span className="text-grey-50 italic">No template</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-4 text-sm text-grey-40">
-                    {r.nextStepType === 'training' && r.training ? (
-                      <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-700 font-medium">{r.training.title}</span>
-                    ) : r.nextStepType === 'scheduling' && r.schedulingConfig ? (
-                      <span className="text-xs px-2 py-1 rounded bg-purple-50 text-purple-700 font-medium">{r.schedulingConfig.name}</span>
-                    ) : r.nextStepType || '—'}
-                  </td>
-                  <td className="px-5 py-4 text-xs text-grey-40">
-                    {r.triggerType === 'before_meeting' && (r as any).minutesBefore > 0 ? (
-                      <>
-                        {(r as any).minutesBefore >= 1440 ? `${Math.round((r as any).minutesBefore / 1440)}d` :
-                          (r as any).minutesBefore >= 60 ? `${Math.round((r as any).minutesBefore / 60)}h` :
-                          `${(r as any).minutesBefore}m`} before
-                      </>
-                    ) : (r as any).delayMinutes > 0 ? (
-                      (r as any).delayMinutes >= 1440 ? `${Math.round((r as any).delayMinutes / 1440)}d` :
-                      (r as any).delayMinutes >= 60 ? `${Math.round((r as any).delayMinutes / 60)}h` :
-                      `${(r as any).delayMinutes}m`
-                    ) : 'Instant'}
-                  </td>
-                  <td className="px-5 py-4 text-sm font-medium text-grey-15">{r._count.executions}</td>
-                  <td className="px-5 py-4">
-                    <button onClick={() => toggle(r)} className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-grey-40'}`}>
-                      {r.isActive ? 'Active' : 'Paused'}
-                    </button>
-                  </td>
-                  <td className="px-5 py-4 text-right space-x-3">
-                    <button onClick={() => openPreview(r)} disabled={previewLoading === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
-                      {previewLoading === r.id ? 'Loading…' : 'Preview'}
-                    </button>
-                    <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
-                      {testingId === r.id ? 'Sending…' : 'Test'}
-                    </button>
-                    <button onClick={() => duplicate(r)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
-                    <button onClick={() => openEdit(r)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
-                    <button onClick={() => remove(r.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
-                  </td>
-                </tr>
-              ))}
+                .map((r) => {
+                  const firstStep = r.steps?.[0]
+                  return (
+                    <tr key={r.id} className="hover:bg-surface-light">
+                      <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
+                      <td className="px-5 py-4"><span className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.triggerType === 'training_completed' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-600'}`}>{TRIGGER_LABELS[r.triggerType] || r.triggerType}</span></td>
+                      <td className="px-5 py-4 text-sm text-grey-35">{r.flow?.name || 'Any flow'}</td>
+                      <td className="px-5 py-4 text-xs text-grey-35">
+                        {r.steps && r.steps.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 flex-wrap">
+                            {r.steps.map((s, i) => (
+                              <span key={i} className="inline-flex items-center gap-1">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wide ${
+                                  s.channel === 'both' ? 'bg-violet-50 text-violet-700'
+                                  : s.channel === 'sms' ? 'bg-purple-50 text-purple-700'
+                                  : 'bg-blue-50 text-blue-700'}`}>
+                                  {s.channel === 'both' ? 'E+S' : s.channel === 'sms' ? 'SMS' : 'EMAIL'}
+                                </span>
+                                <span className="text-[10px] text-grey-40">{formatDelay(s.delayMinutes)}</span>
+                                {i < r.steps.length - 1 && <span className="text-grey-50">→</span>}
+                              </span>
+                            ))}
+                          </span>
+                        ) : <span className="text-grey-50 italic">No steps</span>}
+                      </td>
+                      <td className="px-5 py-4 text-sm text-grey-35">
+                        {firstStep?.channel === 'sms' ? (
+                          <span className="truncate max-w-[200px] text-xs text-grey-40 font-mono inline-block">{(firstStep.smsBody || '').slice(0, 60)}{(firstStep.smsBody || '').length > 60 ? '…' : ''}</span>
+                        ) : firstStep?.emailTemplate?.name || r.emailTemplate?.name || <span className="text-grey-50 italic">No template</span>}
+                      </td>
+                      <td className="px-5 py-4 text-sm font-medium text-grey-15">{r._count.executions}</td>
+                      <td className="px-5 py-4">
+                        <button onClick={() => toggle(r)} className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-grey-40'}`}>
+                          {r.isActive ? 'Active' : 'Paused'}
+                        </button>
+                      </td>
+                      <td className="px-5 py-4 text-right space-x-3">
+                        <button onClick={() => openPreview(r)} disabled={previewLoading === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                          {previewLoading === r.id ? 'Loading…' : 'Preview'}
+                        </button>
+                        <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                          {testingId === r.id ? 'Sending…' : 'Test'}
+                        </button>
+                        <button onClick={() => duplicate(r)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
+                        <button onClick={() => openEdit(r)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
+                        <button onClick={() => remove(r.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
+                      </td>
+                    </tr>
+                  )
+                })}
             </tbody>
           </table>
         </div>
@@ -467,7 +579,7 @@ export default function AutomationsPage() {
           >
             <div className="px-6 py-4 border-b border-surface-border flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-xs text-grey-40 font-medium uppercase tracking-wide">Email preview</div>
+                <div className="text-xs text-grey-40 font-medium uppercase tracking-wide">Preview {preview.stepOrder !== undefined ? `· Step ${preview.stepOrder + 1}` : ''}</div>
                 <h2 className="text-lg font-semibold text-grey-15 truncate">{preview.ruleName}</h2>
                 <div className="text-xs text-grey-40 mt-0.5">Template: {preview.templateName}</div>
               </div>
@@ -500,7 +612,7 @@ export default function AutomationsPage() {
               )}
             </div>
             <div className="px-6 py-3 border-t border-surface-border bg-surface-light flex items-center justify-between text-xs text-grey-40">
-              <span>Sample values shown for merge tokens. No email sent.</span>
+              <span>Sample values shown for merge tokens. No message sent.</span>
               <button onClick={() => setPreview(null)} className="text-grey-15 hover:text-grey-40 font-medium">Close</button>
             </div>
           </div>
@@ -509,8 +621,8 @@ export default function AutomationsPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
-          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[520px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-start justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-[12px] shadow-2xl my-8 p-8 w-full max-w-[640px]" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-semibold text-grey-15 mb-6">{editing ? 'Edit Automation' : 'Create Automation'}</h2>
             <div className="space-y-4">
               <div>
@@ -525,36 +637,13 @@ export default function AutomationsPage() {
                   ))}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Channel</label>
-                <div className="flex gap-2">
-                  {[
-                    { v: 'email' as const, l: 'Email' },
-                    { v: 'sms' as const, l: 'SMS' },
-                  ].map(({ v, l }) => (
-                    <button
-                      key={v}
-                      onClick={() => setChannel(v)}
-                      className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${channel === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
-                {channel === 'sms' && (
-                  <p className="text-xs text-grey-40 mt-1.5">
-                    SMS sends to the candidate&apos;s phone via Sigcore. Requires <code className="text-grey-15">candidatePhone</code> on the application —
-                    rules will fail gracefully when the phone is missing or invalid.
-                  </p>
-                )}
-              </div>
               {triggerType === 'meeting_ended' && (
                 <div className="p-3 bg-surface-weak rounded-[8px]">
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input type="checkbox" checked={waitForRecording} onChange={(e) => setWaitForRecording(e.target.checked)} className="mt-0.5 h-4 w-4" />
                     <div className="text-xs">
                       <div className="font-medium text-grey-15">Wait for recording before sending</div>
-                      <div className="text-grey-40 mt-0.5">Send the email only after Meet finishes processing the recording (usually within 10 minutes). Falls back after 4 hours if the recording never lands. Only meaningful if the meeting was recorded.</div>
+                      <div className="text-grey-40 mt-0.5">First step waits until Meet finishes processing the recording (usually within 10 minutes). Falls back after 4 hours if the recording never lands. Subsequent follow-up steps still queue at their delays.</div>
                     </div>
                   </label>
                 </div>
@@ -575,234 +664,114 @@ export default function AutomationsPage() {
                     <option value="">Select automation...</option>
                     {rules.filter(r => !editing || r.id !== editing.id).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
-                  <p className="text-xs text-grey-40 mt-1">This automation will fire after the selected automation completes.</p>
+                  <p className="text-xs text-grey-40 mt-1">This automation will fire after every step of the selected automation completes.</p>
                 </div>
               )}
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Next Step Type</label>
-                <div className="flex gap-2">
-                  {[{ v: '', l: 'None' }, { v: 'email', l: 'Send Email' }, { v: 'training', l: 'Training' }, { v: 'scheduling', l: 'Scheduling' }].map(({ v, l }) => (
-                    <button key={v} onClick={() => setNextStepType(v)} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${nextStepType === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              {channel === 'sms' && (
-                <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">SMS body</label>
-                  <textarea
-                    value={smsBody}
-                    onChange={(e) => setSmsBody(e.target.value)}
-                    rows={4}
-                    placeholder="Hi {{candidate_name}}, your interview starts at {{meeting_time}}. Join: {{meeting_link}}"
-                    className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
-                  />
-                  <div className="flex items-center justify-between mt-1.5">
-                    <p className="text-xs text-grey-40">
-                      Plain text only. Merge tokens: <code>{'{{candidate_name}}'}</code>, <code>{'{{meeting_time}}'}</code>, <code>{'{{meeting_link}}'}</code>, <code>{'{{schedule_link}}'}</code>.
-                    </p>
-                    <span className={`text-xs font-mono ${smsBody.length > 320 ? 'text-amber-700' : smsBody.length > 160 ? 'text-grey-15' : 'text-grey-40'}`}>
-                      {smsBody.length} chars · {Math.max(1, Math.ceil(smsBody.length / 160))} segment{smsBody.length > 160 ? 's' : ''}
-                    </span>
-                  </div>
-                  {smsBody.length > 1600 && (
-                    <p className="text-xs text-amber-700 mt-1">SMS bodies above ~1600 chars (10 segments) are likely to be rejected by carriers.</p>
-                  )}
-                </div>
-              )}
-              {channel === 'email' && nextStepType && (
-                <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Template</label>
-                  {!showNewTemplate ? (
-                    <>
-                      {/* Template picker — saved templates */}
-                      {templates.length > 0 && (
-                        <select value={templateId} onChange={(e) => {
-                          setTemplateId(e.target.value)
-                          const t = templates.find(t => t.id === e.target.value)
-                          if (t) { setNewTplName(t.name); setNewTplSubject(t.subject); setNewTplBody((t as any).bodyHtml || '') }
-                        }} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2">
-                          <option value="">Select saved template...</option>
-                          {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </select>
-                      )}
-                      {/* Default templates as clickable cards */}
-                      <p className="text-xs text-grey-40 mb-2">{templates.length > 0 ? 'Or start from a default:' : 'Choose a default template:'}</p>
-                      <div className="grid grid-cols-2 gap-1.5 mb-2 max-h-[240px] overflow-y-auto">
-                        {DEFAULT_EMAIL_TEMPLATES.map((tpl, i) => (
-                          <button key={i} onClick={() => { setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml); setShowNewTemplate(true); setTemplateId('') }} className="px-3 py-2 text-xs text-left border border-surface-border rounded-[6px] text-grey-35 hover:border-brand-400 hover:bg-brand-50 transition-colors">
-                            <span className="font-medium text-grey-15 block">{tpl.name}</span>
-                            <span className="text-[10px] text-grey-50 truncate block">{tpl.subject}</span>
-                          </button>
-                        ))}
-                      </div>
-                      <button onClick={() => { setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>'); setShowNewTemplate(true) }} className="text-xs text-brand-500 hover:text-brand-600 font-medium">+ Start from scratch</button>
-                    </>
-                  ) : (
-                    /* Inline template editor */
-                    <div className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
-                      <div className="flex items-center justify-between">
-                        <button onClick={() => setShowNewTemplate(false)} className="text-xs text-grey-40 hover:text-grey-15 flex items-center gap-1">&larr; Back to templates</button>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-grey-40 mb-1">Template Name</label>
-                        <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-grey-40 mb-1">Subject</label>
-                        <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
-                        <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                      </div>
-                      <div className="bg-white rounded-[6px] p-2">
-                        <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
-                        <div className="flex flex-wrap gap-1">{['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{source}}', '{{ad_name}}'].map(v => <button key={v} onClick={() => navigator.clipboard.writeText(v)} className="text-[10px] px-2 py-0.5 bg-surface border border-surface-border rounded text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div>
-                      </div>
-                      <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Use'}</button>
-                    </div>
-                  )}
-                </div>
-              )}
-              {nextStepType === 'training' && (
-                <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Training</label>
-                  <select value={trainingId} onChange={(e) => setTrainingId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Select training...</option>
-                    {trainings.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-                  </select>
-                  {trainings.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/dashboard/trainings">Create a training first →</Link></p>}
-                  <p className="text-xs text-grey-40 mt-1">A unique access token will be generated for each candidate automatically.</p>
-                </div>
-              )}
-              {nextStepType === 'scheduling' && (
-                <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Scheduling Link</label>
-                  <select value={schedulingConfigId} onChange={(e) => setSchedulingConfigId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value="">Use default link</option>
-                    {schedulingConfigs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  {schedulingConfigs.length === 0 && <p className="text-xs text-brand-500 mt-1"><Link href="/dashboard/scheduling">Add a Calendly link first →</Link></p>}
-                  <p className="text-xs text-grey-40 mt-1">Link clicks are tracked. Candidate status updates to &quot;invited to schedule&quot;.</p>
-                </div>
-              )}
-              {/* Send X minutes before meeting — only for before_meeting trigger */}
               {triggerType === 'before_meeting' && (
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Send before meeting</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { value: 15, label: '15 min before' },
-                    { value: 60, label: '1 hour before' },
-                    { value: 180, label: '3 hours before' },
-                    { value: 1440, label: '1 day before' },
-                    { value: 2880, label: '2 days before' },
-                  ].map(d => (
-                    <button key={d.value} onClick={() => setMinutesBefore(d.value)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${minutesBefore === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
-                      {d.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <input
-                    type="number"
-                    min={1}
-                    value={minutesBefore > 0 ? minutesBefore : ''}
-                    onChange={(e) => setMinutesBefore(Math.max(1, parseInt(e.target.value) || 0))}
-                    className="w-24 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  />
-                  <span className="text-xs text-grey-40">minutes before scheduled start</span>
-                </div>
-                <p className="text-xs text-grey-50 mt-1.5">
-                  Reminder fires {minutesBefore >= 1440 ? `${Math.round(minutesBefore / 1440)} day${minutesBefore >= 2880 ? 's' : ''}` : minutesBefore >= 60 ? `${Math.round(minutesBefore / 60)} hour${minutesBefore >= 120 ? 's' : ''}` : `${minutesBefore} minutes`} before the meeting&apos;s scheduled start.
-                  Auto-cancelled if the candidate cancels or reschedules.
-                </p>
-              </div>
-              )}
-              {/* Delay — only show when a next step is selected and trigger is not before_meeting */}
-              {nextStepType && triggerType !== 'before_meeting' && (
-              <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Delay</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { value: 0, label: 'Immediately' },
-                    { value: 15, label: '15 min' },
-                    { value: 60, label: '1 hour' },
-                    { value: 360, label: '6 hours' },
-                    { value: 1440, label: '1 day' },
-                    { value: 4320, label: '3 days' },
-                    { value: 10080, label: '7 days' },
-                  ].map(d => (
-                    <button key={d.value} onClick={() => setDelayMinutes(d.value)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${delayMinutes === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
-                      {d.label}
-                    </button>
-                  ))}
-                  <button onClick={() => setDelayMinutes(delayMinutes > 0 && ![0,15,60,360,1440,4320,10080].includes(delayMinutes) ? delayMinutes : -1)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${![0,15,60,360,1440,4320,10080].includes(delayMinutes) && delayMinutes !== 0 ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
-                    Custom
-                  </button>
-                </div>
-                {/* Custom delay input */}
-                {![0,15,60,360,1440,4320,10080].includes(delayMinutes) && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <input
-                      type="number"
-                      min={1}
-                      value={delayMinutes > 0 ? delayMinutes : ''}
-                      onChange={(e) => setDelayMinutes(parseInt(e.target.value) || 0)}
-                      placeholder="Enter minutes"
-                      className="w-24 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                    <span className="text-xs text-grey-40">minutes</span>
-                    <div className="flex gap-1 ml-2">
-                      {[
-                        { m: 30, l: '30m' },
-                        { m: 120, l: '2h' },
-                        { m: 720, l: '12h' },
-                        { m: 2880, l: '2d' },
-                        { m: 7200, l: '5d' },
-                        { m: 20160, l: '14d' },
-                      ].map(q => (
-                        <button key={q.m} onClick={() => setDelayMinutes(q.m)} className="text-[10px] px-2 py-1 rounded border border-surface-border text-grey-40 hover:bg-surface">{q.l}</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Email will be sent {delayMinutes >= 1440 ? `${Math.round(delayMinutes / 1440)} day${delayMinutes >= 2880 ? 's' : ''}` : delayMinutes >= 60 ? `${Math.round(delayMinutes / 60)} hour${delayMinutes >= 120 ? 's' : ''}` : `${delayMinutes} minutes`} after trigger.</p>}
-              </div>
-              )}
-              {channel === 'email' && nextStepType && (
                 <div>
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Email Destination</label>
-                  <div className="flex gap-2">
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Step 1 fires</label>
+                  <div className="flex flex-wrap gap-1.5">
                     {[
-                      { v: 'applicant', l: 'Applicant' },
-                      { v: 'company', l: 'Company' },
-                      { v: 'specific', l: 'Specific email' },
-                    ].map(({ v, l }) => (
-                      <button key={v} onClick={() => {
-                        if (v === 'company' && !companyEmail) { setShowCompanyEmailWarning(true); return }
-                        setEmailDestination(v as 'applicant' | 'company' | 'specific')
-                      }} className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${emailDestination === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
+                      { value: 15, label: '15 min before' },
+                      { value: 60, label: '1 hour before' },
+                      { value: 180, label: '3 hours before' },
+                      { value: 1440, label: '1 day before' },
+                      { value: 2880, label: '2 days before' },
+                    ].map(d => (
+                      <button key={d.value} onClick={() => setMinutesBefore(d.value)} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${minutesBefore === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                        {d.label}
+                      </button>
                     ))}
                   </div>
-                  {emailDestination === 'specific' && (
+                  <div className="flex items-center gap-2 mt-2">
                     <input
-                      type="email"
-                      value={emailDestinationAddress}
-                      onChange={(e) => setEmailDestinationAddress(e.target.value)}
-                      placeholder="recipient@example.com"
-                      className="mt-2 w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      type="number" min={1}
+                      value={minutesBefore > 0 ? minutesBefore : ''}
+                      onChange={(e) => setMinutesBefore(Math.max(1, parseInt(e.target.value) || 0))}
+                      className="w-24 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
                     />
-                  )}
-                  {emailDestination === 'company' && companyEmail && (
-                    <p className="text-xs text-grey-40 mt-1">Will send to <span className="font-medium text-grey-20">{companyEmail}</span> (set in <Link href="/dashboard/settings?tab=email" className="text-brand-500 hover:text-brand-600">Settings</Link>).</p>
-                  )}
+                    <span className="text-xs text-grey-40">minutes before scheduled start</span>
+                  </div>
+                  <p className="text-xs text-grey-50 mt-1.5">
+                    Step 1 fires {minutesBefore >= 1440 ? `${Math.round(minutesBefore / 1440)} day${minutesBefore >= 2880 ? 's' : ''}` : minutesBefore >= 60 ? `${Math.round(minutesBefore / 60)} hour${minutesBefore >= 120 ? 's' : ''}` : `${minutesBefore} minutes`} before the meeting. Auto-cancelled on cancel/reschedule.
+                  </p>
+                </div>
+              )}
+
+              {/* ─── Steps editor ───────────────────────────────────────── */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-grey-20">Steps</label>
+                  <span className="text-xs text-grey-40">{steps.length} step{steps.length === 1 ? '' : 's'}</span>
+                </div>
+                <div className="space-y-3">
+                  {steps.map((step, idx) => (
+                    <StepCard
+                      key={idx}
+                      step={step}
+                      idx={idx}
+                      total={steps.length}
+                      isFirst={idx === 0}
+                      triggerType={triggerType}
+                      templates={templates}
+                      trainings={trainings}
+                      schedulingConfigs={schedulingConfigs}
+                      companyEmail={companyEmail}
+                      onChange={(patch) => updateStep(idx, patch)}
+                      onRemove={() => removeStep(idx)}
+                      onMoveUp={() => moveStep(idx, -1)}
+                      onMoveDown={() => moveStep(idx, 1)}
+                      onCompanyMissing={() => setShowCompanyEmailWarning(true)}
+                      onCreateTemplate={() => {
+                        setTemplateEditorStepIdx(idx)
+                        setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
+                      }}
+                      onPickDefaultTemplate={(tpl) => {
+                        setTemplateEditorStepIdx(idx)
+                        setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml)
+                      }}
+                    />
+                  ))}
+                </div>
+                <button
+                  onClick={addStep}
+                  className="mt-3 w-full py-2.5 text-xs rounded-[8px] border border-dashed border-surface-border text-grey-35 hover:bg-surface-light hover:text-grey-15 font-medium"
+                >
+                  + Add follow-up step
+                </button>
+              </div>
+
+              {/* Inline template editor — bound to the step that opened it */}
+              {templateEditorStepIdx !== null && (
+                <div className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-medium text-grey-15">New template (will be assigned to step {templateEditorStepIdx + 1})</div>
+                    <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-grey-40 mb-1">Template Name</label>
+                    <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-grey-40 mb-1">Subject</label>
+                    <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
+                    <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                  </div>
+                  <div className="bg-white rounded-[6px] p-2">
+                    <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
+                    <div className="flex flex-wrap gap-1">{['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{source}}', '{{ad_name}}'].map(v => <button key={v} onClick={() => navigator.clipboard.writeText(v)} className="text-[10px] px-2 py-0.5 bg-surface border border-surface-border rounded text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div>
+                  </div>
+                  <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Assign to step'}</button>
                 </div>
               )}
             </div>
+            {saveError && <div className="mt-4 px-3 py-2 rounded-[8px] bg-red-50 border border-red-200 text-xs text-red-700">{saveError}</div>}
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={save} disabled={saving || !name.trim() || !templateId} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
+              <button onClick={save} disabled={saving || !name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
             </div>
           </div>
         </div>
@@ -832,12 +801,231 @@ export default function AutomationsPage() {
   )
 }
 
+function firstStepDest(r: Rule): 'applicant' | 'company' | 'specific' {
+  return (r.steps?.[0]?.emailDestination as 'applicant' | 'company' | 'specific') || (r.emailDestination as 'applicant' | 'company' | 'specific') || 'applicant'
+}
+
+/**
+ * One step in the rule's sequence. Mirrors the per-rule modal that existed
+ * pre-step refactor: channel toggle, body fields, destination, next-step
+ * config. Step 0's delay is editable for all triggers except `before_meeting`,
+ * where step 0 is anchored to the rule's `minutesBefore` setting.
+ */
+function StepCard(props: {
+  step: StepShape
+  idx: number
+  total: number
+  isFirst: boolean
+  triggerType: string
+  templates: Template[]
+  trainings: TrainingItem[]
+  schedulingConfigs: SchedulingItem[]
+  companyEmail: string | null
+  onChange: (patch: Partial<StepShape>) => void
+  onRemove: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onCompanyMissing: () => void
+  onCreateTemplate: () => void
+  onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
+}) {
+  const { step, idx, total, isFirst, triggerType, templates, trainings, schedulingConfigs, companyEmail } = props
+  const wantsEmail = step.channel === 'email' || step.channel === 'both'
+  const wantsSms = step.channel === 'sms' || step.channel === 'both'
+  const delayLocked = isFirst && triggerType === 'before_meeting'
+
+  return (
+    <div className="border border-surface-border rounded-[10px] p-4 bg-white">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-50 text-brand-700 text-xs font-semibold">{idx + 1}</span>
+          <span className="text-sm font-medium text-grey-15">{isFirst ? 'First step' : 'Follow-up'}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={props.onMoveUp} disabled={idx === 0} className="text-xs px-2 py-1 rounded text-grey-40 hover:text-grey-15 disabled:opacity-30" title="Move up">↑</button>
+          <button onClick={props.onMoveDown} disabled={idx === total - 1} className="text-xs px-2 py-1 rounded text-grey-40 hover:text-grey-15 disabled:opacity-30" title="Move down">↓</button>
+          {total > 1 && <button onClick={props.onRemove} className="text-xs px-2 py-1 rounded text-red-500 hover:text-red-700" title="Remove step">×</button>}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {/* Channel */}
+        <div>
+          <label className="block text-xs font-medium text-grey-20 mb-1.5">Channel</label>
+          <div className="flex gap-2">
+            {[
+              { v: 'email' as const, l: 'Email' },
+              { v: 'sms' as const, l: 'SMS' },
+              { v: 'both' as const, l: 'Email + SMS' },
+            ].map(({ v, l }) => (
+              <button
+                key={v}
+                onClick={() => props.onChange({ channel: v })}
+                className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${step.channel === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          {step.channel === 'both' && (
+            <p className="text-[11px] text-grey-40 mt-1.5">
+              Sends both an email and an SMS at the same time. The candidate needs both an email and a phone number.
+            </p>
+          )}
+        </div>
+
+        {/* Delay */}
+        {!delayLocked && (
+          <div>
+            <label className="block text-xs font-medium text-grey-20 mb-1.5">
+              {isFirst ? 'Delay after trigger' : 'Delay after trigger'}
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {DELAY_PRESETS.map(d => (
+                <button key={d.value} onClick={() => props.onChange({ delayMinutes: d.value })} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${step.delayMinutes === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+            {!DELAY_PRESETS.some((d) => d.value === step.delayMinutes) && (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="number" min={0}
+                  value={step.delayMinutes}
+                  onChange={(e) => props.onChange({ delayMinutes: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-24 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <span className="text-xs text-grey-40">minutes</span>
+              </div>
+            )}
+            {step.delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Fires {formatDelay(step.delayMinutes)} after the trigger event.</p>}
+          </div>
+        )}
+        {delayLocked && (
+          <p className="text-xs text-grey-50">Step 1 of a before_meeting rule fires at the rule&apos;s &quot;X minutes before meeting&quot; setting (above).</p>
+        )}
+
+        {/* Email block */}
+        {wantsEmail && (
+          <div className="p-3 rounded-[8px] bg-blue-50/40 border border-blue-100 space-y-2">
+            <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Email</div>
+            <div>
+              <label className="block text-xs text-grey-40 mb-1">Template</label>
+              <select
+                value={step.emailTemplateId || ''}
+                onChange={(e) => props.onChange({ emailTemplateId: e.target.value || null })}
+                className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">Select template...</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                <button onClick={props.onCreateTemplate} className="text-[11px] text-brand-600 hover:text-brand-700 font-medium">+ New template…</button>
+                <span className="text-[11px] text-grey-40">or pick a default:</span>
+                {DEFAULT_EMAIL_TEMPLATES.slice(0, 4).map((tpl, i) => (
+                  <button
+                    key={i}
+                    onClick={() => props.onPickDefaultTemplate(tpl)}
+                    className="text-[11px] text-grey-35 hover:text-brand-600 underline-offset-2 hover:underline"
+                  >
+                    {tpl.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-grey-40 mb-1">Send to</label>
+              <div className="flex gap-2">
+                {([
+                  { v: 'applicant' as const, l: 'Applicant' },
+                  { v: 'company' as const, l: 'Company' },
+                  { v: 'specific' as const, l: 'Specific' },
+                ]).map(({ v, l }) => (
+                  <button
+                    key={v}
+                    onClick={() => {
+                      if (v === 'company' && !companyEmail) { props.onCompanyMissing(); return }
+                      props.onChange({ emailDestination: v })
+                    }}
+                    className={`flex-1 py-1.5 text-xs rounded-[8px] border font-medium ${step.emailDestination === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {step.emailDestination === 'specific' && (
+                <input
+                  type="email"
+                  value={step.emailDestinationAddress || ''}
+                  onChange={(e) => props.onChange({ emailDestinationAddress: e.target.value })}
+                  placeholder="recipient@example.com"
+                  className="mt-2 w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              )}
+              {step.emailDestination === 'company' && companyEmail && (
+                <p className="text-[11px] text-grey-40 mt-1">Will send to <span className="font-medium text-grey-20">{companyEmail}</span>.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SMS block */}
+        {wantsSms && (
+          <div className="p-3 rounded-[8px] bg-purple-50/40 border border-purple-100 space-y-2">
+            <div className="text-[11px] font-semibold text-purple-700 uppercase tracking-wide">SMS</div>
+            <textarea
+              value={step.smsBody || ''}
+              onChange={(e) => props.onChange({ smsBody: e.target.value })}
+              rows={3}
+              placeholder="Hi {{candidate_name}}, your interview starts at {{meeting_time}}. Join: {{meeting_link}}"
+              className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-grey-40">
+                Tokens: <code>{'{{candidate_name}}'}</code>, <code>{'{{meeting_time}}'}</code>, <code>{'{{meeting_link}}'}</code>, <code>{'{{schedule_link}}'}</code>.
+              </p>
+              <span className={`text-[11px] font-mono ${(step.smsBody?.length ?? 0) > 320 ? 'text-amber-700' : (step.smsBody?.length ?? 0) > 160 ? 'text-grey-15' : 'text-grey-40'}`}>
+                {step.smsBody?.length ?? 0} chars · {Math.max(1, Math.ceil((step.smsBody?.length ?? 0) / 160))} seg
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Next-step config */}
+        <div>
+          <label className="block text-xs font-medium text-grey-20 mb-1.5">Includes link to</label>
+          <div className="flex gap-2">
+            {[{ v: '', l: 'Nothing' }, { v: 'training', l: 'Training' }, { v: 'scheduling', l: 'Scheduling' }].map(({ v, l }) => (
+              <button key={v || 'none'} onClick={() => props.onChange({ nextStepType: v || null })} className={`flex-1 py-1.5 text-xs rounded-[8px] border font-medium ${(step.nextStepType || '') === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
+            ))}
+          </div>
+          {step.nextStepType === 'training' && (
+            <div className="mt-2">
+              <select value={step.trainingId || ''} onChange={(e) => props.onChange({ trainingId: e.target.value || null })} className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <option value="">Select training...</option>
+                {trainings.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+              </select>
+              <p className="text-[11px] text-grey-40 mt-1">A unique access token is generated per candidate. {'{{training_link}}'} renders the personalized URL.</p>
+            </div>
+          )}
+          {step.nextStepType === 'scheduling' && (
+            <div className="mt-2">
+              <select value={step.schedulingConfigId || ''} onChange={(e) => props.onChange({ schedulingConfigId: e.target.value || null })} className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <option value="">Use default link</option>
+                {schedulingConfigs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <p className="text-[11px] text-grey-40 mt-1">{'{{schedule_link}}'} renders the tracked redirect URL. Candidate moves to &quot;invited to schedule&quot; when this step succeeds.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Two-row pipeline view — applicant journey on top, company notifications
- * below. Each stage is a clickable chip that filters the rules table to
- * automations for that trigger. Lifecycle events (Meeting Started/Ended,
- * Recording/Transcript Ready) are visually grouped together so the
- * post-meeting cluster is easy to scan.
+ * below.
  */
 function AutomationPipeline({
   rules,
@@ -854,7 +1042,8 @@ function AutomationPipeline({
     for (const r of rules) {
       const bucket = m.get(r.triggerType)
       if (!bucket) continue
-      const bucketKey = r.emailDestination === 'applicant' ? 'applicant' : 'company'
+      const dest = firstStepDest(r)
+      const bucketKey = dest === 'applicant' ? 'applicant' : 'company'
       bucket[bucketKey] += 1
     }
     return m
@@ -914,8 +1103,8 @@ function AutomationPipeline({
 
   return (
     <div className="mb-6 space-y-3">
-      {row('applicant', 'Applicant journey', 'Emails sent to the candidate as they move through the pipeline')}
-      {row('company', 'Company notifications', 'Emails sent to your team or a specific inbox')}
+      {row('applicant', 'Applicant journey', 'Messages sent to the candidate as they move through the pipeline')}
+      {row('company', 'Company notifications', 'Notifications sent to your team or a specific inbox')}
     </div>
   )
 }

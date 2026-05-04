@@ -11,55 +11,55 @@ datasource db {
 // ============ IDENTITY & WORKSPACE ============
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  name         String?
-  isSuperAdmin Boolean  @default(false) @map("is_super_admin")
-  createdAt    DateTime @default(now()) @map("created_at")
-  memberships  WorkspaceMember[]
+  id             String               @id @default(uuid())
+  email          String               @unique
+  passwordHash   String               @map("password_hash")
+  name           String?
+  isSuperAdmin   Boolean              @default(false) @map("is_super_admin")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  memberships    WorkspaceMember[]
   passwordResets PasswordResetToken[]
 
   @@map("users")
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("password_reset_tokens")
 }
 
 model Workspace {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  plan        String   @default("free") // 'free' | 'starter' | 'pro' | 'enterprise'
-  isActive    Boolean  @default(true) @map("is_active")
-  website     String?
-  phone       String?
-  timezone    String   @default("America/New_York")
-  logoUrl     String?  @map("logo_url")
-  senderName  String?  @map("sender_name")  // from name for emails
-  senderEmail String?  @map("sender_email") // reply-to for emails
-  senderVerifiedId  String?   @map("sender_verified_id")  // legacy: SendGrid single-sender id
-  senderVerifiedAt  DateTime? @map("sender_verified_at")  // legacy
-  senderAddress     Json?     @map("sender_address")      // { line1, line2, city, state, zip, country }
-  senderDomain      String?   @map("sender_domain")       // e.g. "spotless.homes"
-  senderDomainId    String?   @map("sender_domain_id")    // SendGrid whitelabel domain id
-  senderDomainValidatedAt DateTime? @map("sender_domain_validated_at")
-  settings    Json?    // extensible provider config: { indeed: {...}, calendly: {...} }
+  id                       String    @id @default(uuid())
+  name                     String
+  slug                     String    @unique
+  plan                     String    @default("free") // 'free' | 'starter' | 'pro' | 'enterprise'
+  isActive                 Boolean   @default(true) @map("is_active")
+  website                  String?
+  phone                    String?
+  timezone                 String    @default("America/New_York")
+  logoUrl                  String?   @map("logo_url")
+  senderName               String?   @map("sender_name") // from name for emails
+  senderEmail              String?   @map("sender_email") // reply-to for emails
+  senderVerifiedId         String?   @map("sender_verified_id") // legacy: SendGrid single-sender id
+  senderVerifiedAt         DateTime? @map("sender_verified_at") // legacy
+  senderAddress            Json?     @map("sender_address") // { line1, line2, city, state, zip, country }
+  senderDomain             String?   @map("sender_domain") // e.g. "spotless.homes"
+  senderDomainId           String?   @map("sender_domain_id") // SendGrid whitelabel domain id
+  senderDomainValidatedAt  DateTime? @map("sender_domain_validated_at")
+  settings                 Json? // extensible provider config: { indeed: {...}, calendly: {...} }
   // Meet integration v2 feature flag — gates the new in-app Google Meet scheduling
   // flow. Off by default so the existing Calendly/Calendar path stays intact.
-  meetIntegrationV2Enabled Boolean @default(false) @map("meet_integration_v2_enabled")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  meetIntegrationV2Enabled Boolean   @default(false) @map("meet_integration_v2_enabled")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   members           WorkspaceMember[]
   videos            Video[]
@@ -81,60 +81,60 @@ model Workspace {
 }
 
 model GoogleIntegration {
-  id              String    @id @default(uuid())
-  workspaceId     String    @unique @map("workspace_id")
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  googleEmail     String    @map("google_email")
+  id                               String    @id @default(uuid())
+  workspaceId                      String    @unique @map("workspace_id")
+  workspace                        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  googleEmail                      String    @map("google_email")
   // Google account ID from userinfo.id. Workspace Events Meet API sends signed-in
   // participants as `users/{id}` where {id} matches this value, so this — not the
   // email — is what we compare against to decide whether a participant is the host.
   // Nullable to keep older connections working until they reconnect or self-heal.
-  googleUserId    String?   @map("google_user_id")
+  googleUserId                     String?   @map("google_user_id")
   // Display name from userinfo (e.g. "Georgiy Sayapin"). Used by the Drive
   // recording-filename attendance heuristic — Meet names recordings as
   // "<Attendee A> and <Attendee B>" so we need the host's display name to
   // tell host-only recordings apart from host+candidate recordings.
-  googleDisplayName String? @map("google_display_name")
+  googleDisplayName                String?   @map("google_display_name")
   // Cached "Meet Recordings" Drive folder id, looked up once per integration.
   // Saves a Drive files.list call on every sync.
-  meetRecordingsFolderId String? @map("meet_recordings_folder_id")
-  refreshToken    String    @map("refresh_token")                  // encrypted
-  accessToken     String?   @map("access_token")                   // encrypted
-  accessExpiresAt DateTime? @map("access_expires_at")
-  calendarId      String    @default("primary") @map("calendar_id")
-  watchChannelId  String?   @unique @map("watch_channel_id")
-  watchResourceId String?   @map("watch_resource_id")
-  watchToken      String?   @map("watch_token")                    // per-workspace webhook secret
-  watchExpiresAt  DateTime? @map("watch_expires_at")
-  syncToken       String?   @map("sync_token")
-  lastSyncedAt    DateTime? @map("last_synced_at")
+  meetRecordingsFolderId           String?   @map("meet_recordings_folder_id")
+  refreshToken                     String    @map("refresh_token") // encrypted
+  accessToken                      String?   @map("access_token") // encrypted
+  accessExpiresAt                  DateTime? @map("access_expires_at")
+  calendarId                       String    @default("primary") @map("calendar_id")
+  watchChannelId                   String?   @unique @map("watch_channel_id")
+  watchResourceId                  String?   @map("watch_resource_id")
+  watchToken                       String?   @map("watch_token") // per-workspace webhook secret
+  watchExpiresAt                   DateTime? @map("watch_expires_at")
+  syncToken                        String?   @map("sync_token")
+  lastSyncedAt                     DateTime? @map("last_synced_at")
   // ----- Meet integration v2 fields -----
   // Space-delimited scope string as returned by Google on token exchange. Read at
   // dispatch time via hasMeetScopes() to decide whether the new Meet flow is
   // available without forcing a full disconnect.
-  grantedScopes              String?   @map("granted_scopes")
+  grantedScopes                    String?   @map("granted_scopes")
   // userinfo.hd — the Google-hosted domain for the connected account. Null for
   // free @gmail.com. This is a *soft UX hint only* — never a recording signal.
-  hostedDomain               String?   @map("hosted_domain")
+  hostedDomain                     String?   @map("hosted_domain")
   // Tri-state recording capability (null = never probed). Source of truth is the
   // authoritative probe against the Meet settings API, not the hosted domain.
-  recordingCapable           Boolean?  @map("recording_capable")
-  recordingCapabilityCheckedAt DateTime? @map("recording_capability_checked_at")
+  recordingCapable                 Boolean?  @map("recording_capable")
+  recordingCapabilityCheckedAt     DateTime? @map("recording_capability_checked_at")
   // Machine-readable reason, e.g. probe_ok, permission_denied_plan,
   // permission_denied_admin_policy, probe_not_run, probe_error.
-  recordingCapabilityReason  String?   @map("recording_capability_reason")
+  recordingCapabilityReason        String?   @map("recording_capability_reason")
   // Tri-state transcription capability — probed independently from recording
   // because Workspace Individual / personal Gmail commonly allows
   // autoTranscription but not autoRecording. Same probe-cache lifecycle.
-  transcriptionCapable           Boolean?  @map("transcription_capable")
+  transcriptionCapable             Boolean?  @map("transcription_capable")
   transcriptionCapabilityCheckedAt DateTime? @map("transcription_capability_checked_at")
-  transcriptionCapabilityReason  String?   @map("transcription_capability_reason")
+  transcriptionCapabilityReason    String?   @map("transcription_capability_reason")
   // True if the workspace owner has confirmed the "Meet Attendance" Chrome
   // extension is installed and the integration should scan Drive for its
   // exported spreadsheets to derive attendance for personal Gmail tenants.
-  attendanceExtensionEnabled Boolean   @default(false) @map("attendance_extension_enabled")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  attendanceExtensionEnabled       Boolean   @default(false) @map("attendance_extension_enabled")
+  createdAt                        DateTime  @default(now()) @map("created_at")
+  updatedAt                        DateTime  @updatedAt @map("updated_at")
 
   @@map("google_integrations")
 }
@@ -145,55 +145,55 @@ model GoogleIntegration {
 // typed, unique-per-conference entity that the Workspace Events webhook
 // correlates against and that the UI joins to the candidate timeline.
 model InterviewMeeting {
-  id                        String    @id @default(uuid())
-  workspaceId               String    @map("workspace_id")
-  workspace                 Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  sessionId                 String    @map("session_id")
-  session                   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  schedulingConfigId        String?   @map("scheduling_config_id")
+  id                          String    @id @default(uuid())
+  workspaceId                 String    @map("workspace_id")
+  workspace                   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sessionId                   String    @map("session_id")
+  session                     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  schedulingConfigId          String?   @map("scheduling_config_id")
   // Meet resource identifiers
-  meetSpaceName             String    @unique @map("meet_space_name")   // "spaces/abc..."
-  meetingCode               String?   @map("meeting_code")
-  meetingUri                String    @map("meeting_uri")
+  meetSpaceName               String    @unique @map("meet_space_name") // "spaces/abc..."
+  meetingCode                 String?   @map("meeting_code")
+  meetingUri                  String    @map("meeting_uri")
   // Calendar event tied to this Meet space
-  googleCalendarEventId     String    @unique @map("google_calendar_event_id")
-  scheduledStart            DateTime  @map("scheduled_start")
-  scheduledEnd              DateTime  @map("scheduled_end")
+  googleCalendarEventId       String    @unique @map("google_calendar_event_id")
+  scheduledStart              DateTime  @map("scheduled_start")
+  scheduledEnd                DateTime  @map("scheduled_end")
   // Set by Workspace Events conference.started / conference.ended
-  actualStart               DateTime? @map("actual_start")
-  actualEnd                 DateTime? @map("actual_end")
+  actualStart                 DateTime? @map("actual_start")
+  actualEnd                   DateTime? @map("actual_end")
   // Recording state
-  recordingEnabled          Boolean   @default(false) @map("recording_enabled")
-  recordingProvider         String?   @map("recording_provider")    // 'google_meet' | 'recall_ai' | null
+  recordingEnabled            Boolean   @default(false) @map("recording_enabled")
+  recordingProvider           String?   @map("recording_provider") // 'google_meet' | 'recall_ai' | null
   // 'disabled' | 'requested' | 'recording' | 'processing' | 'ready' | 'failed' | 'unavailable'
-  recordingState            String    @default("disabled") @map("recording_state")
+  recordingState              String    @default("disabled") @map("recording_state")
   // 'disabled' | 'processing' | 'ready' | 'failed'
-  transcriptState           String    @default("disabled") @map("transcript_state")
-  driveRecordingFileId      String?   @map("drive_recording_file_id")
-  driveTranscriptFileId     String?   @map("drive_transcript_file_id")
+  transcriptState             String    @default("disabled") @map("transcript_state")
+  driveRecordingFileId        String?   @map("drive_recording_file_id")
+  driveTranscriptFileId       String?   @map("drive_transcript_file_id")
   // Workspace Events subscription for this space (one per space)
-  workspaceEventsSubName    String?   @map("workspace_events_sub_name")
+  workspaceEventsSubName      String?   @map("workspace_events_sub_name")
   workspaceEventsSubExpiresAt DateTime? @map("workspace_events_sub_expires_at")
   // [{email, displayName, joinTime, leaveTime}] — appended by participant events
-  participants              Json?
+  participants                Json?
   // Capped ring buffer of recent CloudEvent payloads for debugging / replay
-  rawEvents                 Json?     @map("raw_events")
+  rawEvents                   Json?     @map("raw_events")
   // Timestamp of the most recent on-read sync from Meet API. Throttles repeat
   // sync attempts when many concurrent listings hit a stale meeting; null
   // means we've never synced via the API path.
-  meetApiSyncedAt           DateTime? @map("meet_api_synced_at")
+  meetApiSyncedAt             DateTime? @map("meet_api_synced_at")
   // True if this row's Meet space was changed via reschedule adoption (the
   // calendar event's Meet link was regenerated). Diagnostic only.
-  spaceAdoptedFromReschedule Boolean   @default(false) @map("space_adopted_from_reschedule")
+  spaceAdoptedFromReschedule  Boolean   @default(false) @map("space_adopted_from_reschedule")
   // Drive file id of the "Notes by Gemini" doc associated with this meeting
   // (when present). Personal Gmail tenants get attendance from this artifact's
   // existence even when conferenceRecords is empty.
-  driveGeminiNotesFileId    String?   @map("drive_gemini_notes_file_id")
+  driveGeminiNotesFileId      String?   @map("drive_gemini_notes_file_id")
   // Drive file id of the attendance-extension spreadsheet matched to this
   // meeting (when present + enabled).
-  attendanceSheetFileId     String?   @map("attendance_sheet_file_id")
-  createdAt                 DateTime  @default(now()) @map("created_at")
-  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  attendanceSheetFileId       String?   @map("attendance_sheet_file_id")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   @@index([workspaceId, sessionId])
   @@index([scheduledStart])
@@ -216,13 +216,13 @@ model ProcessedWorkspaceEvent {
 }
 
 model WorkspaceMember {
-  id          String   @id @default(uuid())
-  userId      String   @map("user_id")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspaceId String   @map("workspace_id")
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String    @map("workspace_id")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  role        String   @default("owner") // 'owner' | 'admin' | 'member'
-  joinedAt    DateTime @default(now()) @map("joined_at")
+  role        String    @default("owner") // 'owner' | 'admin' | 'member'
+  joinedAt    DateTime  @default(now()) @map("joined_at")
 
   @@unique([userId, workspaceId])
   @@map("workspace_members")
@@ -241,40 +241,40 @@ model PlatformSetting {
 // ============ VIDEOS ============
 
 model Video {
-  id              String     @id @default(uuid())
-  workspaceId     String     @map("workspace_id")
-  workspace       Workspace  @relation(fields: [workspaceId], references: [id])
-  createdById     String     @map("created_by_id")
-  filename        String
-  storageKey      String     @map("storage_key")
-  mimeType        String     @map("mime_type")
-  sizeBytes       Int        @map("size_bytes")
-  durationSeconds Float?     @map("duration_seconds")
-  transcript      String?
-  segments        Json?
-  summary         String?
-  bulletPoints    String[]   @default([]) @map("bullet_points")
-  displayName     String?    @map("display_name")
-  kind            String     @default("training")
-  createdAt       DateTime   @default(now()) @map("created_at")
-  steps           FlowStep[]
+  id               String            @id @default(uuid())
+  workspaceId      String            @map("workspace_id")
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id])
+  createdById      String            @map("created_by_id")
+  filename         String
+  storageKey       String            @map("storage_key")
+  mimeType         String            @map("mime_type")
+  sizeBytes        Int               @map("size_bytes")
+  durationSeconds  Float?            @map("duration_seconds")
+  transcript       String?
+  segments         Json?
+  summary          String?
+  bulletPoints     String[]          @default([]) @map("bullet_points")
+  displayName      String?           @map("display_name")
+  kind             String            @default("training")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  steps            FlowStep[]
   trainingContents TrainingContent[]
 
   @@map("videos")
 }
 
 model Picture {
-  id              String     @id @default(uuid())
-  workspaceId     String     @map("workspace_id")
-  workspace       Workspace  @relation(fields: [workspaceId], references: [id])
-  createdById     String     @map("created_by_id")
-  filename        String
-  storageKey      String     @map("storage_key")
-  url             String
-  mimeType        String     @map("mime_type")
-  sizeBytes       Int        @map("size_bytes")
-  displayName     String?    @map("display_name")
-  createdAt       DateTime   @default(now()) @map("created_at")
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdById String    @map("created_by_id")
+  filename    String
+  storageKey  String    @map("storage_key")
+  url         String
+  mimeType    String    @map("mime_type")
+  sizeBytes   Int       @map("size_bytes")
+  displayName String?   @map("display_name")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("pictures")
 }
@@ -282,17 +282,17 @@ model Picture {
 // ============ FLOWS ============
 
 model Flow {
-  id           String     @id @default(uuid())
-  workspaceId  String     @map("workspace_id")
-  workspace    Workspace  @relation(fields: [workspaceId], references: [id])
-  createdById  String     @map("created_by_id")
-  name         String
-  slug         String     @unique
-  isPublished  Boolean    @default(false) @map("is_published")
-  startMessage String     @default("Welcome! Please complete the following steps.") @map("start_message")
-  endMessage   String     @default("Thank you for your participation!") @map("end_message")
-  branding     Json?
-  createdAt    DateTime   @default(now()) @map("created_at")
+  id              String           @id @default(uuid())
+  workspaceId     String           @map("workspace_id")
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id])
+  createdById     String           @map("created_by_id")
+  name            String
+  slug            String           @unique
+  isPublished     Boolean          @default(false) @map("is_published")
+  startMessage    String           @default("Welcome! Please complete the following steps.") @map("start_message")
+  endMessage      String           @default("Thank you for your participation!") @map("end_message")
+  branding        Json?
+  createdAt       DateTime         @default(now()) @map("created_at")
   steps           FlowStep[]
   sessions        Session[]
   ads             Ad[]
@@ -307,7 +307,7 @@ model Ad {
   workspace   Workspace @relation(fields: [workspaceId], references: [id])
   createdById String    @map("created_by_id")
   name        String
-  source      String    // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other'
+  source      String // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other'
   campaign    String?
   flowId      String    @map("flow_id")
   flow        Flow      @relation(fields: [flowId], references: [id])
@@ -364,37 +364,37 @@ model StepOption {
 // ============ SESSIONS / CANDIDATES ============
 
 model Session {
-  id             String                @id @default(uuid())
-  workspaceId    String                @map("workspace_id")
-  workspace      Workspace             @relation(fields: [workspaceId], references: [id])
-  flowId         String                @map("flow_id")
-  flow           Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  candidateName  String?               @map("candidate_name")
-  candidateEmail String?               @map("candidate_email")
-  candidatePhone String?               @map("candidate_phone")
-  formData       Json?                 @map("form_data")
-  startedAt      DateTime              @default(now()) @map("started_at")
-  finishedAt     DateTime?             @map("finished_at")
-  outcome        String?               // 'completed' | 'passed' | 'failed' | 'abandoned'
-  pipelineStatus String?               @map("pipeline_status")
+  id                   String                @id @default(uuid())
+  workspaceId          String                @map("workspace_id")
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id])
+  flowId               String                @map("flow_id")
+  flow                 Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  candidateName        String?               @map("candidate_name")
+  candidateEmail       String?               @map("candidate_email")
+  candidatePhone       String?               @map("candidate_phone")
+  formData             Json?                 @map("form_data")
+  startedAt            DateTime              @default(now()) @map("started_at")
+  finishedAt           DateTime?             @map("finished_at")
+  outcome              String? // 'completed' | 'passed' | 'failed' | 'abandoned'
+  pipelineStatus       String?               @map("pipeline_status")
   // Free-form reason captured when a candidate lands in a Rejected-style
   // stage. Auto-set to 'No-show' by the no-show detection; otherwise editable
   // from the candidate page (predefined options + custom string).
-  rejectionReason   String?            @map("rejection_reason")
-  rejectionReasonAt DateTime?          @map("rejection_reason_at")
-  lastStepId     String?               @map("last_step_id")
-  lastStep       FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
-  adId           String?               @map("ad_id")
-  ad             Ad?                   @relation(fields: [adId], references: [id])
-  campaign       String?
-  source         String?
-  answers        SessionAnswer[]
-  submissions    CandidateSubmission[]
-  trainingEnrollments TrainingEnrollment[]
+  rejectionReason      String?               @map("rejection_reason")
+  rejectionReasonAt    DateTime?             @map("rejection_reason_at")
+  lastStepId           String?               @map("last_step_id")
+  lastStep             FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
+  adId                 String?               @map("ad_id")
+  ad                   Ad?                   @relation(fields: [adId], references: [id])
+  campaign             String?
+  source               String?
+  answers              SessionAnswer[]
+  submissions          CandidateSubmission[]
+  trainingEnrollments  TrainingEnrollment[]
   trainingAccessTokens TrainingAccessToken[] @relation("AccessTokenSession")
-  schedulingEvents    SchedulingEvent[]
-  aiCalls             AICall[]
-  interviewMeetings   InterviewMeeting[]
+  schedulingEvents     SchedulingEvent[]
+  aiCalls              AICall[]
+  interviewMeetings    InterviewMeeting[]
 
   @@map("sessions")
 }
@@ -433,57 +433,58 @@ model CandidateSubmission {
 // ============ TRAININGS ============
 
 model Training {
-  id            String            @id @default(uuid())
-  workspaceId   String            @map("workspace_id")
-  workspace     Workspace         @relation(fields: [workspaceId], references: [id])
-  createdById   String            @map("created_by_id")
-  title         String
-  slug          String            @unique
-  description   String?
-  coverImage    String?           @map("cover_image")
-  timeLimit     Json?             @map("time_limit")
-  pricing       Json?
-  passingGrade  Int               @default(80) @map("passing_grade")
-  isPublished   Boolean           @default(false) @map("is_published")
-  accessMode    String            @default("public") @map("access_mode")
-  sectionOrder  String            @default("sequential") @map("section_order")
-  branding      Json?
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
-  sections      TrainingSection[]
-  enrollments   TrainingEnrollment[]
-  accessTokens  TrainingAccessToken[]
+  id              String                @id @default(uuid())
+  workspaceId     String                @map("workspace_id")
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id])
+  createdById     String                @map("created_by_id")
+  title           String
+  slug            String                @unique
+  description     String?
+  coverImage      String?               @map("cover_image")
+  timeLimit       Json?                 @map("time_limit")
+  pricing         Json?
+  passingGrade    Int                   @default(80) @map("passing_grade")
+  isPublished     Boolean               @default(false) @map("is_published")
+  accessMode      String                @default("public") @map("access_mode")
+  sectionOrder    String                @default("sequential") @map("section_order")
+  branding        Json?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  sections        TrainingSection[]
+  enrollments     TrainingEnrollment[]
+  accessTokens    TrainingAccessToken[]
   automationRules AutomationRule[]
+  automationSteps AutomationStep[]      @relation("StepTraining")
 
   @@map("trainings")
 }
 
 model TrainingSection {
-  id          String             @id @default(uuid())
-  trainingId  String             @map("training_id")
-  training    Training           @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  title       String
-  kind        String             @default("video")
-  sortOrder   Int                @default(0) @map("sort_order")
-  createdAt   DateTime           @default(now()) @map("created_at")
-  contents    TrainingContent[]
-  quiz        TrainingQuiz?
+  id         String            @id @default(uuid())
+  trainingId String            @map("training_id")
+  training   Training          @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  title      String
+  kind       String            @default("video")
+  sortOrder  Int               @default(0) @map("sort_order")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  contents   TrainingContent[]
+  quiz       TrainingQuiz?
 
   @@map("training_sections")
 }
 
 model TrainingContent {
-  id          String          @id @default(uuid())
-  sectionId   String          @map("section_id")
-  section     TrainingSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  type        String
-  sortOrder   Int             @default(0) @map("sort_order")
-  videoId     String?         @map("video_id")
-  video       Video?          @relation(fields: [videoId], references: [id])
-  requiredWatch Boolean       @default(true) @map("required_watch")
-  autoplayNext  Boolean       @default(true) @map("autoplay_next")
-  textContent String?         @map("text_content")
-  createdAt   DateTime        @default(now()) @map("created_at")
+  id            String          @id @default(uuid())
+  sectionId     String          @map("section_id")
+  section       TrainingSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  type          String
+  sortOrder     Int             @default(0) @map("sort_order")
+  videoId       String?         @map("video_id")
+  video         Video?          @relation(fields: [videoId], references: [id])
+  requiredWatch Boolean         @default(true) @map("required_watch")
+  autoplayNext  Boolean         @default(true) @map("autoplay_next")
+  textContent   String?         @map("text_content")
+  createdAt     DateTime        @default(now()) @map("created_at")
 
   @@map("training_contents")
 }
@@ -518,39 +519,39 @@ model TrainingQuestion {
 }
 
 model TrainingEnrollment {
-  id            String    @id @default(uuid())
-  trainingId    String    @map("training_id")
-  training      Training  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  userName      String?   @map("user_name")
-  userEmail     String?   @map("user_email")
-  sessionId     String?   @map("session_id")
-  session       Session?  @relation(fields: [sessionId], references: [id])
-  accessTokenId String?   @map("access_token_id")
+  id            String               @id @default(uuid())
+  trainingId    String               @map("training_id")
+  training      Training             @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  userName      String?              @map("user_name")
+  userEmail     String?              @map("user_email")
+  sessionId     String?              @map("session_id")
+  session       Session?             @relation(fields: [sessionId], references: [id])
+  accessTokenId String?              @map("access_token_id")
   accessToken   TrainingAccessToken? @relation(fields: [accessTokenId], references: [id])
-  status        String    @default("not_started")
+  status        String               @default("not_started")
   progress      Json?
-  startedAt     DateTime  @default(now()) @map("started_at")
-  completedAt   DateTime? @map("completed_at")
+  startedAt     DateTime             @default(now()) @map("started_at")
+  completedAt   DateTime?            @map("completed_at")
 
   @@unique([trainingId, accessTokenId])
   @@map("training_enrollments")
 }
 
 model TrainingAccessToken {
-  id            String    @id @default(uuid())
-  token         String    @unique
-  candidateId   String?   @map("candidate_id")
-  candidate     Session?  @relation("AccessTokenSession", fields: [candidateId], references: [id])
-  trainingId    String    @map("training_id")
-  training      Training  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  sourceType    String    @default("automation") @map("source_type")
-  sourceRefId   String?   @map("source_ref_id")
-  status        String    @default("active")
-  expiresAt     DateTime? @map("expires_at")
-  usedAt        DateTime? @map("used_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  enrollments   TrainingEnrollment[]
+  id          String               @id @default(uuid())
+  token       String               @unique
+  candidateId String?              @map("candidate_id")
+  candidate   Session?             @relation("AccessTokenSession", fields: [candidateId], references: [id])
+  trainingId  String               @map("training_id")
+  training    Training             @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  sourceType  String               @default("automation") @map("source_type")
+  sourceRefId String?              @map("source_ref_id")
+  status      String               @default("active")
+  expiresAt   DateTime?            @map("expires_at")
+  usedAt      DateTime?            @map("used_at")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  enrollments TrainingEnrollment[]
 
   @@map("training_access_tokens")
 }
@@ -558,50 +559,50 @@ model TrainingAccessToken {
 // ============ AI CALLS ============
 
 model AICallConfig {
-  id             String   @id @default(uuid())
-  workspaceId    String   @map("workspace_id")
-  workspace      Workspace @relation(fields: [workspaceId], references: [id])
-  createdById    String   @map("created_by_id")
-  name           String
-  slug           String   @unique
-  agentId        String   @map("agent_id") // ElevenLabs agent ID
-  requiredCalls  Int      @default(1) @map("required_calls")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  calls          AICall[]
+  id            String    @id @default(uuid())
+  workspaceId   String    @map("workspace_id")
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  createdById   String    @map("created_by_id")
+  name          String
+  slug          String    @unique
+  agentId       String    @map("agent_id") // ElevenLabs agent ID
+  requiredCalls Int       @default(1) @map("required_calls")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  calls         AICall[]
 
   @@map("ai_call_configs")
 }
 
 model AICall {
-  id           String   @id @default(uuid())
-  configId     String   @map("config_id")
-  config       AICallConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  sessionId    String?  @map("session_id")
-  session      Session? @relation(fields: [sessionId], references: [id])
-  candidateName  String? @map("candidate_name")
-  candidateEmail String? @map("candidate_email")
-  callNumber   Int      @default(1) @map("call_number")
-  status       String   @default("pending") // 'pending' | 'in_progress' | 'completed' | 'failed'
-  durationSecs Int?     @map("duration_secs")
-  transcript   Json?
-  evaluation   Json?    // AI evaluation results
-  startedAt    DateTime? @map("started_at")
-  completedAt  DateTime? @map("completed_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id             String       @id @default(uuid())
+  configId       String       @map("config_id")
+  config         AICallConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  sessionId      String?      @map("session_id")
+  session        Session?     @relation(fields: [sessionId], references: [id])
+  candidateName  String?      @map("candidate_name")
+  candidateEmail String?      @map("candidate_email")
+  callNumber     Int          @default(1) @map("call_number")
+  status         String       @default("pending") // 'pending' | 'in_progress' | 'completed' | 'failed'
+  durationSecs   Int?         @map("duration_secs")
+  transcript     Json?
+  evaluation     Json? // AI evaluation results
+  startedAt      DateTime?    @map("started_at")
+  completedAt    DateTime?    @map("completed_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
 
   @@map("ai_calls")
 }
 
 model AICallCandidate {
-  id               String   @id @default(uuid())
-  workspaceId      String   @map("workspace_id")
-  workspace        Workspace @relation(fields: [workspaceId], references: [id])
-  name             String
-  agentId          String   @map("agent_id")
-  conversationIds  String[] @default([]) @map("conversation_ids") // ElevenLabs conversation IDs
-  createdAt        DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  workspaceId     String    @map("workspace_id")
+  workspace       Workspace @relation(fields: [workspaceId], references: [id])
+  name            String
+  agentId         String    @map("agent_id")
+  conversationIds String[]  @default([]) @map("conversation_ids") // ElevenLabs conversation IDs
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   @@map("ai_call_candidates")
 }
@@ -609,20 +610,20 @@ model AICallCandidate {
 // ============ AD TEMPLATES ============
 
 model AdTemplate {
-  id          String    @id @default(uuid())
-  workspaceId String    @map("workspace_id")
-  workspace   Workspace @relation(fields: [workspaceId], references: [id])
-  createdById String    @map("created_by_id")
-  name        String
-  source      String    // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other' | 'general'
-  headline    String
-  bodyText    String    @map("body_text")
+  id           String    @id @default(uuid())
+  workspaceId  String    @map("workspace_id")
+  workspace    Workspace @relation(fields: [workspaceId], references: [id])
+  createdById  String    @map("created_by_id")
+  name         String
+  source       String // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other' | 'general'
+  headline     String
+  bodyText     String    @map("body_text")
   requirements String?
-  benefits    String?
-  callToAction String?  @map("call_to_action")
-  isActive    Boolean   @default(true) @map("is_active")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  benefits     String?
+  callToAction String?   @map("call_to_action")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@map("ad_templates")
 }
@@ -630,85 +631,135 @@ model AdTemplate {
 // ============ EMAIL & AUTOMATIONS ============
 
 model EmailTemplate {
-  id          String              @id @default(uuid())
-  workspaceId String              @map("workspace_id")
-  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
-  createdById String              @map("created_by_id")
+  id          String           @id @default(uuid())
+  workspaceId String           @map("workspace_id")
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id])
+  createdById String           @map("created_by_id")
   name        String
   subject     String
-  bodyHtml    String              @map("body_html")
-  bodyText    String?             @map("body_text")
-  isActive    Boolean             @default(true) @map("is_active")
-  createdAt   DateTime            @default(now()) @map("created_at")
-  updatedAt   DateTime            @updatedAt @map("updated_at")
+  bodyHtml    String           @map("body_html")
+  bodyText    String?          @map("body_text")
+  isActive    Boolean          @default(true) @map("is_active")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
   automations AutomationRule[]
+  steps       AutomationStep[]
 
   @@map("email_templates")
 }
 
 model AutomationRule {
-  id              String              @id @default(uuid())
-  workspaceId     String              @map("workspace_id")
-  workspace       Workspace           @relation(fields: [workspaceId], references: [id])
-  createdById     String              @map("created_by_id")
-  name            String
-  triggerType     String              @map("trigger_type")
-  flowId          String?             @map("flow_id")
-  flow            Flow?               @relation(fields: [flowId], references: [id])
-  triggerAutomationId String?         @map("trigger_automation_id")
-  triggerAutomation   AutomationRule? @relation("AutomationChain", fields: [triggerAutomationId], references: [id])
-  chainedBy           AutomationRule[] @relation("AutomationChain")
-  actionType      String              @default("send_email") @map("action_type")
+  id                      String                @id @default(uuid())
+  workspaceId             String                @map("workspace_id")
+  workspace               Workspace             @relation(fields: [workspaceId], references: [id])
+  createdById             String                @map("created_by_id")
+  name                    String
+  triggerType             String                @map("trigger_type")
+  flowId                  String?               @map("flow_id")
+  flow                    Flow?                 @relation(fields: [flowId], references: [id])
+  triggerAutomationId     String?               @map("trigger_automation_id")
+  triggerAutomation       AutomationRule?       @relation("AutomationChain", fields: [triggerAutomationId], references: [id])
+  chainedBy               AutomationRule[]      @relation("AutomationChain")
+  actionType              String                @default("send_email") @map("action_type")
   // 'email' (default) | 'sms'. Determines which send pipeline runs. Email
   // rules use emailTemplateId; SMS rules use smsBody (per-rule, no template
   // indirection in v1). Future channels: 'whatsapp'.
-  channel         String              @default("email")
+  channel                 String                @default("email")
   // Nullable for SMS rules. Required when channel='email' (validated at
   // API layer; the FK stays nullable for back-compat with future channels
   // that don't use email templates).
-  emailTemplateId String?             @map("email_template_id")
-  emailTemplate   EmailTemplate?      @relation(fields: [emailTemplateId], references: [id])
+  emailTemplateId         String?               @map("email_template_id")
+  emailTemplate           EmailTemplate?        @relation(fields: [emailTemplateId], references: [id])
   // Plaintext SMS body with merge tokens like {{candidate_name}}. Only used
   // when channel='sms'. Kept on the rule for v1 — no separate SmsTemplate
   // model yet.
-  smsBody         String?             @map("sms_body")
-  emailDestination        String  @default("applicant") @map("email_destination") // 'applicant' | 'company' | 'specific'
-  emailDestinationAddress String? @map("email_destination_address")
-  nextStepType    String?             @map("next_step_type")
-  nextStepUrl     String?             @map("next_step_url")
-  trainingId      String?             @map("training_id")
-  training        Training?           @relation(fields: [trainingId], references: [id])
-  schedulingConfigId String?          @map("scheduling_config_id")
-  schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
-  delayMinutes    Int                 @default(0) @map("delay_minutes") // 0 = immediate
+  smsBody                 String?               @map("sms_body")
+  emailDestination        String                @default("applicant") @map("email_destination") // 'applicant' | 'company' | 'specific'
+  emailDestinationAddress String?               @map("email_destination_address")
+  nextStepType            String?               @map("next_step_type")
+  nextStepUrl             String?               @map("next_step_url")
+  trainingId              String?               @map("training_id")
+  training                Training?             @relation(fields: [trainingId], references: [id])
+  schedulingConfigId      String?               @map("scheduling_config_id")
+  schedulingConfig        SchedulingConfig?     @relation(fields: [schedulingConfigId], references: [id])
+  delayMinutes            Int                   @default(0) @map("delay_minutes") // 0 = immediate
   // For triggerType='before_meeting' rules: how many minutes before
   // InterviewMeeting.scheduledStart to fire. e.g. 60 = "1 hour before".
   // Ignored for all other trigger types.
-  minutesBefore   Int?                @map("minutes_before")
+  minutesBefore           Int?                  @map("minutes_before")
   // When a meeting_ended rule has this set, execution is deferred until a
   // recording_ready event fires for the same session (or a 4h hard cutoff).
-  waitForRecording Boolean            @default(false) @map("wait_for_recording")
-  isActive        Boolean             @default(true) @map("is_active")
-  createdAt       DateTime            @default(now()) @map("created_at")
-  updatedAt       DateTime            @updatedAt @map("updated_at")
-  executions      AutomationExecution[]
+  waitForRecording        Boolean               @default(false) @map("wait_for_recording")
+  isActive                Boolean               @default(true) @map("is_active")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  executions              AutomationExecution[]
+  steps                   AutomationStep[]
 
   @@map("automation_rules")
+}
+
+// One send within an AutomationRule. A rule is now a *sequence* of steps
+// instead of a single send: the trigger fires the rule, then each step is
+// queued at its own delayMinutes (relative to the trigger event). channel
+// can be 'email', 'sms', or 'both' — 'both' produces one AutomationExecution
+// row per channel at run time.
+//
+// Existing rules are backfilled to a single step at order=0 carrying the
+// rule's prior channel/body/template/destination/nextStep* fields. The
+// legacy per-rule fields (channel, smsBody, emailTemplateId, etc.) remain on
+// AutomationRule for back-compat with read paths during rollout but are no
+// longer the source of truth — the executor reads from steps.
+model AutomationStep {
+  id                      String                @id @default(uuid())
+  ruleId                  String                @map("rule_id")
+  rule                    AutomationRule        @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  order                   Int
+  // Minutes after the rule's trigger event fired (or, for before_meeting
+  // rules, *additional* minutes on top of rule.minutesBefore — but multi-step
+  // before_meeting rules are not yet exposed in the UI).
+  delayMinutes            Int                   @default(0) @map("delay_minutes")
+  // 'email' | 'sms' | 'both'. 'both' fans out into two executions at run time.
+  channel                 String                @default("email")
+  emailTemplateId         String?               @map("email_template_id")
+  emailTemplate           EmailTemplate?        @relation(fields: [emailTemplateId], references: [id])
+  smsBody                 String?               @map("sms_body")
+  emailDestination        String                @default("applicant") @map("email_destination")
+  emailDestinationAddress String?               @map("email_destination_address")
+  // Per-step next-step config (for steps that include a scheduling/training
+  // CTA in the body — e.g. the post-training scheduling-invite step).
+  nextStepType            String?               @map("next_step_type")
+  nextStepUrl             String?               @map("next_step_url")
+  trainingId              String?               @map("training_id")
+  training                Training?             @relation("StepTraining", fields: [trainingId], references: [id])
+  schedulingConfigId      String?               @map("scheduling_config_id")
+  schedulingConfig        SchedulingConfig?     @relation("StepSchedulingConfig", fields: [schedulingConfigId], references: [id])
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  executions              AutomationExecution[]
+
+  @@unique([ruleId, order])
+  @@map("automation_steps")
 }
 
 model AutomationExecution {
   id                String          @id @default(uuid())
   automationRuleId  String          @map("automation_rule_id")
   automationRule    AutomationRule  @relation(fields: [automationRuleId], references: [id], onDelete: Cascade)
+  // Nullable for back-compat with pre-migration executions that predate the
+  // step model. New rows MUST set stepId — backfilled for legacy rows.
+  stepId            String?         @map("step_id")
+  step              AutomationStep? @relation(fields: [stepId], references: [id], onDelete: Cascade)
   sessionId         String?         @map("session_id")
   status            String          @default("pending")
   errorMessage      String?         @map("error_message")
   // 'sendgrid' for email, 'sigcore' for SMS via the Sigcore platform API.
   provider          String          @default("sendgrid")
   providerMessageId String?         @map("provider_message_id")
-  // Mirror of the rule's channel at execution time. Lets the timeline UI
-  // show which channel actually ran without joining to the rule (the rule's
-  // channel could change after execution).
+  // Mirror of the step's channel at execution time. Lets the timeline UI
+  // show which channel actually ran without joining to the step (its channel
+  // could change after execution). For step.channel='both', each channel
+  // gets its own execution row with channel='email' or 'sms'.
   channel           String          @default("email")
   // QStash messageId — captured when a delayed rule is queued so we can
   // cancel/delete the scheduled job (e.g. when a meeting is cancelled or
@@ -718,40 +769,44 @@ model AutomationExecution {
   scheduledFor      DateTime?       @map("scheduled_for")
   createdAt         DateTime        @default(now()) @map("created_at")
 
-  @@unique([automationRuleId, sessionId])
+  // One execution per (step, session, channel). channel is in the key so
+  // step.channel='both' can produce one email and one sms execution for the
+  // same session without colliding.
+  @@unique([stepId, sessionId, channel])
   @@map("automation_executions")
 }
 
 // ============ SCHEDULING ============
 
 model SchedulingConfig {
-  id            String    @id @default(uuid())
-  workspaceId   String    @map("workspace_id")
-  workspace     Workspace @relation(fields: [workspaceId], references: [id])
-  createdById   String    @map("created_by_id")
-  name          String
-  provider      String    @default("calendly")
-  schedulingUrl String    @map("scheduling_url")
-  isDefault     Boolean   @default(false) @map("is_default")
-  isActive      Boolean   @default(true) @map("is_active")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id              String            @id @default(uuid())
+  workspaceId     String            @map("workspace_id")
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id])
+  createdById     String            @map("created_by_id")
+  name            String
+  provider        String            @default("calendly")
+  schedulingUrl   String            @map("scheduling_url")
+  isDefault       Boolean           @default(false) @map("is_default")
+  isActive        Boolean           @default(true) @map("is_active")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
   automationRules AutomationRule[]
-  events        SchedulingEvent[]
+  automationSteps AutomationStep[]  @relation("StepSchedulingConfig")
+  events          SchedulingEvent[]
 
   @@map("scheduling_configs")
 }
 
 model SchedulingEvent {
-  id                 String           @id @default(uuid())
-  sessionId          String           @map("session_id")
-  session            Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  schedulingConfigId String?          @map("scheduling_config_id")
+  id                 String            @id @default(uuid())
+  sessionId          String            @map("session_id")
+  session            Session           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  schedulingConfigId String?           @map("scheduling_config_id")
   schedulingConfig   SchedulingConfig? @relation(fields: [schedulingConfigId], references: [id])
-  eventType          String           @map("event_type")
-  eventAt            DateTime         @default(now()) @map("event_at")
+  eventType          String            @map("event_type")
+  eventAt            DateTime          @default(now()) @map("event_at")
   metadata           Json?
-  createdAt          DateTime         @default(now()) @map("created_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
 
   @@map("scheduling_events")
 }

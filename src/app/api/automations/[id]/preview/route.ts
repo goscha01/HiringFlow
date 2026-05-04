@@ -5,42 +5,59 @@ import { renderTemplate } from '@/lib/email'
 import { resolveSchedulingUrl } from '@/lib/scheduling'
 
 /**
- * Render the email an automation rule would send, using sample variable
- * values so the recruiter can see exactly what the candidate would receive.
+ * Render what an automation step would send, using sample values so the
+ * recruiter can see exactly what the candidate would receive.
  *
- * No side effects: no email sent, no candidate created, no SchedulingEvent
- * logged. Useful for vetting copy before flipping the rule active.
+ * Query: ?stepId=<id>&channel=email|sms — selects the specific step+channel
+ * to preview. Defaults: first step, primary channel ('email' if step.channel
+ * is 'email' or 'both'; 'sms' otherwise).
+ *
+ * No side effects: nothing is sent or persisted.
  */
-export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
+
+  const url = new URL(request.url)
+  const stepIdParam = url.searchParams.get('stepId')
+  const channelParam = url.searchParams.get('channel') as 'email' | 'sms' | null
 
   const rule = await prisma.automationRule.findFirst({
     where: { id: params.id, workspaceId: ws.workspaceId },
     include: {
-      emailTemplate: true,
-      training: { select: { id: true, slug: true, title: true } },
-      schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
       workspace: { select: { senderEmail: true, senderName: true } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          emailTemplate: true,
+          training: { select: { id: true, slug: true, title: true } },
+          schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
+        },
+      },
     },
   })
   if (!rule) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  const channel = (rule.channel as 'email' | 'sms' | undefined) || 'email'
-  if (channel === 'email' && !rule.emailTemplate) return NextResponse.json({ error: 'Email template missing' }, { status: 400 })
-  if (channel === 'sms' && (!rule.smsBody || rule.smsBody.trim().length === 0)) return NextResponse.json({ error: 'SMS body missing' }, { status: 400 })
+  if (rule.steps.length === 0) return NextResponse.json({ error: 'Rule has no steps configured' }, { status: 400 })
 
-  // Resolve sample values for each merge token. Prefer real workspace data
-  // (default scheduling URL, first training, etc.) so the preview reflects
-  // what real candidates would actually see.
-  const resolved = await resolveSchedulingUrl(rule.schedulingConfigId, ws.workspaceId).catch(() => null)
-  const sampleScheduleLink = rule.nextStepType === 'scheduling'
-    ? (resolved?.url || rule.schedulingConfig?.schedulingUrl || 'https://calendly.com/example/30min')
+  const step = stepIdParam ? rule.steps.find((s) => s.id === stepIdParam) : rule.steps[0]
+  if (!step) return NextResponse.json({ error: 'Step not found' }, { status: 404 })
+
+  // Decide channel: explicit query > step's primary channel.
+  let channel: 'email' | 'sms'
+  if (channelParam === 'email' || channelParam === 'sms') channel = channelParam
+  else channel = step.channel === 'sms' ? 'sms' : 'email'
+
+  if (channel === 'email' && !step.emailTemplate) return NextResponse.json({ error: 'Email template missing on this step' }, { status: 400 })
+  if (channel === 'sms' && (!step.smsBody || step.smsBody.trim().length === 0)) return NextResponse.json({ error: 'SMS body missing on this step' }, { status: 400 })
+
+  const resolved = await resolveSchedulingUrl(step.schedulingConfigId, ws.workspaceId).catch(() => null)
+  const sampleScheduleLink = step.nextStepType === 'scheduling'
+    ? (resolved?.url || step.schedulingConfig?.schedulingUrl || 'https://calendly.com/example/30min')
     : ''
-  const sampleTrainingLink = rule.nextStepType === 'training' && rule.training
-    ? `https://hirefunnel.app/t/${rule.training.slug}?token=SAMPLE_TOKEN`
-    : (rule.nextStepUrl || '')
+  const sampleTrainingLink = step.nextStepType === 'training' && step.training
+    ? `https://hirefunnel.app/t/${step.training.slug}?token=SAMPLE_TOKEN`
+    : (step.nextStepUrl || '')
 
-  // Sample meeting time = next business day, 2pm local
   const sampleMeetingTime = (() => {
     const d = new Date()
     d.setDate(d.getDate() + 1)
@@ -66,9 +83,11 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
   }
 
   if (channel === 'sms') {
-    const body = renderTemplate(rule.smsBody as string, variables)
+    const body = renderTemplate(step.smsBody as string, variables)
     return NextResponse.json({
       channel,
+      stepId: step.id,
+      stepOrder: step.order,
       smsBody: body,
       recipient: '+15551230000',
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
@@ -79,14 +98,14 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     })
   }
 
-  const subject = renderTemplate(rule.emailTemplate!.subject, variables)
-  const html = renderTemplate(rule.emailTemplate!.bodyHtml, variables)
-  const text = rule.emailTemplate!.bodyText ? renderTemplate(rule.emailTemplate!.bodyText, variables) : null
+  const subject = renderTemplate(step.emailTemplate!.subject, variables)
+  const html = renderTemplate(step.emailTemplate!.bodyHtml, variables)
+  const text = step.emailTemplate!.bodyText ? renderTemplate(step.emailTemplate!.bodyText, variables) : null
 
-  const recipient = rule.emailDestination === 'company'
+  const recipient = step.emailDestination === 'company'
     ? (rule.workspace?.senderEmail || 'company@example.com')
-    : rule.emailDestination === 'specific'
-      ? (rule.emailDestinationAddress || 'specific@example.com')
+    : step.emailDestination === 'specific'
+      ? (step.emailDestinationAddress || 'specific@example.com')
       : 'alex.sample@example.com'
 
   const fromAddress = rule.workspace?.senderEmail || 'no-reply@hirefunnel.app'
@@ -94,12 +113,14 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
 
   return NextResponse.json({
     channel,
+    stepId: step.id,
+    stepOrder: step.order,
     subject,
     html,
     text,
     recipient,
     from: { name: fromName, email: fromAddress },
-    templateName: rule.emailTemplate!.name,
+    templateName: step.emailTemplate!.name,
     variables,
   })
 }

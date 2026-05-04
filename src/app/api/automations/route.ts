@@ -2,6 +2,51 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+interface StepInput {
+  order?: number
+  delayMinutes?: number
+  channel?: 'email' | 'sms' | 'both'
+  emailTemplateId?: string | null
+  smsBody?: string | null
+  emailDestination?: 'applicant' | 'company' | 'specific'
+  emailDestinationAddress?: string | null
+  nextStepType?: string | null
+  nextStepUrl?: string | null
+  trainingId?: string | null
+  schedulingConfigId?: string | null
+}
+
+function validateSteps(steps: unknown): { ok: true; steps: Required<Pick<StepInput, 'channel'>> & StepInput[] | StepInput[] } | { ok: false; error: string } {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return { ok: false, error: 'At least one step is required' }
+  }
+  const normalized: StepInput[] = []
+  for (let i = 0; i < steps.length; i++) {
+    const raw = steps[i] as StepInput
+    if (!raw || typeof raw !== 'object') return { ok: false, error: `Step ${i + 1} is malformed` }
+    const channel: 'email' | 'sms' | 'both' = raw.channel === 'sms' ? 'sms' : raw.channel === 'both' ? 'both' : 'email'
+    const wantsEmail = channel === 'email' || channel === 'both'
+    const wantsSms = channel === 'sms' || channel === 'both'
+    if (wantsEmail && !raw.emailTemplateId) return { ok: false, error: `Step ${i + 1}: email channel requires an email template` }
+    if (wantsSms && (!raw.smsBody || raw.smsBody.trim().length === 0)) return { ok: false, error: `Step ${i + 1}: SMS channel requires a body` }
+    const delayMinutes = Number.isFinite(raw.delayMinutes) ? Math.max(0, Math.floor(raw.delayMinutes as number)) : 0
+    normalized.push({
+      order: i,
+      delayMinutes,
+      channel,
+      emailTemplateId: wantsEmail ? raw.emailTemplateId ?? null : null,
+      smsBody: wantsSms ? raw.smsBody ?? null : null,
+      emailDestination: raw.emailDestination ?? 'applicant',
+      emailDestinationAddress: raw.emailDestination === 'specific' ? (raw.emailDestinationAddress || null) : null,
+      nextStepType: raw.nextStepType || null,
+      nextStepUrl: raw.nextStepUrl || null,
+      trainingId: raw.trainingId || null,
+      schedulingConfigId: raw.schedulingConfigId || null,
+    })
+  }
+  return { ok: true, steps: normalized }
+}
+
 export async function GET() {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
@@ -10,9 +55,19 @@ export async function GET() {
     orderBy: { createdAt: 'desc' },
     include: {
       flow: { select: { id: true, name: true } },
+      // Legacy per-rule fields kept for backwards compatibility with table
+      // rendering during rollout. New code reads from `steps`.
       emailTemplate: { select: { id: true, name: true, subject: true } },
       training: { select: { id: true, title: true, slug: true } },
       schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          emailTemplate: { select: { id: true, name: true, subject: true } },
+          training: { select: { id: true, title: true, slug: true } },
+          schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
+        },
+      },
       _count: { select: { executions: true } },
     },
   })
@@ -22,55 +77,74 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
-  const { name, triggerType, flowId, triggerAutomationId, emailTemplateId, nextStepType, nextStepUrl, trainingId, schedulingConfigId, delayMinutes, minutesBefore, emailDestination, emailDestinationAddress, waitForRecording, channel, smsBody } = await request.json()
+  const body = await request.json()
+  const { name, triggerType, flowId, triggerAutomationId, minutesBefore, waitForRecording, steps } = body
   if (!name || !triggerType) return NextResponse.json({ error: 'name and triggerType required' }, { status: 400 })
-  const ch: 'email' | 'sms' = channel === 'sms' ? 'sms' : 'email'
-  if (ch === 'email' && !emailTemplateId) {
-    return NextResponse.json({ error: 'emailTemplateId required for email channel' }, { status: 400 })
-  }
-  if (ch === 'sms' && (!smsBody || typeof smsBody !== 'string' || smsBody.trim().length === 0)) {
-    return NextResponse.json({ error: 'smsBody required for sms channel' }, { status: 400 })
-  }
+
+  // Steps are the canonical send config now. Reject if missing.
+  const validation = validateSteps(steps)
+  if (!validation.ok) return NextResponse.json({ error: validation.error }, { status: 400 })
+  const stepInputs = validation.steps as StepInput[]
+
   if (triggerType === 'before_meeting' && (!Number.isInteger(minutesBefore) || minutesBefore <= 0)) {
     return NextResponse.json({ error: 'before_meeting rules need minutesBefore (positive integer)' }, { status: 400 })
   }
 
-  // If training is selected, set the training to invitation_only
-  if (nextStepType === 'training' && trainingId) {
-    const training = await prisma.training.findFirst({
-      where: { id: trainingId, workspaceId: ws.workspaceId },
+  // For any step that points to a training, switch the training to invitation_only
+  const trainingIdsToGate = stepInputs
+    .filter((s) => s.nextStepType === 'training' && s.trainingId)
+    .map((s) => s.trainingId as string)
+  if (trainingIdsToGate.length > 0) {
+    await prisma.training.updateMany({
+      where: { id: { in: trainingIdsToGate }, workspaceId: ws.workspaceId },
+      data: { accessMode: 'invitation_only' },
     })
-    if (training) {
-      await prisma.training.update({
-        where: { id: trainingId },
-        data: { accessMode: 'invitation_only' },
-      })
-    }
   }
+
+  // Mirror the first step's channel/template/sms/destination/nextStep onto the
+  // rule's legacy columns so any read path that hasn't been migrated still
+  // sees consistent data. Source of truth for the executor is the step rows.
+  const firstStep = stepInputs[0]
 
   const rule = await prisma.automationRule.create({
     data: {
       workspaceId: ws.workspaceId, createdById: ws.userId, name, triggerType,
       flowId: flowId || null,
       triggerAutomationId: triggerAutomationId || null,
-      channel: ch,
-      emailTemplateId: ch === 'email' ? emailTemplateId : null,
-      smsBody: ch === 'sms' ? smsBody : null,
-      nextStepType: nextStepType || null,
-      nextStepUrl: nextStepUrl || null,
-      trainingId: trainingId || null,
-      schedulingConfigId: schedulingConfigId || null,
-      delayMinutes: delayMinutes || 0,
+      channel: firstStep.channel === 'both' ? 'email' : firstStep.channel ?? 'email',
+      emailTemplateId: firstStep.emailTemplateId ?? null,
+      smsBody: firstStep.smsBody ?? null,
+      nextStepType: firstStep.nextStepType ?? null,
+      nextStepUrl: firstStep.nextStepUrl ?? null,
+      trainingId: firstStep.trainingId ?? null,
+      schedulingConfigId: firstStep.schedulingConfigId ?? null,
+      delayMinutes: firstStep.delayMinutes ?? 0,
       minutesBefore: triggerType === 'before_meeting' ? (minutesBefore as number) : null,
       waitForRecording: triggerType === 'meeting_ended' ? !!waitForRecording : false,
-      emailDestination: emailDestination || 'applicant',
-      emailDestinationAddress: emailDestination === 'specific' ? (emailDestinationAddress || null) : null,
+      emailDestination: firstStep.emailDestination ?? 'applicant',
+      emailDestinationAddress: firstStep.emailDestinationAddress ?? null,
+      steps: {
+        create: stepInputs.map((s, i) => ({
+          order: i,
+          delayMinutes: s.delayMinutes ?? 0,
+          channel: s.channel ?? 'email',
+          emailTemplateId: s.emailTemplateId ?? null,
+          smsBody: s.smsBody ?? null,
+          emailDestination: s.emailDestination ?? 'applicant',
+          emailDestinationAddress: s.emailDestinationAddress ?? null,
+          nextStepType: s.nextStepType ?? null,
+          nextStepUrl: s.nextStepUrl ?? null,
+          trainingId: s.trainingId ?? null,
+          schedulingConfigId: s.schedulingConfigId ?? null,
+        })),
+      },
     },
     include: {
       flow: { select: { id: true, name: true } },
       emailTemplate: { select: { id: true, name: true } },
       training: { select: { id: true, title: true, slug: true } },
       schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
+      steps: { orderBy: { order: 'asc' } },
     },
   })
   return NextResponse.json(rule)

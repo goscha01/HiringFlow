@@ -21,14 +21,19 @@ interface TrainingEnrollment {
 interface SchedulingEvent { id: string; eventType: string; eventAt: string; metadata: Record<string, any> | null }
 interface AutomationExec {
   id: string; status: string; errorMessage: string | null; sentAt: string | null; scheduledFor: string | null; createdAt: string
+  channel: string
   automationRule: {
-    id: string; name: string; triggerType: string; nextStepType: string | null
-    emailDestination: string; emailDestinationAddress: string | null; delayMinutes: number
+    id: string; name: string; triggerType: string
+    chainedBy: { id: string; name: string; steps: { delayMinutes: number }[] }[]
+  }
+  step: {
+    id: string; order: number; channel: string; delayMinutes: number
+    nextStepType: string | null
+    emailDestination: string; emailDestinationAddress: string | null
     training: { title: string; slug: string } | null
     schedulingConfig: { name: string; schedulingUrl: string } | null
     emailTemplate: { name: string; subject: string } | null
-    chainedBy: { id: string; name: string; delayMinutes: number }[]
-  }
+  } | null
 }
 interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
@@ -195,26 +200,43 @@ export default function CandidateDetailPage() {
   })
   ;(candidate.automationExecutions || []).forEach(e => {
     const r = e.automationRule
-    const destLabel = r.emailDestination === 'company' ? 'Company' : r.emailDestination === 'specific' ? (r.emailDestinationAddress || 'Specific') : 'Applicant'
-    const nextStep = r.nextStepType === 'training' && r.training ? `Training — ${r.training.title}`
-      : r.nextStepType === 'scheduling' && r.schedulingConfig ? `Scheduling — ${r.schedulingConfig.name}`
-      : r.chainedBy.length > 0 ? `Chains to → ${r.chainedBy.map(c => c.name + (c.delayMinutes ? ` (+${c.delayMinutes}m)` : '')).join(', ')}`
-      : r.nextStepType === 'email' ? 'Send email only'
+    const s = e.step
+    const destLabel = s?.emailDestination === 'company' ? 'Company'
+      : s?.emailDestination === 'specific' ? (s?.emailDestinationAddress || 'Specific')
+      : 'Applicant'
+    const chainSummary = (c: { name: string; steps: { delayMinutes: number }[] }) => {
+      const firstDelay = c.steps[0]?.delayMinutes ?? 0
+      return c.name + (firstDelay ? ` (+${firstDelay}m)` : '')
+    }
+    const nextStep = s?.nextStepType === 'training' && s?.training ? `Training — ${s.training.title}`
+      : s?.nextStepType === 'scheduling' && s?.schedulingConfig ? `Scheduling — ${s.schedulingConfig.name}`
+      : r.chainedBy.length > 0 ? `Chains to → ${r.chainedBy.map(chainSummary).join(', ')}`
+      : s?.nextStepType === 'email' ? 'Send email only'
       : 'No follow-up'
-    const delayStr = r.delayMinutes > 0 ? (r.delayMinutes >= 1440 ? `${Math.round(r.delayMinutes / 1440)}d` : r.delayMinutes >= 60 ? `${Math.round(r.delayMinutes / 60)}h` : `${r.delayMinutes}m`) : null
+    const stepDelay = s?.delayMinutes ?? 0
+    const delayStr = stepDelay > 0
+      ? (stepDelay >= 1440 ? `${Math.round(stepDelay / 1440)}d` : stepDelay >= 60 ? `${Math.round(stepDelay / 60)}h` : `${stepDelay}m`)
+      : null
+    const sentChannel = e.channel || s?.channel || 'email'
+    const channelLabel = sentChannel === 'sms' ? 'SMS' : 'Email'
     const bits = [
-      `To: ${destLabel}`,
-      r.emailTemplate ? `Template: ${r.emailTemplate.name}` : null,
+      `Channel: ${channelLabel}`,
+      sentChannel === 'email' ? `To: ${destLabel}` : null,
+      sentChannel === 'email' && s?.emailTemplate ? `Template: ${s.emailTemplate.name}` : null,
       `Next step: ${nextStep}`,
       delayStr ? `Delay: ${delayStr}` : null,
+      s && s.order > 0 ? `Step ${s.order + 1}` : null,
     ].filter(Boolean).join(' · ')
     const base = `Automation: ${r.name}`
+    const sendVerb = sentChannel === 'sms' ? 'SMS sent' : 'email sent'
     if (e.status === 'sent') {
-      timeline.push({ label: `${base} — email sent`, detail: bits, time: e.sentAt || e.createdAt, type: 'success' })
+      timeline.push({ label: `${base} — ${sendVerb}`, detail: bits, time: e.sentAt || e.createdAt, type: 'success' })
     } else if (e.status === 'failed') {
       timeline.push({ label: `${base} — failed${e.errorMessage ? `: ${e.errorMessage}` : ''}`, detail: bits, time: e.createdAt, type: 'error' })
     } else if (e.status === 'queued' && e.scheduledFor) {
       timeline.push({ label: `${base} — scheduled`, detail: `${bits} · Fires at ${new Date(e.scheduledFor).toLocaleString()}`, time: e.scheduledFor, type: 'scheduled' })
+    } else if (e.status === 'cancelled') {
+      timeline.push({ label: `${base} — cancelled`, detail: bits, time: e.createdAt, type: 'info' })
     } else {
       timeline.push({ label: `${base} — pending`, detail: bits, time: e.createdAt, type: 'info' })
     }
