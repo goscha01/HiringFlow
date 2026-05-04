@@ -138,6 +138,27 @@ function pickDefaultSmsBody(triggerType: string): string {
   return TRIGGER_TO_SMS_BODY[triggerType] || DEFAULT_SMS_BODY
 }
 
+/**
+ * Look at the rendered text of a template (subject + body) or an SMS body
+ * and infer which "Includes link to" option matches the merge tokens used.
+ * Priority: training > scheduling > meet_link. Returns null if none matched.
+ */
+type LinkType = 'training' | 'scheduling' | 'meet_link'
+function detectLinkType(content: string | null | undefined): LinkType | null {
+  if (!content) return null
+  if (content.includes('{{training_link}}')) return 'training'
+  if (content.includes('{{schedule_link}}')) return 'scheduling'
+  if (content.includes('{{meeting_link}}')) return 'meet_link'
+  return null
+}
+
+function detectStepLinkType(step: StepShape, templates: Template[]): LinkType | null {
+  // Combine subject + body of the picked email template (if any) with the SMS body.
+  const tpl = step.emailTemplateId ? templates.find((t) => t.id === step.emailTemplateId) : null
+  const haystack = [tpl?.subject || '', tpl?.bodyHtml || '', tpl?.bodyText || '', step.smsBody || ''].join(' ')
+  return detectLinkType(haystack)
+}
+
 // Map trigger types to the most-relevant default template name. Used to
 // prefill a sensible starter template when a recruiter opens "+ New rule"
 // — they shouldn't have to pick from a dropdown to see what will be sent.
@@ -1047,7 +1068,20 @@ function StepCard(props: {
               <label className="block text-xs text-grey-40 mb-1">Template</label>
               <select
                 value={step.emailTemplateId || ''}
-                onChange={(e) => props.onChange({ emailTemplateId: e.target.value || null })}
+                onChange={(e) => {
+                  const id = e.target.value || null
+                  // Auto-pick the matching "Includes link to" option from the
+                  // template's tokens, but only when the recruiter hasn't set
+                  // one explicitly. Manual selection always wins.
+                  const newTpl = id ? templates.find((t) => t.id === id) : null
+                  const detected = newTpl
+                    ? detectLinkType([newTpl.subject || '', newTpl.bodyHtml || '', newTpl.bodyText || '', step.smsBody || ''].join(' '))
+                    : null
+                  props.onChange({
+                    emailTemplateId: id,
+                    ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
+                  })
+                }}
                 className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Select template...</option>
@@ -1137,7 +1171,14 @@ function StepCard(props: {
             </div>
             <textarea
               value={step.smsBody || ''}
-              onChange={(e) => props.onChange({ smsBody: e.target.value })}
+              onChange={(e) => {
+                const body = e.target.value
+                const detected = detectLinkType(body)
+                props.onChange({
+                  smsBody: body,
+                  ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
+                })
+              }}
               rows={3}
               placeholder="Hi {{candidate_name}}, your interview starts at {{meeting_time}}. Join: {{meeting_link}}"
               className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
@@ -1157,10 +1198,38 @@ function StepCard(props: {
         <div>
           <label className="block text-xs font-medium text-grey-20 mb-1.5">Includes link to</label>
           <div className="flex gap-2">
-            {[{ v: '', l: 'Nothing' }, { v: 'training', l: 'Training' }, { v: 'scheduling', l: 'Scheduling' }].map(({ v, l }) => (
-              <button key={v || 'none'} onClick={() => props.onChange({ nextStepType: v || null })} className={`flex-1 py-1.5 text-xs rounded-[8px] border font-medium ${(step.nextStepType || '') === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}>{l}</button>
-            ))}
+            {[
+              { v: '', l: 'Nothing' },
+              { v: 'training', l: 'Training' },
+              { v: 'scheduling', l: 'Scheduling' },
+              { v: 'meet_link', l: 'Google Meet' },
+            ].map(({ v, l }) => {
+              const detected = detectStepLinkType(step, templates)
+              const isSelected = (step.nextStepType || '') === v
+              const isDetected = !step.nextStepType && v && detected === v
+              return (
+                <button
+                  key={v || 'none'}
+                  onClick={() => props.onChange({ nextStepType: v || null })}
+                  className={`flex-1 py-1.5 text-xs rounded-[8px] border font-medium ${
+                    isSelected ? 'border-brand-500 bg-brand-50 text-brand-700'
+                      : isDetected ? 'border-brand-300 bg-brand-50/40 text-brand-700'
+                      : 'border-surface-border text-grey-35'
+                  }`}
+                  title={isDetected ? 'Auto-detected from template content' : undefined}
+                >
+                  {l}{isDetected ? ' ✦' : ''}
+                </button>
+              )
+            })}
           </div>
+          {(() => {
+            const detected = detectStepLinkType(step, templates)
+            if (!step.nextStepType && detected) {
+              return <p className="text-[11px] text-brand-700/80 mt-1.5">✦ Detected <code>{detected === 'meet_link' ? '{{meeting_link}}' : detected === 'training' ? '{{training_link}}' : '{{schedule_link}}'}</code> in the template — click to confirm.</p>
+            }
+            return null
+          })()}
           {step.nextStepType === 'training' && (
             <div className="mt-2">
               <select value={step.trainingId || ''} onChange={(e) => props.onChange({ trainingId: e.target.value || null })} className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
@@ -1178,6 +1247,11 @@ function StepCard(props: {
               </select>
               <p className="text-[11px] text-grey-40 mt-1">{'{{schedule_link}}'} renders the tracked redirect URL. Candidate moves to &quot;invited to schedule&quot; when this step succeeds.</p>
             </div>
+          )}
+          {step.nextStepType === 'meet_link' && (
+            <p className="text-[11px] text-grey-40 mt-2">
+              {'{{meeting_link}}'} renders the candidate&apos;s scheduled Meet URL — populated automatically from the InterviewMeeting row when the meeting is created (in-app scheduler or Calendly adoption). No additional configuration needed.
+            </p>
           )}
         </div>
       </div>
