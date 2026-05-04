@@ -18,6 +18,8 @@ interface Video {
   filename: string
   displayName?: string
   summary?: string
+  transcript?: string | null
+  bulletPoints?: string[] | null
   mimeType: string
   sizeBytes: number
   durationSeconds?: number | null
@@ -85,6 +87,61 @@ export default function MediaPage() {
     setVideos((prev) => prev.filter((v) => v.id !== id))
     await fetch(`/api/videos/${id}`, { method: 'DELETE' })
   }
+  const setVideoNameMode = async (v: Video, useAuto: boolean) => {
+    if (!useAuto) {
+      // Filename mode: clear displayName so the UI falls back to filename
+      setVideos((prev) => prev.map((x) => (x.id === v.id ? { ...x, displayName: undefined } : x)))
+      await fetch(`/api/videos/${v.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: null }),
+      })
+      return
+    }
+    // Auto mode: regenerate displayName. If transcript exists, just generate a
+    // title from it; otherwise run full analyze (transcribe + summarize + name).
+    if (v.transcript) {
+      const r = await fetch('/api/ai/generate-title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: v.transcript,
+          summary: v.summary,
+          bulletPoints: v.bulletPoints?.join(', '),
+        }),
+      })
+      if (r.ok) {
+        const { title } = await r.json()
+        if (title) {
+          setVideos((prev) => prev.map((x) => (x.id === v.id ? { ...x, displayName: title } : x)))
+          await fetch(`/api/videos/${v.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ displayName: title }),
+          })
+        }
+      }
+    } else {
+      // No transcript yet — kick off full analysis; analyze sets displayName
+      // server-side. Refetch when it finishes.
+      const r = await fetch(`/api/videos/${v.id}/analyze`, { method: 'POST' })
+      if (r.ok) {
+        const data = await r.json().catch(() => null)
+        if (data?.displayName) {
+          setVideos((prev) =>
+            prev.map((x) =>
+              x.id === v.id
+                ? { ...x, displayName: data.displayName, transcript: data.transcript, summary: data.summary }
+                : x
+            )
+          )
+        } else {
+          await fetchVideos()
+        }
+      }
+    }
+  }
+
   const reclassifyVideo = async (id: string, kind: VideoKind) => {
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, kind } : v)))
     await fetch(`/api/videos/${id}`, {
@@ -316,6 +373,20 @@ export default function MediaPage() {
                       {v.summary && (
                         <p className="text-[11px] text-grey-35 line-clamp-2 mb-2">{v.summary}</p>
                       )}
+                      <label
+                        className="flex items-center justify-between mb-2 text-[11px] text-grey-35 cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span>{v.displayName ? 'Auto-generated name' : 'File name'}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setVideoNameMode(v, !v.displayName) }}
+                          className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${v.displayName ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                          title={v.displayName ? 'Switch to file name' : 'Switch to auto-generated name'}
+                        >
+                          <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${v.displayName ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                        </button>
+                      </label>
                       <div className="flex items-center justify-between text-[11px]">
                         <span className="font-mono text-grey-35">
                           {fmtFileSize(v.sizeBytes)} · {new Date(v.createdAt).toLocaleDateString()}

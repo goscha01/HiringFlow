@@ -34,7 +34,15 @@ export async function PATCH(
 
   const body = await request.json()
   const kind = body.kind === 'interview' || body.kind === 'training' ? body.kind : undefined
-  const displayName = typeof body.displayName === 'string' ? body.displayName : undefined
+  // displayName accepts string or null (null clears it back to filename)
+  const displayNameProvided = 'displayName' in body
+  const displayName: string | null | undefined = !displayNameProvided
+    ? undefined
+    : body.displayName === null
+      ? null
+      : typeof body.displayName === 'string'
+        ? body.displayName
+        : undefined
 
   const updated = await prisma.video.update({
     where: { id: video.id },

@@ -147,7 +147,7 @@ export default function FlowBuilderPage() {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
   const [stepVideoProgress, setStepVideoProgress] = useState(0)
-  const [autoTitleEnabled, setAutoTitleEnabled] = useState(false)
+  const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
   const [combineAfterCreateId, setCombineAfterCreateId] = useState<string | null>(null)
   const [pendingArrowInsertion, setPendingArrowInsertion] = useState<
     | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
@@ -1745,15 +1745,6 @@ export default function FlowBuilderPage() {
                         </select>
                       </div>
                     )}
-                    <label className="inline-flex items-center gap-2 mt-2 text-xs text-grey-40 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={autoTitleEnabled}
-                        onChange={(e) => setAutoTitleEnabled(e.target.checked)}
-                        className="rounded accent-[#FF9500]"
-                      />
-                      Auto-name from video content
-                    </label>
                   </div>
 
                   {/* Video preview — same as edit */}
