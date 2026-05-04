@@ -1303,8 +1303,8 @@ function StepCard(props: {
               const haystack = [tpl?.subject || '', tpl?.bodyHtml || '', tpl?.bodyText || '', step.smsBody || ''].join(' ')
               if (haystack && !haystack.includes(expectedToken)) {
                 return (
-                  <div className="mt-2 px-2.5 py-2 rounded-[6px] bg-blue-50 border border-blue-200 text-[11px] text-blue-900">
-                    ℹ The selected {wantsEmail && wantsSms ? 'template / SMS body' : wantsEmail ? 'template' : 'SMS body'} doesn&apos;t include <code className="bg-white px-1 rounded">{expectedToken}</code> — a CTA button will be auto-appended at the end. To control placement, add <code className="bg-white px-1 rounded">{expectedToken}</code> to your template where you want the link.
+                  <div className="mt-2 px-2.5 py-2 rounded-[6px] bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                    ⚠ The selected {wantsEmail && wantsSms ? 'template / SMS body' : wantsEmail ? 'template' : 'SMS body'} doesn&apos;t include <code className="bg-white px-1 rounded">{expectedToken}</code> — the link won&apos;t appear in the rendered message. Add <code className="bg-white px-1 rounded">{expectedToken}</code> to your {wantsEmail ? 'template body' : 'SMS body'} where you want the link to appear.
                   </div>
                 )
               }

@@ -4,7 +4,6 @@ import { sendSms, normalizeToE164, SmsConfigError, SmsValidationError, SmsSendEr
 import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { applyStageTrigger } from './funnel-stage-runtime'
-import { appendLinkToHtml, appendLinkToPlain, appendLinkToSms, type LinkKind } from './automation-link-fallback'
 import { Client } from '@upstash/qstash'
 
 const qstashToken = process.env.QSTASH_TOKEN
@@ -708,13 +707,11 @@ export async function executeStep(
       })
       return
     }
-    let body = renderTemplate(step.smsBody, variables)
-    // Auto-append the configured link if the body doesn't already use the
-    // matching token. Otherwise the recruiter selects "Training" and the
-    // generated link goes nowhere — surprising and broken.
-    if (step.nextStepType === 'training' && trainingLink) body = appendLinkToSms(body, 'training', trainingLink)
-    else if (step.nextStepType === 'scheduling' && scheduleLink) body = appendLinkToSms(body, 'scheduling', scheduleLink)
-    else if (step.nextStepType === 'meet_link' && meetingLink) body = appendLinkToSms(body, 'meet_link', meetingLink)
+    const body = renderTemplate(step.smsBody, variables)
+    // Note: if the recruiter set "Includes link to" but the body doesn't
+    // contain the matching {{xxx_link}} token, the link silently won't
+    // appear. The rule editor surfaces this as an inline warning so the
+    // recruiter can add the token where they want it placed.
     try {
       const sent = await sendSms({
         candidateId: sessionId,
@@ -741,19 +738,12 @@ export async function executeStep(
       return
     }
     const subject = renderTemplate(step.emailTemplate.subject, variables)
-    let html = renderTemplate(step.emailTemplate.bodyHtml, variables)
-    let text: string | undefined = step.emailTemplate.bodyText ? renderTemplate(step.emailTemplate.bodyText, variables) : undefined
-    // Auto-append the configured link if the rendered body doesn't already
-    // include it. See lib/automation-link-fallback.ts for the rationale.
-    const linkPair: { kind: LinkKind; url: string } | null =
-      step.nextStepType === 'training' && trainingLink ? { kind: 'training', url: trainingLink }
-      : step.nextStepType === 'scheduling' && scheduleLink ? { kind: 'scheduling', url: scheduleLink }
-      : step.nextStepType === 'meet_link' && meetingLink ? { kind: 'meet_link', url: meetingLink }
-      : null
-    if (linkPair) {
-      html = appendLinkToHtml(html, linkPair.kind, linkPair.url)
-      if (text) text = appendLinkToPlain(text, linkPair.kind, linkPair.url)
-    }
+    const html = renderTemplate(step.emailTemplate.bodyHtml, variables)
+    const text: string | undefined = step.emailTemplate.bodyText ? renderTemplate(step.emailTemplate.bodyText, variables) : undefined
+    // Note: if the recruiter set "Includes link to" but the template doesn't
+    // contain the matching {{xxx_link}} token, the link silently won't
+    // appear. The rule editor surfaces this as an inline warning so the
+    // recruiter can add the token where they want it placed.
 
     let recipient: string | null = null
     if (step.emailDestination === 'company') recipient = rule.workspace?.senderEmail || null
