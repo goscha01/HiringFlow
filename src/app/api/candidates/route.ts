@@ -124,3 +124,60 @@ export async function GET(request: NextRequest) {
     nextMeetingAt: computeNextMeetingAt(s),
   })))
 }
+
+// Manually add a candidate without going through a flow. The Session row is
+// the candidate's record; flowId is required (Session.flow is non-nullable).
+// source='manual' marks the row so analytics can distinguish self-applied
+// sessions from ones created by a recruiter.
+export async function POST(request: NextRequest) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
+  const body = await request.json().catch(() => null) as {
+    flowId?: string
+    candidateName?: string | null
+    candidateEmail?: string | null
+    candidatePhone?: string | null
+    pipelineStatus?: string | null
+  } | null
+
+  if (!body || typeof body.flowId !== 'string' || !body.flowId) {
+    return NextResponse.json({ error: 'flowId is required' }, { status: 400 })
+  }
+
+  const flow = await prisma.flow.findFirst({
+    where: { id: body.flowId, workspaceId: ws.workspaceId },
+    select: { id: true },
+  })
+  if (!flow) return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
+
+  const trim = (v: unknown) => {
+    if (typeof v !== 'string') return null
+    const t = v.trim()
+    return t.length > 0 ? t : null
+  }
+
+  const name = trim(body.candidateName)
+  const email = trim(body.candidateEmail)
+  const phone = trim(body.candidatePhone)
+  const pipelineStatus = trim(body.pipelineStatus)
+
+  if (!name && !email && !phone) {
+    return NextResponse.json({ error: 'At least one of name, email, or phone is required' }, { status: 400 })
+  }
+
+  const created = await prisma.session.create({
+    data: {
+      workspaceId: ws.workspaceId,
+      flowId: flow.id,
+      candidateName: name,
+      candidateEmail: email,
+      candidatePhone: phone,
+      pipelineStatus,
+      source: 'manual',
+    },
+    select: { id: true },
+  })
+
+  return NextResponse.json({ id: created.id }, { status: 201 })
+}

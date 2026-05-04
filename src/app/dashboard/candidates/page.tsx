@@ -14,7 +14,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Badge, Card, PageHeader } from '@/components/design'
+import { useRouter } from 'next/navigation'
+import { Badge, Button, Card, PageHeader } from '@/components/design'
 import {
   DEFAULT_FUNNEL_STAGES,
   type FunnelStage,
@@ -39,6 +40,7 @@ interface Candidate {
 interface Flow { id: string; name: string }
 
 export default function CandidatesPage() {
+  const router = useRouter()
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
@@ -49,6 +51,7 @@ export default function CandidatesPage() {
   const [dragging, setDragging] = useState<string | null>(null)
   const [hoverCol, setHoverCol] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   // A card must be explicitly clicked ("picked up") before its drag handle
   // activates. Until then the card is treated as part of the board so the
   // mousedown initiates a horizontal pan instead of an HTML5 drag.
@@ -177,17 +180,28 @@ export default function CandidatesPage() {
         title="Candidates"
         description="Drag the board to scroll. Click a candidate to pick it up, then drag to a new stage."
         actions={
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-surface-border text-[13px] text-ink hover:bg-surface-light transition-colors"
-            title="Manage funnel stages"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Stages
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-surface-border text-[13px] text-ink hover:bg-surface-light transition-colors"
+              title="Manage funnel stages"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Stages
+            </button>
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] bg-brand-500 text-white font-semibold text-[13px] hover:bg-brand-600 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New candidate
+            </button>
+          </div>
         }
       />
 
@@ -396,6 +410,190 @@ export default function CandidatesPage() {
           load()
         }}
       />
+
+      <NewCandidateModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        flows={flows}
+        stages={stages}
+        defaultFlowId={flowFilter || flows[0]?.id || ''}
+        onCreated={(id) => {
+          setCreateOpen(false)
+          load()
+          router.push(`/dashboard/candidates/${id}`)
+        }}
+      />
+    </div>
+  )
+}
+
+interface NewCandidateModalProps {
+  open: boolean
+  onClose: () => void
+  flows: Flow[]
+  stages: FunnelStage[]
+  defaultFlowId: string
+  onCreated: (id: string) => void
+}
+
+function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, onCreated }: NewCandidateModalProps) {
+  const [flowId, setFlowId] = useState(defaultFlowId)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [stageId, setStageId] = useState(stages[0]?.id ?? 'new')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setFlowId(defaultFlowId)
+    setName('')
+    setEmail('')
+    setPhone('')
+    setStageId(stages[0]?.id ?? 'new')
+    setError(null)
+  }, [open, defaultFlowId, stages])
+
+  if (!open) return null
+
+  const canSubmit = !!flowId && (name.trim() || email.trim() || phone.trim())
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!canSubmit || submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/candidates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowId,
+          candidateName: name,
+          candidateEmail: email,
+          candidatePhone: phone,
+          pipelineStatus: stageId,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j?.error || 'Failed to create candidate')
+      }
+      const j = await res.json()
+      onCreated(j.id as string)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create candidate')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <form
+        onSubmit={submit}
+        className="w-full max-w-md rounded-[14px] bg-white shadow-xl border border-surface-border"
+      >
+        <div className="px-5 py-4 border-b border-surface-divider flex items-center justify-between">
+          <h2 className="text-[15px] font-semibold text-ink">Add candidate</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded-md text-grey-50 hover:text-ink hover:bg-surface-light"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3.5">
+          {flows.length === 0 ? (
+            <div className="text-[13px] text-grey-35">
+              You need at least one flow before adding a candidate.
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">Flow</label>
+                <select
+                  value={flowId}
+                  onChange={(e) => setFlowId(e.target.value)}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  required
+                >
+                  {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jane Doe"
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="jane@example.com"
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+1 555 123 4567"
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">Stage</label>
+                <select
+                  value={stageId}
+                  onChange={(e) => setStageId(e.target.value)}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                >
+                  {stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              </div>
+
+              <p className="text-[11px] text-grey-35">
+                At least one of name, email, or phone is required.
+              </p>
+            </>
+          )}
+
+          {error && (
+            <div className="text-[12px] px-3 py-2 rounded-[8px] bg-[color:var(--danger-bg)] text-[color:var(--danger-fg)]">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-surface-divider flex items-center justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={!canSubmit || submitting || flows.length === 0}>
+            {submitting ? 'Adding…' : 'Add candidate'}
+          </Button>
+        </div>
+      </form>
     </div>
   )
 }
