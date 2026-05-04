@@ -127,6 +127,11 @@ export default function FlowSchemaView({
   const [scale, setScale] = useState(1)
   const [mode, setMode] = useState<InteractionMode>({ type: 'idle' })
   const [hoveredPort, setHoveredPort] = useState<string | null>(null)
+  const [hoveredArrow, setHoveredArrow] = useState<
+    | { kind: 'option'; optionId: string; fromStepId: string }
+    | { kind: 'button'; fromStepId: string }
+    | null
+  >(null)
   const [selectedArrow, setSelectedArrow] = useState<SelectedArrow | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; optionId: string; stepId: string } | null>(null)
 
@@ -621,13 +626,16 @@ export default function FlowSchemaView({
           const inp = getInputPort(targetPos)
           drawConnection(ctx, out.x, out.y, inp.x, inp.y, (step as any).buttonConfig?.text || 'Continue', false, '#FF9500')
 
-          // Insert "+" button at midpoint
-          const ddx = Math.abs(inp.x - out.x)
-          const cpOff = Math.max(ddx * 0.5, 50)
-          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
-          const isHovered = hoveredPort === `__insert_btn_${step.id}`
-          drawInsertButton(ctx, midX, midY, isHovered)
+          // Insert "+" button at midpoint — only when hovering this connection
+          const isHovering = hoveredArrow?.kind === 'button' && hoveredArrow.fromStepId === step.id
+          if (isHovering) {
+            const ddx = Math.abs(inp.x - out.x)
+            const cpOff = Math.max(ddx * 0.5, 50)
+            const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+            const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+            const isPlusHovered = hoveredPort === `__insert_btn_${step.id}`
+            drawInsertButton(ctx, midX, midY, isPlusHovered)
+          }
         }
       }
 
@@ -645,14 +653,17 @@ export default function FlowSchemaView({
         const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
         const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
 
-        // Draw drag handles + delete when selected, otherwise "+" insert button
+        // Draw drag handles + delete when selected, otherwise "+" only on hover
         if (isArrowSelected) {
           drawDragHandle(ctx, inp.x, inp.y)
           drawDragHandle(ctx, out.x, out.y)
           drawDeleteButton(ctx, midX, midY)
         } else {
-          const isHovered = hoveredPort === `__insert_opt_${option.id}`
-          drawInsertButton(ctx, midX, midY, isHovered)
+          const isHovering = hoveredArrow?.kind === 'option' && hoveredArrow.optionId === option.id
+          if (isHovering) {
+            const isPlusHovered = hoveredPort === `__insert_opt_${option.id}`
+            drawInsertButton(ctx, midX, midY, isPlusHovered)
+          }
         }
       }
     }
@@ -785,7 +796,7 @@ export default function FlowSchemaView({
     }
 
     ctx.restore()
-  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, mode, startMessage, endMessage, getEndStepId, selectedArrow])
+  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepId, selectedArrow])
 
   // Animation frame for smooth rendering
   useEffect(() => {
@@ -831,7 +842,8 @@ export default function FlowSchemaView({
     return dist(cx, cy, midX, midY) <= 14
   }, [selectedArrow, steps])
 
-  // Hit test: arrow midpoint "+" insert button (any non-selected option arrow + button arrows)
+  // Hit test: arrow midpoint "+" insert button. Only fires for the currently-
+  // hovered arrow, so the "+" never intercepts clicks meant to select the line.
   const hitTestArrowInsert = useCallback(
     (
       cx: number,
@@ -840,44 +852,89 @@ export default function FlowSchemaView({
       | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
       | { kind: 'button'; fromStepId: string; toStepId: string }
       | null => {
+      if (!hoveredArrow) return null
+
+      if (hoveredArrow.kind === 'option') {
+        const step = steps.find((s) => s.id === hoveredArrow.fromStepId)
+        if (!step) return null
+        if (selectedArrow?.optionId === hoveredArrow.optionId) return null
+        const option = step.options.find((o) => o.id === hoveredArrow.optionId)
+        if (!option?.nextStepId) return null
+        const pos = posRef.current[step.id]
+        const targetPos = posRef.current[option.nextStepId]
+        if (!pos || !targetPos) return null
+        const out = getOutputPort(pos)
+        const inp = getInputPort(targetPos)
+        const ddx = Math.abs(inp.x - out.x)
+        const cpOff = Math.max(ddx * 0.5, 50)
+        const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+        const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+        if (dist(cx, cy, midX, midY) <= 12) {
+          return {
+            kind: 'option',
+            optionId: option.id,
+            fromStepId: step.id,
+            toStepId: option.nextStepId,
+          }
+        }
+        return null
+      }
+
+      // button
+      const step = steps.find((s) => s.id === hoveredArrow.fromStepId)
+      if (!step) return null
+      const btnNext = (step as any).buttonConfig?.nextStepId
+      if (!btnNext || btnNext === '__end__') return null
+      const pos = posRef.current[step.id]
+      const targetPos = posRef.current[btnNext]
+      if (!pos || !targetPos) return null
+      const out = getOutputPort(pos)
+      const inp = getInputPort(targetPos)
+      const ddx = Math.abs(inp.x - out.x)
+      const cpOff = Math.max(ddx * 0.5, 50)
+      const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+      const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+      if (dist(cx, cy, midX, midY) <= 12) {
+        return { kind: 'button', fromStepId: step.id, toStepId: btnNext }
+      }
+      return null
+    },
+    [steps, selectedArrow, hoveredArrow]
+  )
+
+  // Detect hovered arrow line (option or button), so "+" only appears
+  // when the user actually hovers a connection.
+  const hitTestArrowLine = useCallback(
+    (
+      cx: number,
+      cy: number
+    ):
+      | { kind: 'option'; optionId: string; fromStepId: string }
+      | { kind: 'button'; fromStepId: string }
+      | null => {
       for (const step of steps) {
         const pos = posRef.current[step.id]
         if (!pos) continue
         const out = getOutputPort(pos)
 
-        // Option arrows (skip the currently-selected one — it shows delete instead)
         for (const option of step.options) {
           if (!option.nextStepId) continue
           if (selectedArrow?.optionId === option.id) continue
           const targetPos = posRef.current[option.nextStepId]
           if (!targetPos) continue
           const inp = getInputPort(targetPos)
-          const ddx = Math.abs(inp.x - out.x)
-          const cpOff = Math.max(ddx * 0.5, 50)
-          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
-          if (dist(cx, cy, midX, midY) <= 12) {
-            return {
-              kind: 'option',
-              optionId: option.id,
-              fromStepId: step.id,
-              toStepId: option.nextStepId,
-            }
+          if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 12)) {
+            return { kind: 'option', optionId: option.id, fromStepId: step.id }
           }
         }
 
-        // Button arrow
         const btnNext = (step as any).buttonConfig?.nextStepId
         if (btnNext && btnNext !== '__end__') {
           const targetPos = posRef.current[btnNext]
           if (targetPos) {
             const inp = getInputPort(targetPos)
-            const ddx = Math.abs(inp.x - out.x)
-            const cpOff = Math.max(ddx * 0.5, 50)
-            const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-            const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
-            if (dist(cx, cy, midX, midY) <= 12) {
-              return { kind: 'button', fromStepId: step.id, toStepId: btnNext }
+            if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 12)) {
+              return { kind: 'button', fromStepId: step.id }
             }
           }
         }
@@ -1213,22 +1270,49 @@ export default function FlowSchemaView({
     // Arrow hover
     if (selectedArrow && hitTestArrowDelete(cx, cy)) {
       setHoveredPort('__arrow_delete__')
+      setHoveredArrow(null)
       return
     }
-    const insertHover = hitTestArrowInsert(cx, cy)
-    if (insertHover) {
-      setHoveredPort(
-        insertHover.kind === 'option'
-          ? `__insert_opt_${insertHover.optionId}`
-          : `__insert_btn_${insertHover.fromStepId}`
-      )
-      return
-    }
-    const arrowHit = hitTestArrow(cx, cy)
-    if (arrowHit) {
+    // Hover detection for connection line + insert button (only the currently
+    // hovered arrow shows a "+", so first detect the line)
+    const lineHover = hitTestArrowLine(cx, cy)
+    if (lineHover) {
+      setHoveredArrow(lineHover)
+      // hitTestArrowInsert only returns truthy when hoveredArrow is set, so
+      // we read it via the freshly-detected lineHover value through state.
+      // Compute midpoint here directly to avoid stale-closure issues.
+      const fromStepId = lineHover.fromStepId
+      const sourcePos = posRef.current[fromStepId]
+      let targetPos: NodePos | undefined
+      if (lineHover.kind === 'option') {
+        const step = steps.find((s) => s.id === fromStepId)
+        const option = step?.options.find((o) => o.id === lineHover.optionId)
+        if (option?.nextStepId) targetPos = posRef.current[option.nextStepId]
+      } else {
+        const step = steps.find((s) => s.id === fromStepId)
+        const btnNext = step?.buttonConfig?.nextStepId
+        if (btnNext && btnNext !== '__end__') targetPos = posRef.current[btnNext]
+      }
+      if (sourcePos && targetPos) {
+        const out = getOutputPort(sourcePos)
+        const inp = getInputPort(targetPos)
+        const ddx = Math.abs(inp.x - out.x)
+        const cpOff = Math.max(ddx * 0.5, 50)
+        const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+        const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+        if (dist(cx, cy, midX, midY) <= 12) {
+          setHoveredPort(
+            lineHover.kind === 'option'
+              ? `__insert_opt_${lineHover.optionId}`
+              : `__insert_btn_${lineHover.fromStepId}`
+          )
+          return
+        }
+      }
       setHoveredPort('__arrow__')
       return
     }
+    setHoveredArrow(null)
     setHoveredPort(null)
   }
 
