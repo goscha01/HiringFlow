@@ -121,9 +121,20 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       googleCalendarEventId: `test-${session.id}`,
       scheduledStart: meetingStart,
       scheduledEnd: meetingEnd,
-      recordingEnabled: false,
-      recordingState: 'disabled',
-      transcriptState: 'disabled',
+      // Pretend the test meeting already happened and was recorded so
+      // post-meeting templates that use {{recording_link}} /
+      // {{transcript_link}} render real-looking signed URLs instead of
+      // empty hrefs ("View recording | View transcript" anchors going
+      // nowhere). The signed URLs will 404 if clicked — by design;
+      // there's no actual file — but the test body looks complete.
+      actualStart: meetingStart,
+      actualEnd: meetingEnd,
+      recordingEnabled: true,
+      recordingProvider: 'google_meet',
+      recordingState: 'ready',
+      driveRecordingFileId: 'sample-test-recording',
+      transcriptState: 'ready',
+      driveTranscriptFileId: 'sample-test-transcript',
     },
   }).catch((err) => {
     // Non-fatal — the test still runs, just without {{meeting_link}}.
