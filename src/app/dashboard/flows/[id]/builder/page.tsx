@@ -349,12 +349,62 @@ export default function FlowBuilderPage() {
 
   const deleteStep = (stepId: string) => {
     markChanged()
-    // Optimistic UI update — remove immediately
-    setFlow((f) => (f ? { ...f, steps: f.steps.filter((s) => s.id !== stepId) } : null))
+
+    // Identify steps that reference the deleted one via JSON / non-FK fields,
+    // so we can also clear those on the server (DB only auto-clears option.nextStepId).
+    const buttonRefStepIds = (flow?.steps ?? [])
+      .filter((s) => s.id !== stepId && s.buttonConfig?.nextStepId === stepId)
+      .map((s) => s.id)
+    const combinedRefStepIds = (flow?.steps ?? [])
+      .filter((s) => s.id !== stepId && s.combinedWithId === stepId)
+      .map((s) => s.id)
+
+    // Optimistic UI update — remove the step and clear every reference to it
+    setFlow((f) =>
+      f
+        ? {
+            ...f,
+            steps: f.steps
+              .filter((s) => s.id !== stepId)
+              .map((s) => ({
+                ...s,
+                options: s.options.map((o) =>
+                  o.nextStepId === stepId ? { ...o, nextStepId: null } : o
+                ),
+                buttonConfig:
+                  s.buttonConfig?.nextStepId === stepId
+                    ? { ...s.buttonConfig, nextStepId: null }
+                    : s.buttonConfig,
+                combinedWithId: s.combinedWithId === stepId ? null : s.combinedWithId,
+              })),
+          }
+        : null
+    )
     if (selectedStepId === stepId) setSelectedStepId(null)
     if (popupStepId === stepId) setPopupStepId(null)
-    // Fire API call in background
+
+    // Server: delete the step (FK SetNull clears option.nextStepId automatically)
     fetch(`/api/steps/${stepId}`, { method: 'DELETE' })
+
+    // Server: clear non-FK references that the DB won't auto-clean
+    for (const refId of buttonRefStepIds) {
+      const ref = flow?.steps.find((s) => s.id === refId)
+      if (!ref) continue
+      fetch(`/api/steps/${refId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buttonConfig: { ...(ref.buttonConfig ?? {}), nextStepId: null },
+        }),
+      })
+    }
+    for (const refId of combinedRefStepIds) {
+      fetch(`/api/steps/${refId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ combinedWithId: null }),
+      })
+    }
   }
 
   const changeFirstStep = (newFirstStepId: string) => {
@@ -487,6 +537,104 @@ export default function FlowBuilderPage() {
           : null
       )
     }
+  }
+
+  const insertStepOnArrow = async (
+    info:
+      | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
+      | { kind: 'button'; fromStepId: string; toStepId: string }
+  ) => {
+    if (!flow) return
+    markChanged()
+
+    // Create the new step (default: question, single, untitled)
+    const createRes = await fetch(`/api/flows/${flowId}/steps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'New Step',
+        stepType: 'question',
+        questionType: 'single',
+      }),
+    })
+    if (!createRes.ok) return
+    const newStep = await createRes.json()
+    let newStepLocal: Step = {
+      ...newStep,
+      video: newStep.video ?? null,
+      options: newStep.options ?? [],
+      buttonConfig: newStep.buttonConfig ?? null,
+    }
+
+    if (info.kind === 'option') {
+      // New step gets an option that points to the original target
+      const optRes = await fetch(`/api/steps/${newStep.id}/options`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ optionText: 'Continue', nextStepId: info.toStepId }),
+      })
+      if (optRes.ok) {
+        const newOpt = await optRes.json()
+        newStepLocal = {
+          ...newStepLocal,
+          options: [...newStepLocal.options, newOpt],
+        }
+      }
+      // Source's existing option now points to the new step
+      await fetch(`/api/options/${info.optionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nextStepId: newStep.id }),
+      })
+    } else {
+      // Button arrow: new step's buttonConfig forwards to the original target
+      const newButtonForNewStep = { enabled: true, text: 'Continue', nextStepId: info.toStepId }
+      await fetch(`/api/steps/${newStep.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buttonConfig: newButtonForNewStep }),
+      })
+      newStepLocal = { ...newStepLocal, buttonConfig: newButtonForNewStep }
+
+      // Source's buttonConfig now points to the new step (preserve label/enabled)
+      const sourceStep = flow.steps.find((s) => s.id === info.fromStepId)
+      const sourceButton = {
+        ...(sourceStep?.buttonConfig ?? { enabled: true, text: 'Continue' }),
+        nextStepId: newStep.id,
+      }
+      await fetch(`/api/steps/${info.fromStepId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buttonConfig: sourceButton }),
+      })
+    }
+
+    // Optimistic local update
+    setFlow((f) => {
+      if (!f) return null
+      const updatedSteps = f.steps.map((s) => {
+        if (info.kind === 'option' && s.id === info.fromStepId) {
+          return {
+            ...s,
+            options: s.options.map((o) =>
+              o.id === info.optionId ? { ...o, nextStepId: newStep.id } : o
+            ),
+          }
+        }
+        if (info.kind === 'button' && s.id === info.fromStepId) {
+          return {
+            ...s,
+            buttonConfig: { ...(s.buttonConfig ?? {}), nextStepId: newStep.id },
+          }
+        }
+        return s
+      })
+      return { ...f, steps: [...updatedSteps, newStepLocal] }
+    })
+
+    // Open the new step for editing
+    setSelectedStepId(newStep.id)
+    setPopupStepId(newStep.id)
   }
 
   const deleteOption = async (stepId: string, optionId: string) => {
@@ -977,6 +1125,7 @@ export default function FlowBuilderPage() {
             onChangeFirstStep={changeFirstStep}
             onChangeEndStep={changeEndStep}
             onAddStep={addStep}
+            onInsertStepOnArrow={insertStepOnArrow}
           />
 
           {/* Popup editor overlay — key forces re-render on flow change */}

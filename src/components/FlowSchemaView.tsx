@@ -40,6 +40,11 @@ interface FlowSchemaViewProps {
   onChangeFirstStep?: (stepId: string) => void
   onChangeEndStep?: (stepId: string) => void
   onAddStep?: () => void
+  onInsertStepOnArrow?: (
+    info:
+      | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
+      | { kind: 'button'; fromStepId: string; toStepId: string }
+  ) => void
   selectedStepId?: string | null
 }
 
@@ -109,6 +114,7 @@ export default function FlowSchemaView({
   onChangeFirstStep,
   onChangeEndStep,
   onAddStep,
+  onInsertStepOnArrow,
   selectedStepId,
 }: FlowSchemaViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -537,6 +543,14 @@ export default function FlowSchemaView({
         if (targetPos) {
           const inp = getInputPort(targetPos)
           drawConnection(ctx, out.x, out.y, inp.x, inp.y, (step as any).buttonConfig?.text || 'Continue', false, '#FF9500')
+
+          // Insert "+" button at midpoint
+          const ddx = Math.abs(inp.x - out.x)
+          const cpOff = Math.max(ddx * 0.5, 50)
+          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+          const isHovered = hoveredPort === `__insert_btn_${step.id}`
+          drawInsertButton(ctx, midX, midY, isHovered)
         }
       }
 
@@ -549,18 +563,19 @@ export default function FlowSchemaView({
         const isArrowSelected = selectedArrow?.optionId === option.id
         drawConnection(ctx, out.x, out.y, inp.x, inp.y, option.optionText, false, isArrowSelected ? '#FF9500' : undefined)
 
-        // Draw drag handles + delete when selected
+        const ddx = Math.abs(inp.x - out.x)
+        const cpOff = Math.max(ddx * 0.5, 50)
+        const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+        const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+
+        // Draw drag handles + delete when selected, otherwise "+" insert button
         if (isArrowSelected) {
-          // Target endpoint handle (at input port)
           drawDragHandle(ctx, inp.x, inp.y)
-          // Source endpoint handle (at output port)
           drawDragHandle(ctx, out.x, out.y)
-          // Delete button at midpoint
-          const ddx = Math.abs(inp.x - out.x)
-          const cpOff = Math.max(ddx * 0.5, 50)
-          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
           drawDeleteButton(ctx, midX, midY)
+        } else {
+          const isHovered = hoveredPort === `__insert_opt_${option.id}`
+          drawInsertButton(ctx, midX, midY, isHovered)
         }
       }
     }
@@ -739,6 +754,62 @@ export default function FlowSchemaView({
     return dist(cx, cy, midX, midY) <= 14
   }, [selectedArrow, steps])
 
+  // Hit test: arrow midpoint "+" insert button (any non-selected option arrow + button arrows)
+  const hitTestArrowInsert = useCallback(
+    (
+      cx: number,
+      cy: number
+    ):
+      | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
+      | { kind: 'button'; fromStepId: string; toStepId: string }
+      | null => {
+      for (const step of steps) {
+        const pos = posRef.current[step.id]
+        if (!pos) continue
+        const out = getOutputPort(pos)
+
+        // Option arrows (skip the currently-selected one — it shows delete instead)
+        for (const option of step.options) {
+          if (!option.nextStepId) continue
+          if (selectedArrow?.optionId === option.id) continue
+          const targetPos = posRef.current[option.nextStepId]
+          if (!targetPos) continue
+          const inp = getInputPort(targetPos)
+          const ddx = Math.abs(inp.x - out.x)
+          const cpOff = Math.max(ddx * 0.5, 50)
+          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+          if (dist(cx, cy, midX, midY) <= 12) {
+            return {
+              kind: 'option',
+              optionId: option.id,
+              fromStepId: step.id,
+              toStepId: option.nextStepId,
+            }
+          }
+        }
+
+        // Button arrow
+        const btnNext = (step as any).buttonConfig?.nextStepId
+        if (btnNext && btnNext !== '__end__') {
+          const targetPos = posRef.current[btnNext]
+          if (targetPos) {
+            const inp = getInputPort(targetPos)
+            const ddx = Math.abs(inp.x - out.x)
+            const cpOff = Math.max(ddx * 0.5, 50)
+            const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+            const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+            if (dist(cx, cy, midX, midY) <= 12) {
+              return { kind: 'button', fromStepId: step.id, toStepId: btnNext }
+            }
+          }
+        }
+      }
+      return null
+    },
+    [steps, selectedArrow]
+  )
+
   // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) return // right click handled separately
@@ -763,6 +834,13 @@ export default function FlowSchemaView({
     if (selectedArrow?.kind === 'option' && hitTestArrowDelete(cx, cy)) {
       onOptionUpdate?.(selectedArrow.optionId, { nextStepId: null })
       setSelectedArrow(null)
+      return
+    }
+
+    // Check arrow midpoint "+" insert button — splits the connection by inserting a new step
+    const insertHit = hitTestArrowInsert(cx, cy)
+    if (insertHit) {
+      onInsertStepOnArrow?.(insertHit)
       return
     }
 
@@ -1058,6 +1136,15 @@ export default function FlowSchemaView({
     // Arrow hover
     if (selectedArrow && hitTestArrowDelete(cx, cy)) {
       setHoveredPort('__arrow_delete__')
+      return
+    }
+    const insertHover = hitTestArrowInsert(cx, cy)
+    if (insertHover) {
+      setHoveredPort(
+        insertHover.kind === 'option'
+          ? `__insert_opt_${insertHover.optionId}`
+          : `__insert_btn_${insertHover.fromStepId}`
+      )
       return
     }
     const arrowHit = hitTestArrow(cx, cy)
@@ -1835,4 +1922,33 @@ function drawDeleteButton(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.moveTo(x + 4, y - 4)
   ctx.lineTo(x - 4, y + 4)
   ctx.stroke()
+}
+
+function drawInsertButton(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  hovered: boolean
+) {
+  const r = hovered ? 11 : 8
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fillStyle = hovered ? '#FF9500' : '#ffffff'
+  ctx.fill()
+  ctx.strokeStyle = hovered ? '#ffffff' : '#FF9500'
+  ctx.lineWidth = hovered ? 2 : 1.5
+  ctx.stroke()
+
+  ctx.strokeStyle = hovered ? '#ffffff' : '#FF9500'
+  ctx.lineWidth = hovered ? 2 : 1.5
+  ctx.lineCap = 'round'
+  const arm = hovered ? 4.5 : 3.5
+  ctx.beginPath()
+  ctx.moveTo(x - arm, y)
+  ctx.lineTo(x + arm, y)
+  ctx.moveTo(x, y - arm)
+  ctx.lineTo(x, y + arm)
+  ctx.stroke()
+  ctx.restore()
 }
