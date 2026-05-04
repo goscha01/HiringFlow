@@ -3,6 +3,7 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { renderTemplate } from '@/lib/email'
 import { resolveSchedulingUrl } from '@/lib/scheduling'
+import { appendLinkToHtml, appendLinkToPlain, appendLinkToSms } from '@/lib/automation-link-fallback'
 
 /**
  * Render what an automation step would send, using sample values so the
@@ -83,7 +84,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   if (channel === 'sms') {
-    const body = renderTemplate(step.smsBody as string, variables)
+    let body = renderTemplate(step.smsBody as string, variables)
+    if (step.nextStepType === 'training' && sampleTrainingLink) body = appendLinkToSms(body, 'training', sampleTrainingLink)
+    else if (step.nextStepType === 'scheduling' && sampleScheduleLink) body = appendLinkToSms(body, 'scheduling', sampleScheduleLink)
+    else if (step.nextStepType === 'meet_link') body = appendLinkToSms(body, 'meet_link', variables.meeting_link)
     return NextResponse.json({
       channel,
       stepId: step.id,
@@ -99,8 +103,18 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   const subject = renderTemplate(step.emailTemplate!.subject, variables)
-  const html = renderTemplate(step.emailTemplate!.bodyHtml, variables)
-  const text = step.emailTemplate!.bodyText ? renderTemplate(step.emailTemplate!.bodyText, variables) : null
+  let html = renderTemplate(step.emailTemplate!.bodyHtml, variables)
+  let text = step.emailTemplate!.bodyText ? renderTemplate(step.emailTemplate!.bodyText, variables) : null
+  if (step.nextStepType === 'training' && sampleTrainingLink) {
+    html = appendLinkToHtml(html, 'training', sampleTrainingLink)
+    if (text) text = appendLinkToPlain(text, 'training', sampleTrainingLink)
+  } else if (step.nextStepType === 'scheduling' && sampleScheduleLink) {
+    html = appendLinkToHtml(html, 'scheduling', sampleScheduleLink)
+    if (text) text = appendLinkToPlain(text, 'scheduling', sampleScheduleLink)
+  } else if (step.nextStepType === 'meet_link') {
+    html = appendLinkToHtml(html, 'meet_link', variables.meeting_link)
+    if (text) text = appendLinkToPlain(text, 'meet_link', variables.meeting_link)
+  }
 
   const recipient = step.emailDestination === 'company'
     ? (rule.workspace?.senderEmail || 'company@example.com')

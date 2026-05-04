@@ -3,6 +3,7 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { renderTemplate } from '@/lib/email'
 import { resolveSchedulingUrl } from '@/lib/scheduling'
+import { appendLinkToHtml, appendLinkToPlain, appendLinkToSms } from '@/lib/automation-link-fallback'
 
 /**
  * Preview an UNSAVED automation step. Used by the rule editor modal so
@@ -17,7 +18,7 @@ import { resolveSchedulingUrl } from '@/lib/scheduling'
  *     channel: 'email' | 'sms',
  *     emailTemplateId?: string,
  *     smsBody?: string,
- *     nextStepType?: 'training' | 'scheduling' | null,
+ *     nextStepType?: 'training' | 'scheduling' | 'meet_link' | null,
  *     trainingId?: string,
  *     schedulingConfigId?: string,
  *     emailDestination?: 'applicant' | 'company' | 'specific',
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     channel?: 'email' | 'sms'
     emailTemplateId?: string | null
     smsBody?: string | null
-    nextStepType?: 'training' | 'scheduling' | null
+    nextStepType?: 'training' | 'scheduling' | 'meet_link' | null
     trainingId?: string | null
     schedulingConfigId?: string | null
     emailDestination?: 'applicant' | 'company' | 'specific'
@@ -112,7 +113,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (channel === 'sms') {
-    const renderedBody = renderTemplate(body.smsBody as string, variables)
+    let renderedBody = renderTemplate(body.smsBody as string, variables)
+    if (body.nextStepType === 'training' && sampleTrainingLink) renderedBody = appendLinkToSms(renderedBody, 'training', sampleTrainingLink)
+    else if (body.nextStepType === 'scheduling' && sampleScheduleLink) renderedBody = appendLinkToSms(renderedBody, 'scheduling', sampleScheduleLink)
+    else if (body.nextStepType === 'meet_link') renderedBody = appendLinkToSms(renderedBody, 'meet_link', variables.meeting_link)
     return NextResponse.json({
       channel,
       smsBody: renderedBody,
@@ -126,8 +130,20 @@ export async function POST(request: NextRequest) {
   }
 
   const subject = renderTemplate(template!.subject, variables)
-  const html = renderTemplate(template!.bodyHtml, variables)
-  const text = template!.bodyText ? renderTemplate(template!.bodyText, variables) : null
+  let html = renderTemplate(template!.bodyHtml, variables)
+  let text = template!.bodyText ? renderTemplate(template!.bodyText, variables) : null
+  // Auto-append the configured link if the rendered body doesn't already
+  // include it. Mirrors the behavior in executeRule.
+  if (body.nextStepType === 'training' && sampleTrainingLink) {
+    html = appendLinkToHtml(html, 'training', sampleTrainingLink)
+    if (text) text = appendLinkToPlain(text, 'training', sampleTrainingLink)
+  } else if (body.nextStepType === 'scheduling' && sampleScheduleLink) {
+    html = appendLinkToHtml(html, 'scheduling', sampleScheduleLink)
+    if (text) text = appendLinkToPlain(text, 'scheduling', sampleScheduleLink)
+  } else if (body.nextStepType === 'meet_link') {
+    html = appendLinkToHtml(html, 'meet_link', variables.meeting_link)
+    if (text) text = appendLinkToPlain(text, 'meet_link', variables.meeting_link)
+  }
 
   const recipient = body.emailDestination === 'company'
     ? (workspace?.senderEmail || 'company@example.com')
