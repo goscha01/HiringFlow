@@ -705,7 +705,7 @@ export default function AutomationsPage() {
 
       {/* Preview modal */}
       {preview && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={() => setPreview(null)}>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[60] p-4" onClick={() => setPreview(null)}>
           <div
             className="bg-white rounded-[12px] shadow-2xl w-full max-w-[760px] max-h-[90vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
