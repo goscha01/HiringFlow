@@ -1,3 +1,7 @@
+// ONE-OFF SCRIPT — DO NOT RUN IN PRODUCTION
+// Already executed on 2026-05-04
+// Safe to delete after audit window
+
 /**
  * One-off backfill for Heather Simmons's stranded meeting:
  *   1. Re-bind InterviewMeeting from the original Meet space (hux-pgsu-wkj)
