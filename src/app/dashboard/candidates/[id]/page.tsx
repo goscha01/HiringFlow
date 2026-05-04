@@ -67,9 +67,6 @@ export default function CandidateDetailPage() {
   const [tab, setTab] = useState<'answers' | 'submissions' | 'timeline'>('answers')
   const [deleting, setDeleting] = useState(false)
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
-  // Stage the user has clicked on but not yet committed via "Run automations".
-  // null when no preview is active; the candidate's actual stage drives display.
-  const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [stageRuleCounts, setStageRuleCounts] = useState<Record<string, number>>({})
   const [runningAutomations, setRunningAutomations] = useState(false)
   const [automationToast, setAutomationToast] = useState<string | null>(null)
@@ -199,33 +196,22 @@ export default function CandidateDetailPage() {
   if (!candidate) return <div className="text-center py-12 text-grey-40">Candidate not found</div>
 
   const activeStage = resolveStage(candidate.pipelineStatus, stages)
-  const previewStage = selectedStageId ? stages.find((s) => s.id === selectedStageId) : null
-  const focusStage = previewStage ?? activeStage
-  const focusStageRuleCount = stageRuleCounts[focusStage.id] ?? 0
-  const focusStageHasTriggers = (focusStage.triggers?.length ?? 0) > 0
+  const activeStageRuleCount = stageRuleCounts[activeStage.id] ?? 0
+  const activeStageHasTriggers = (activeStage.triggers?.length ?? 0) > 0
 
   const runStageAutomations = async () => {
-    if (runningAutomations) return
-    if (focusStageRuleCount === 0) return
-    const verb = previewStage ? 'after switching to' : 'for'
+    if (runningAutomations || activeStageRuleCount === 0) return
     const ok = confirm(
-      `Fire ${focusStageRuleCount} automation${focusStageRuleCount === 1 ? '' : 's'} ${verb} "${focusStage.label}" now? This will send any configured emails/SMS to the candidate immediately.`,
+      `Fire ${activeStageRuleCount} automation${activeStageRuleCount === 1 ? '' : 's'} for "${activeStage.label}" now? This will send any configured emails/SMS to the candidate immediately.`,
     )
     if (!ok) return
     setRunningAutomations(true)
     setAutomationToast(null)
     try {
-      // If the user clicked into a different stage but hasn't moved the
-      // candidate yet, move them first so the automations fire from the
-      // correct pipeline state (and any stage_changed-style downstream logic
-      // sees consistent data).
-      if (previewStage && previewStage.id !== activeStage.id) {
-        await updateStatus(previewStage.id)
-      }
       const res = await fetch(`/api/candidates/${id}/run-stage-automations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stageId: focusStage.id }),
+        body: JSON.stringify({ stageId: activeStage.id }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || 'Failed to fire automations')
@@ -236,15 +222,11 @@ export default function CandidateDetailPage() {
           ? `Fired ${fired}, ${failed} failed — see timeline for details.`
           : `Fired ${fired} automation${fired === 1 ? '' : 's'}.`,
       )
-      // Refresh candidate so the new AutomationExecution rows appear in the
-      // timeline.
       fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
-      setSelectedStageId(null)
     } catch (err) {
       setAutomationToast(err instanceof Error ? err.message : 'Failed to fire automations')
     } finally {
       setRunningAutomations(false)
-      // Auto-clear the toast after 6s.
       setTimeout(() => setAutomationToast(null), 6000)
     }
   }
@@ -431,36 +413,22 @@ export default function CandidateDetailPage() {
             </button>
           </div>
         </div>
-        {/* Stage pills mirror the kanban funnel — one click moves the
-            candidate to that stage; a second click on the same stage just
-            de-selects (you stay on the active one). */}
+        {/* Stage pills mirror the kanban — one click moves the candidate
+            to that stage immediately. */}
         <div className="flex gap-1 flex-wrap">
           {stages.map((stage) => {
             const isActive = stage.id === activeStage.id
             const isPast = stage.order < activeStage.order
-            const isPreview = selectedStageId === stage.id && !isActive
             return (
               <button
                 key={stage.id}
-                onClick={() => {
-                  if (stage.id === activeStage.id) {
-                    setSelectedStageId(null)
-                    return
-                  }
-                  setSelectedStageId(stage.id)
-                }}
-                title={
-                  isActive
-                    ? 'Current stage'
-                    : `Click to select. Use "Run automations" to fire this stage's automations and move the candidate.`
-                }
+                onClick={() => { if (!isActive) updateStatus(stage.id) }}
+                title={isActive ? 'Current stage' : `Move to "${stage.label}"`}
                 className={`flex-1 min-w-[110px] py-2.5 text-xs font-medium rounded-[6px] transition-colors border ${
                   isActive
                     ? 'bg-brand-500 text-white border-brand-500'
-                    : isPreview
-                    ? 'bg-white text-brand-700 border-brand-500 ring-2 ring-brand-500/30'
                     : isPast
-                    ? 'bg-brand-100 text-brand-700 border-transparent'
+                    ? 'bg-brand-100 text-brand-700 border-transparent hover:bg-brand-200'
                     : 'bg-surface text-grey-40 hover:bg-surface-light border-transparent'
                 }`}
               >
@@ -476,49 +444,26 @@ export default function CandidateDetailPage() {
           })}
         </div>
 
-        {/* Run-automations control sits below the pills so the action is
-            always reachable. The button targets the *focus* stage — the one
-            the user just clicked, or the candidate's current stage if no
-            preview is active. Disabled when no active rules match. */}
+        {/* Run automations targets the candidate's current stage. Disabled
+            when the active stage has no triggers or no matching active rules. */}
         <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
           <div className="text-xs text-grey-40">
-            {previewStage ? (
-              <>
-                Selected: <span className="font-medium text-grey-15">{previewStage.label}</span>
-                {previewStage.id !== activeStage.id && (
-                  <span className="ml-1.5 text-grey-50">— running automations also moves candidate here</span>
-                )}
-              </>
-            ) : (
-              <>
-                Current: <span className="font-medium text-grey-15">{activeStage.label}</span>
-              </>
-            )}
+            Current: <span className="font-medium text-grey-15">{activeStage.label}</span>
           </div>
-          <div className="flex items-center gap-2">
-            {previewStage && previewStage.id !== activeStage.id && (
-              <button
-                onClick={() => { updateStatus(previewStage.id); setSelectedStageId(null) }}
-                className="text-xs px-3 py-1.5 rounded-[6px] border border-surface-border text-grey-15 hover:bg-surface-light font-medium"
-              >
-                Just move (no automations)
-              </button>
-            )}
-            <button
-              onClick={runStageAutomations}
-              disabled={!focusStageHasTriggers || focusStageRuleCount === 0 || runningAutomations}
-              title={
-                !focusStageHasTriggers
-                  ? 'This stage has no triggers configured. Add triggers in Stages settings.'
-                  : focusStageRuleCount === 0
-                  ? 'No active automations match this stage’s triggers.'
-                  : 'Fire matching automations for this candidate now'
-              }
-              className="text-xs px-3 py-1.5 rounded-[6px] bg-brand-500 text-white hover:bg-brand-600 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {runningAutomations ? 'Firing…' : `Run automations${focusStageRuleCount > 0 ? ` (${focusStageRuleCount})` : ''}`}
-            </button>
-          </div>
+          <button
+            onClick={runStageAutomations}
+            disabled={!activeStageHasTriggers || activeStageRuleCount === 0 || runningAutomations}
+            title={
+              !activeStageHasTriggers
+                ? 'This stage has no triggers configured. Add triggers in Stages settings.'
+                : activeStageRuleCount === 0
+                ? 'No active automations match this stage’s triggers.'
+                : 'Fire matching automations for this candidate now'
+            }
+            className="text-xs px-3 py-1.5 rounded-[6px] bg-brand-500 text-white hover:bg-brand-600 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {runningAutomations ? 'Firing…' : `Run automations${activeStageRuleCount > 0 ? ` (${activeStageRuleCount})` : ''}`}
+          </button>
         </div>
         {automationToast && (
           <div className="mt-2 text-xs px-3 py-2 rounded-[6px] bg-brand-50 text-brand-700 border border-brand-100">

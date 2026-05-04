@@ -39,6 +39,8 @@ interface Candidate {
 
 interface Flow { id: string; name: string }
 
+const STAGE_SORT_KEY = 'hiringflow:kanban-stage-sorts'
+
 export default function CandidatesPage() {
   const router = useRouter()
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -52,6 +54,10 @@ export default function CandidatesPage() {
   const [hoverCol, setHoverCol] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  // Per-stage sort direction. 'asc' = oldest first (FIFO follow-up — the
+  // current default), 'desc' = newest first. Persisted in localStorage so
+  // the choice survives page reloads. Stages without an entry default to asc.
+  const [stageSorts, setStageSorts] = useState<Record<string, 'asc' | 'desc'>>({})
   // A card must be explicitly clicked ("picked up") before its drag handle
   // activates. Until then the card is treated as part of the board so the
   // mousedown initiates a horizontal pan instead of an HTML5 drag.
@@ -110,7 +116,27 @@ export default function CandidatesPage() {
         setStages(normalizeStages(raw))
       })
       .catch(() => {})
+    // Restore per-stage sort prefs from prior visits.
+    try {
+      const raw = localStorage.getItem(STAGE_SORT_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        const cleaned: Record<string, 'asc' | 'desc'> = {}
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v === 'asc' || v === 'desc') cleaned[k] = v
+        }
+        setStageSorts(cleaned)
+      }
+    } catch {}
   }, [])
+
+  const setStageSort = (stageId: string, direction: 'asc' | 'desc') => {
+    setStageSorts((cur) => {
+      const next = { ...cur, [stageId]: direction }
+      try { localStorage.setItem(STAGE_SORT_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
 
   const load = useCallback(() => {
     setLoading(true)
@@ -144,10 +170,11 @@ export default function CandidatesPage() {
   }
 
   // Group candidates by resolved stage. Legacy statuses fall through to the
-  // mapped default stage; unknown ids go to the first stage. Sort each column
-  // chronologically: soonest upcoming meeting first (so "Interview scheduled"
-  // surfaces what's about to happen), then candidates without a meeting in
-  // applied-date order (oldest first, FIFO follow-up).
+  // mapped default stage; unknown ids go to the first stage. Within each
+  // column, candidates with an upcoming meeting always come first (soonest
+  // first) so urgent interviews stay on top regardless of sort direction;
+  // the rest are ordered by Session.startedAt per the per-stage preference
+  // (default asc = oldest applied first).
   const grouped = useMemo(() => {
     const g: Record<string, Candidate[]> = Object.fromEntries(stages.map((s) => [s.id, []]))
     for (const c of candidates) {
@@ -155,17 +182,19 @@ export default function CandidatesPage() {
       g[stage.id].push(c)
     }
     for (const id of Object.keys(g)) {
+      const dir = stageSorts[id] ?? 'asc'
+      const mult = dir === 'desc' ? -1 : 1
       g[id].sort((a, b) => {
         const ma = a.nextMeetingAt ? new Date(a.nextMeetingAt).getTime() : null
         const mb = b.nextMeetingAt ? new Date(b.nextMeetingAt).getTime() : null
         if (ma !== null && mb !== null) return ma - mb
         if (ma !== null) return -1
         if (mb !== null) return 1
-        return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+        return mult * (new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
       })
     }
     return g
-  }, [candidates, stages])
+  }, [candidates, stages, stageSorts])
 
   const candidateCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -281,13 +310,50 @@ export default function CandidatesPage() {
                     isHover ? 'border-[color:var(--brand-primary)] bg-brand-50/40' : 'border-surface-border bg-white'
                   }`}
                 >
-                  <div className="shrink-0 px-4 py-3 border-b border-surface-divider flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full" style={{ background: stage.color }} />
-                      <div className="font-semibold text-[13px] text-ink">{stage.label}</div>
+                  <div className="shrink-0 px-4 py-3 border-b border-surface-divider flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: stage.color }} />
+                      <div className="font-semibold text-[13px] text-ink truncate">{stage.label}</div>
                     </div>
-                    <div className="font-mono text-[11px] text-grey-35" style={{ letterSpacing: '0.06em' }}>
-                      {items.length}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(() => {
+                        const dir = stageSorts[stage.id] ?? 'asc'
+                        const next: 'asc' | 'desc' = dir === 'asc' ? 'desc' : 'asc'
+                        const label = dir === 'asc' ? 'Oldest first' : 'Newest first'
+                        return (
+                          <button
+                            data-no-pan
+                            onClick={(e) => { e.stopPropagation(); setStageSort(stage.id, next) }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            title={`Sort by date applied: ${label}. Click to switch.`}
+                            aria-label={`Toggle sort direction (currently ${label})`}
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-grey-35 hover:bg-surface-light hover:text-ink"
+                          >
+                            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              {dir === 'asc' ? (
+                                <>
+                                  <path d="M4 4h7" />
+                                  <path d="M4 8h5" />
+                                  <path d="M4 12h3" />
+                                  <path d="M12 4v8" />
+                                  <path d="M14 10l-2 2-2-2" />
+                                </>
+                              ) : (
+                                <>
+                                  <path d="M4 4h3" />
+                                  <path d="M4 8h5" />
+                                  <path d="M4 12h7" />
+                                  <path d="M12 12V4" />
+                                  <path d="M14 6l-2-2-2 2" />
+                                </>
+                              )}
+                            </svg>
+                          </button>
+                        )
+                      })()}
+                      <div className="font-mono text-[11px] text-grey-35" style={{ letterSpacing: '0.06em' }}>
+                        {items.length}
+                      </div>
                     </div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2">
