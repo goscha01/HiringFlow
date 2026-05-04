@@ -554,13 +554,29 @@ export default function AutomationsPage() {
     }
   }
 
+  // Auto-suffix the candidate name if a workspace template already uses it.
+  // First conflict picks "<Name> (custom)", then "<Name> (custom 2)", ...
+  // Lets the recruiter pick a default, edit, and save without manually
+  // renaming — the system avoids the duplicate without extra UI.
+  const resolveUniqueTemplateName = (candidate: string, existing: { name: string }[]): string => {
+    const taken = new Set(existing.map((t) => t.name))
+    if (!taken.has(candidate)) return candidate
+    if (!taken.has(`${candidate} (custom)`)) return `${candidate} (custom)`
+    for (let i = 2; i < 100; i++) {
+      const next = `${candidate} (custom ${i})`
+      if (!taken.has(next)) return next
+    }
+    return `${candidate} (custom ${Date.now()})` // last-resort fallback
+  }
+
   const createTemplate = async () => {
     if (!newTplName.trim() || !newTplSubject.trim() || !newTplBody.trim()) return
     setSavingTpl(true)
+    const finalName = resolveUniqueTemplateName(newTplName.trim(), templates)
     const r = await fetch('/api/email-templates', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newTplName, subject: newTplSubject, bodyHtml: newTplBody }),
+      body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml: newTplBody }),
     })
     if (r.ok) {
       const newTpl = await r.json()
@@ -963,6 +979,18 @@ export default function AutomationsPage() {
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Template Name</label>
                     <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                    {(() => {
+                      const trimmed = newTplName.trim()
+                      if (!trimmed) return null
+                      const conflict = templates.some((t) => t.name === trimmed)
+                      if (!conflict) return null
+                      const final = resolveUniqueTemplateName(trimmed, templates)
+                      return (
+                        <p className="mt-1 text-[11px] text-blue-700">
+                          ℹ A template named &ldquo;{trimmed}&rdquo; already exists — this one will be saved as <span className="font-mono font-semibold">{final}</span>.
+                        </p>
+                      )
+                    })()}
                   </div>
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Subject</label>
@@ -1156,20 +1184,15 @@ function StepCard(props: {
                 value={step.emailTemplateId || ''}
                 onChange={async (e) => {
                   const value = e.target.value
-                  // "default:<name>" → create the workspace template from
-                  // the matching DEFAULT_EMAIL_TEMPLATES entry, then assign.
+                  // "default:<name>" → open the inline template editor with
+                  // the default's content prefilled. The recruiter can edit
+                  // before saving; the editor auto-suffixes the name if it
+                  // collides with an existing workspace template.
                   if (value.startsWith('default:')) {
                     const name = value.slice('default:'.length)
                     const defTpl = DEFAULT_EMAIL_TEMPLATES.find((t) => t.name === name)
                     if (!defTpl) return
-                    const newId = await props.onCreateDefaultDirect(defTpl)
-                    if (newId) {
-                      const detected = detectLinkType([defTpl.subject, defTpl.bodyHtml, step.smsBody || ''].join(' '))
-                      props.onChange({
-                        emailTemplateId: newId,
-                        ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
-                      })
-                    }
+                    props.onPickDefaultTemplate(defTpl)
                     return
                   }
                   const id = value || null
