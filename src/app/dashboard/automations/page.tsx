@@ -257,6 +257,26 @@ export default function AutomationsPage() {
 
   const refresh = async () => { const r = await fetch('/api/automations'); if (r.ok) setRules(await r.json()) }
 
+  // One-click "create from default" — used by the StepCard's template
+  // dropdown when the recruiter picks a default that isn't yet in the
+  // workspace. Returns the new template's id (or null on failure).
+  const createDefaultTemplate = async (tpl: { name: string; subject: string; bodyHtml: string }): Promise<string | null> => {
+    try {
+      const r = await fetch('/api/email-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tpl.name, subject: tpl.subject, bodyHtml: tpl.bodyHtml }),
+      })
+      if (!r.ok) return null
+      const newTpl = await r.json()
+      const tplRes = await fetch('/api/email-templates')
+      if (tplRes.ok) setTemplates(await tplRes.json())
+      return newTpl.id as string
+    } catch {
+      return null
+    }
+  }
+
   const [seedingNoShow, setSeedingNoShow] = useState(false)
   const seedNoShow = async () => {
     setSeedingNoShow(true)
@@ -857,6 +877,7 @@ export default function AutomationsPage() {
                       onMoveDown={() => moveStep(idx, 1)}
                       onCompanyMissing={() => setShowCompanyEmailWarning(true)}
                       onPreview={(channelOverride) => previewDraftStep(idx, channelOverride)}
+                      onCreateDefaultDirect={createDefaultTemplate}
                       onCreateTemplate={() => {
                         setTemplateEditorStepIdx(idx)
                         setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
@@ -963,6 +984,7 @@ function StepCard(props: {
   onMoveDown: () => void
   onCompanyMissing: () => void
   onPreview: (channel?: 'email' | 'sms') => void
+  onCreateDefaultDirect: (tpl: { name: string; subject: string; bodyHtml: string }) => Promise<string | null>
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
 }) {
@@ -1074,8 +1096,25 @@ function StepCard(props: {
               <label className="block text-xs text-grey-40 mb-1">Template</label>
               <select
                 value={step.emailTemplateId || ''}
-                onChange={(e) => {
-                  const id = e.target.value || null
+                onChange={async (e) => {
+                  const value = e.target.value
+                  // "default:<name>" → create the workspace template from
+                  // the matching DEFAULT_EMAIL_TEMPLATES entry, then assign.
+                  if (value.startsWith('default:')) {
+                    const name = value.slice('default:'.length)
+                    const defTpl = DEFAULT_EMAIL_TEMPLATES.find((t) => t.name === name)
+                    if (!defTpl) return
+                    const newId = await props.onCreateDefaultDirect(defTpl)
+                    if (newId) {
+                      const detected = detectLinkType([defTpl.subject, defTpl.bodyHtml, step.smsBody || ''].join(' '))
+                      props.onChange({
+                        emailTemplateId: newId,
+                        ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
+                      })
+                    }
+                    return
+                  }
+                  const id = value || null
                   // Auto-pick the matching "Includes link to" option from the
                   // template's tokens, but only when the recruiter hasn't set
                   // one explicitly. Manual selection always wins.
@@ -1091,7 +1130,22 @@ function StepCard(props: {
                 className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Select template...</option>
-                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {templates.length > 0 && (
+                  <optgroup label="Saved templates">
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </optgroup>
+                )}
+                {(() => {
+                  const missing = DEFAULT_EMAIL_TEMPLATES.filter((d) => !templates.some((t) => t.name === d.name))
+                  if (missing.length === 0) return null
+                  return (
+                    <optgroup label="Add a default (one-click)">
+                      {missing.map((tpl) => (
+                        <option key={tpl.name} value={`default:${tpl.name}`}>{tpl.name}</option>
+                      ))}
+                    </optgroup>
+                  )
+                })()}
               </select>
               {/* Inline preview of the selected template — subject line + first
                   ~140 chars of plain-text body. Lets the recruiter see exactly
