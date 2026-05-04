@@ -349,19 +349,25 @@ export default function AutomationsPage() {
     setFlowId('')
     setMinutesBefore(60); setWaitForRecording(false)
 
-    // Make sure the workspace has the default template set so the step
-    // opens with REAL content prefilled, not a "Select template..." stub.
+    // Always run seed — it's idempotent on the server (inserts only the
+    // default templates whose names don't already exist). This way, when
+    // we add new entries to DEFAULT_EMAIL_TEMPLATES in code, existing
+    // workspaces pick them up automatically on next "+ New rule"
+    // — not just brand-new workspaces with empty templates.
     let availableTemplates = templates
-    if (availableTemplates.length === 0) {
-      try {
-        await fetch('/api/email-templates/seed', { method: 'POST' })
+    try {
+      const seedRes = await fetch('/api/email-templates/seed', { method: 'POST' })
+      const seedData = seedRes.ok ? await seedRes.json().catch(() => null) : null
+      // Only re-fetch if seed actually created something new, or if we
+      // started with an empty list (first open on a fresh workspace).
+      if ((seedData && seedData.created > 0) || availableTemplates.length === 0) {
         const r = await fetch('/api/email-templates')
         if (r.ok) {
           availableTemplates = await r.json()
           setTemplates(availableTemplates)
         }
-      } catch { /* fall through with empty templates */ }
-    }
+      }
+    } catch { /* fall through with current templates */ }
     const prefillId = pickDefaultTemplateId(trigger, availableTemplates)
     setSteps([newStep(0, prefillId)])
     setTemplateEditorStepIdx(null)
