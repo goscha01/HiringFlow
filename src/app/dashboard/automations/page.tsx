@@ -6,7 +6,7 @@ import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
 import { Button, PageHeader } from '@/components/design'
 
 interface Flow { id: string; name: string }
-interface Template { id: string; name: string; subject: string }
+interface Template { id: string; name: string; subject: string; bodyHtml?: string; bodyText?: string | null }
 interface TrainingItem { id: string; title: string; slug: string }
 interface SchedulingItem { id: string; name: string; schedulingUrl: string }
 
@@ -114,6 +114,33 @@ const DELAY_PRESETS: Array<{ value: number; label: string }> = [
   { value: 4320, label: '3 days' },
   { value: 10080, label: '7 days' },
 ]
+
+// Map trigger types to the most-relevant default template name. Used to
+// prefill a sensible starter template when a recruiter opens "+ New rule"
+// — they shouldn't have to pick from a dropdown to see what will be sent.
+const TRIGGER_TO_TEMPLATE_NAME: Record<string, string> = {
+  flow_completed:     'Form Submit Confirmation',
+  flow_passed:        'Training Invitation',
+  training_completed: 'Scheduling Invitation',
+  meeting_scheduled:  'Interview Confirmation',
+  before_meeting:     'Interview Reminder (24h)',
+  meeting_started:    'Generic Follow-up',
+  meeting_ended:      'Interview Follow-up (Post-meeting)',
+  meeting_no_show:    'Rejection Email',
+  recording_ready:    'Generic Follow-up',
+  transcript_ready:   'Generic Follow-up',
+  automation_completed: 'Generic Follow-up',
+}
+
+function pickDefaultTemplateId(triggerType: string, templates: Template[]): string | undefined {
+  if (templates.length === 0) return undefined
+  const preferredName = TRIGGER_TO_TEMPLATE_NAME[triggerType]
+  if (preferredName) {
+    const match = templates.find((t) => t.name === preferredName)
+    if (match) return match.id
+  }
+  return templates[0].id
+}
 
 function newStep(order: number, defaultTemplateId?: string): StepShape {
   return {
@@ -270,13 +297,29 @@ export default function AutomationsPage() {
     }
   }
 
-  const openCreate = () => {
+  const openCreate = async () => {
     setEditing(null)
-    setTriggerType('flow_completed')
-    setName(`${TRIGGER_LABELS['flow_completed']} follow-up`)
+    const trigger = 'flow_completed'
+    setTriggerType(trigger)
+    setName(`${TRIGGER_LABELS[trigger]} follow-up`)
     setFlowId('')
     setMinutesBefore(60); setWaitForRecording(false)
-    setSteps([newStep(0, templates[0]?.id)])
+
+    // Make sure the workspace has the default template set so the step
+    // opens with REAL content prefilled, not a "Select template..." stub.
+    let availableTemplates = templates
+    if (availableTemplates.length === 0) {
+      try {
+        await fetch('/api/email-templates/seed', { method: 'POST' })
+        const r = await fetch('/api/email-templates')
+        if (r.ok) {
+          availableTemplates = await r.json()
+          setTemplates(availableTemplates)
+        }
+      } catch { /* fall through with empty templates */ }
+    }
+    const prefillId = pickDefaultTemplateId(trigger, availableTemplates)
+    setSteps([newStep(0, prefillId)])
     setTemplateEditorStepIdx(null)
     setSaveError(null)
     setShowModal(true)
@@ -976,6 +1019,23 @@ function StepCard(props: {
                 <option value="">Select template...</option>
                 {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
+              {/* Inline preview of the selected template — subject line + first
+                  ~140 chars of plain-text body. Lets the recruiter see exactly
+                  what'll be sent without opening the full Preview modal. */}
+              {(() => {
+                const sel = templates.find((t) => t.id === step.emailTemplateId)
+                if (!sel) return null
+                const bodyText = (sel.bodyHtml || '')
+                  .replace(/<[^>]+>/g, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                return (
+                  <div className="mt-2 p-2.5 bg-white border border-surface-border rounded-[6px] text-[11px] space-y-1">
+                    <div className="flex gap-2"><span className="text-grey-40 w-12 flex-shrink-0">Subject</span><span className="text-grey-15 font-medium truncate">{sel.subject}</span></div>
+                    {bodyText && <div className="flex gap-2"><span className="text-grey-40 w-12 flex-shrink-0">Body</span><span className="text-grey-35 line-clamp-2">{bodyText.slice(0, 200)}{bodyText.length > 200 ? '…' : ''}</span></div>}
+                  </div>
+                )
+              })()}
               <div className="flex flex-wrap gap-1 mt-1.5">
                 <button onClick={props.onCreateTemplate} className="text-[11px] text-brand-600 hover:text-brand-700 font-medium">+ New template…</button>
                 <span className="text-[11px] text-grey-40">or pick a default:</span>
