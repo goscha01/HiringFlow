@@ -61,9 +61,11 @@ export function isE164(value: string): boolean {
 }
 
 export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
-  const apiUrl = process.env.SIGCORE_API_URL
-  const apiKey = process.env.SIGCORE_API_KEY
-  const profileId = process.env.SIGCORE_HF_PROFILE_ID
+  // .trim() — env vars set via piped CLI tools sometimes acquire trailing
+  // newlines; Sigcore strict-validates UUIDs and would 500 on `<id>\n`.
+  const apiUrl = process.env.SIGCORE_API_URL?.trim()
+  const apiKey = process.env.SIGCORE_API_KEY?.trim()
+  const profileId = process.env.SIGCORE_HF_PROFILE_ID?.trim()
   if (!apiUrl) throw new SmsConfigError('SIGCORE_API_URL is not configured')
   if (!apiKey) throw new SmsConfigError('SIGCORE_API_KEY is not configured')
   if (!profileId) throw new SmsConfigError('SIGCORE_HF_PROFILE_ID is not configured')
