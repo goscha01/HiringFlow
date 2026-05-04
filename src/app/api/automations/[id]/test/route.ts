@@ -57,11 +57,28 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (testChannel === 'sms' && !/^\+?\d[\d\s().-]{6,}$/.test(to)) {
     return NextResponse.json({ error: 'Valid recipient phone required' }, { status: 400 })
   }
-  if (!rule.flowId) {
-    return NextResponse.json(
-      { error: 'This rule is not tied to a flow. Attach a flow so the test can create a tracked candidate record.' },
-      { status: 400 },
-    )
+  // Rules with no flowId (the "Any flow" default) are still testable — fall
+  // back to the workspace's first active flow so we can create a tracked
+  // test session. Session-wide triggers (meeting_*, before_meeting, etc.)
+  // hide the flow picker entirely; they hit this branch by design.
+  let testFlowId = rule.flowId
+  if (!testFlowId) {
+    const fallbackFlow = await prisma.flow.findFirst({
+      where: { workspaceId: ws.workspaceId, isPublished: true },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    }) ?? await prisma.flow.findFirst({
+      where: { workspaceId: ws.workspaceId },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!fallbackFlow) {
+      return NextResponse.json(
+        { error: 'No flow available for the test candidate. Create a flow first.' },
+        { status: 400 },
+      )
+    }
+    testFlowId = fallbackFlow.id
   }
 
   const localPart = testChannel === 'email' ? to.split('@')[0] : to.replace(/\D/g, '').slice(-4)
@@ -72,7 +89,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const session = await prisma.session.create({
     data: {
       workspaceId: ws.workspaceId,
-      flowId: rule.flowId,
+      flowId: testFlowId,
       candidateEmail: testChannel === 'email' ? to : null,
       candidatePhone: testChannel === 'sms' ? to : null,
       candidateName,

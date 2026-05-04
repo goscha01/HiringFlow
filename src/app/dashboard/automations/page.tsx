@@ -233,8 +233,48 @@ export default function AutomationsPage() {
     }
   }
 
+  // Draft preview — preview an unsaved step from the create/edit modal.
+  // Per-step + per-channel: 'both' steps need two previews, the recruiter
+  // toggles via the channel arg.
+  const [draftPreviewLoading, setDraftPreviewLoading] = useState(false)
+  const previewDraftStep = async (idx: number, channelOverride?: 'email' | 'sms') => {
+    const step = steps[idx]
+    if (!step) return
+    const ch = channelOverride
+      ?? (step.channel === 'sms' ? 'sms' : 'email')
+    setDraftPreviewLoading(true)
+    try {
+      const res = await fetch('/api/automations/preview-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: ch,
+          emailTemplateId: step.emailTemplateId,
+          smsBody: step.smsBody,
+          nextStepType: step.nextStepType,
+          trainingId: step.trainingId,
+          schedulingConfigId: step.schedulingConfigId,
+          emailDestination: step.emailDestination,
+          emailDestinationAddress: step.emailDestinationAddress,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(`Preview failed: ${data.error || res.statusText}`)
+        return
+      }
+      const data = await res.json()
+      setPreview({ ...data, ruleName: name || '(unsaved rule)', stepOrder: idx })
+    } finally {
+      setDraftPreviewLoading(false)
+    }
+  }
+
   const openCreate = () => {
-    setEditing(null); setName(''); setTriggerType('flow_completed'); setFlowId('')
+    setEditing(null)
+    setTriggerType('flow_completed')
+    setName(`${TRIGGER_LABELS['flow_completed']} follow-up`)
+    setFlowId('')
     setMinutesBefore(60); setWaitForRecording(false)
     setSteps([newStep(0, templates[0]?.id)])
     setTemplateEditorStepIdx(null)
@@ -717,11 +757,13 @@ export default function AutomationsPage() {
                       trainings={trainings}
                       schedulingConfigs={schedulingConfigs}
                       companyEmail={companyEmail}
+                      previewLoading={draftPreviewLoading}
                       onChange={(patch) => updateStep(idx, patch)}
                       onRemove={() => removeStep(idx)}
                       onMoveUp={() => moveStep(idx, -1)}
                       onMoveDown={() => moveStep(idx, 1)}
                       onCompanyMissing={() => setShowCompanyEmailWarning(true)}
+                      onPreview={(channelOverride) => previewDraftStep(idx, channelOverride)}
                       onCreateTemplate={() => {
                         setTemplateEditorStepIdx(idx)
                         setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
@@ -821,11 +863,13 @@ function StepCard(props: {
   trainings: TrainingItem[]
   schedulingConfigs: SchedulingItem[]
   companyEmail: string | null
+  previewLoading: boolean
   onChange: (patch: Partial<StepShape>) => void
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
   onCompanyMissing: () => void
+  onPreview: (channel?: 'email' | 'sms') => void
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
 }) {
@@ -833,6 +877,8 @@ function StepCard(props: {
   const wantsEmail = step.channel === 'email' || step.channel === 'both'
   const wantsSms = step.channel === 'sms' || step.channel === 'both'
   const delayLocked = isFirst && triggerType === 'before_meeting'
+  const canPreviewEmail = wantsEmail && !!step.emailTemplateId
+  const canPreviewSms = wantsSms && !!step.smsBody && step.smsBody.trim().length > 0
 
   return (
     <div className="border border-surface-border rounded-[10px] p-4 bg-white">
@@ -908,7 +954,18 @@ function StepCard(props: {
         {/* Email block */}
         {wantsEmail && (
           <div className="p-3 rounded-[8px] bg-blue-50/40 border border-blue-100 space-y-2">
-            <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Email</div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Email</div>
+              <button
+                type="button"
+                onClick={() => props.onPreview('email')}
+                disabled={!canPreviewEmail || props.previewLoading}
+                className="text-[11px] text-blue-700 hover:text-blue-900 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                title={!canPreviewEmail ? 'Pick a template first' : 'Preview rendered email'}
+              >
+                {props.previewLoading ? 'Loading…' : 'Preview email'}
+              </button>
+            </div>
             <div>
               <label className="block text-xs text-grey-40 mb-1">Template</label>
               <select
@@ -972,7 +1029,18 @@ function StepCard(props: {
         {/* SMS block */}
         {wantsSms && (
           <div className="p-3 rounded-[8px] bg-purple-50/40 border border-purple-100 space-y-2">
-            <div className="text-[11px] font-semibold text-purple-700 uppercase tracking-wide">SMS</div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-semibold text-purple-700 uppercase tracking-wide">SMS</div>
+              <button
+                type="button"
+                onClick={() => props.onPreview('sms')}
+                disabled={!canPreviewSms || props.previewLoading}
+                className="text-[11px] text-purple-700 hover:text-purple-900 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                title={!canPreviewSms ? 'Type an SMS body first' : 'Preview rendered SMS'}
+              >
+                {props.previewLoading ? 'Loading…' : 'Preview SMS'}
+              </button>
+            </div>
             <textarea
               value={step.smsBody || ''}
               onChange={(e) => props.onChange({ smsBody: e.target.value })}
