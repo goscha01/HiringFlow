@@ -142,8 +142,9 @@ export default function CandidatesPage() {
 
   // Group candidates by resolved stage. Legacy statuses fall through to the
   // mapped default stage; unknown ids go to the first stage. Sort each column
-  // chronologically (oldest applied first) so candidates who've been sitting
-  // longest float to the top — FIFO surface for follow-up.
+  // chronologically: soonest upcoming meeting first (so "Interview scheduled"
+  // surfaces what's about to happen), then candidates without a meeting in
+  // applied-date order (oldest first, FIFO follow-up).
   const grouped = useMemo(() => {
     const g: Record<string, Candidate[]> = Object.fromEntries(stages.map((s) => [s.id, []]))
     for (const c of candidates) {
@@ -151,7 +152,14 @@ export default function CandidatesPage() {
       g[stage.id].push(c)
     }
     for (const id of Object.keys(g)) {
-      g[id].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+      g[id].sort((a, b) => {
+        const ma = a.nextMeetingAt ? new Date(a.nextMeetingAt).getTime() : null
+        const mb = b.nextMeetingAt ? new Date(b.nextMeetingAt).getTime() : null
+        if (ma !== null && mb !== null) return ma - mb
+        if (ma !== null) return -1
+        if (mb !== null) return 1
+        return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+      })
     }
     return g
   }, [candidates, stages])
