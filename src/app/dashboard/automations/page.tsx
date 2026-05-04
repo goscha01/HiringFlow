@@ -115,6 +115,29 @@ const DELAY_PRESETS: Array<{ value: number; label: string }> = [
   { value: 10080, label: '7 days' },
 ]
 
+// Trigger-aware SMS bodies. The textarea's placeholder is just the
+// HTML placeholder attribute — it LOOKS like content but doesn't count.
+// We prefill the actual smsBody field with these when the recruiter
+// switches a step to SMS so the rule is ready to save without typing.
+const TRIGGER_TO_SMS_BODY: Record<string, string> = {
+  flow_completed:     'Hi {{candidate_name}}, thanks for applying to {{flow_name}}. We received your application — we\'ll be in touch.',
+  flow_passed:        'Hi {{candidate_name}}, you passed the screening for {{flow_name}}! Next step: {{training_link}}',
+  training_completed: 'Hi {{candidate_name}}, training done! Book your interview: {{schedule_link}}',
+  meeting_scheduled:  'Hi {{candidate_name}}, your interview is confirmed for {{meeting_time}}. Join: {{meeting_link}}',
+  before_meeting:     'Hi {{candidate_name}}, reminder: your interview starts at {{meeting_time}}. Join: {{meeting_link}}',
+  meeting_started:    'Hi {{candidate_name}}, we just started the interview — join here: {{meeting_link}}',
+  meeting_ended:      'Hi {{candidate_name}}, thanks for the interview. We\'ll follow up with next steps soon.',
+  meeting_no_show:    'Hi {{candidate_name}}, we missed you for the interview. Pick a new time: {{schedule_link}}',
+  recording_ready:    'Hi {{candidate_name}}, the recording from your interview is ready: {{recording_link}}',
+  transcript_ready:   'Hi {{candidate_name}}, the transcript from your interview is ready: {{transcript_link}}',
+  automation_completed: 'Hi {{candidate_name}}, just checking in regarding your application for {{flow_name}}.',
+}
+const DEFAULT_SMS_BODY = 'Hi {{candidate_name}}, this is a quick note about your application for {{flow_name}}.'
+
+function pickDefaultSmsBody(triggerType: string): string {
+  return TRIGGER_TO_SMS_BODY[triggerType] || DEFAULT_SMS_BODY
+}
+
 // Map trigger types to the most-relevant default template name. Used to
 // prefill a sensible starter template when a recruiter opens "+ New rule"
 // — they shouldn't have to pick from a dropdown to see what will be sent.
@@ -949,7 +972,18 @@ function StepCard(props: {
             ].map(({ v, l }) => (
               <button
                 key={v}
-                onClick={() => props.onChange({ channel: v })}
+                onClick={() => {
+                  // When the user switches to a channel that requires an SMS
+                  // body, prefill it with a trigger-appropriate default if
+                  // empty — the textarea's placeholder isn't real content.
+                  const wantsSmsNow = v === 'sms' || v === 'both'
+                  const smsEmpty = !step.smsBody || step.smsBody.trim().length === 0
+                  if (wantsSmsNow && smsEmpty) {
+                    props.onChange({ channel: v, smsBody: pickDefaultSmsBody(triggerType) })
+                  } else {
+                    props.onChange({ channel: v })
+                  }
+                }}
                 className={`flex-1 py-2 text-xs rounded-[8px] border font-medium ${step.channel === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}
               >
                 {l}
