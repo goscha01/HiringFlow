@@ -222,9 +222,12 @@ export default function FlowSchemaView({
 
       const step = stepMap.get(stepId)
       if (step) {
-        const children = step.options
-          .filter((o) => o.nextStepId && !visited.has(o.nextStepId))
-          .map((o) => o.nextStepId!)
+        const optionChildren = step.options
+          .map((o) => o.nextStepId)
+          .filter((id): id is string => !!id && id !== '__end__')
+        const buttonChild = step.buttonConfig?.nextStepId
+        const children = [...optionChildren, ...(buttonChild && buttonChild !== '__end__' ? [buttonChild] : [])]
+          .filter((id) => !visited.has(id))
           .filter((id, i, arr) => arr.indexOf(id) === i)
 
         children.forEach((childId, i) => {
@@ -267,25 +270,83 @@ export default function FlowSchemaView({
   }, [steps])
 
   // Layout: preserve user-dragged positions across step edits.
-  // Only recompute when the set of step IDs actually changes (add/remove),
-  // and even then keep positions for steps the user already placed.
+  // Only recompute layout for newly-added IDs (insert/add); existing positions
+  // are preserved. Combined partners are snapped adjacent regardless.
+  // For newly-added "inserted" steps (exactly one source + one target, both
+  // already positioned), drop them at the midpoint of the connection.
   useEffect(() => {
     setPositions((prev) => {
       const layout = computeLayout()
       const layoutIds = Object.keys(layout)
-      const prevIds = Object.keys(prev)
-      const sameTopology =
-        prevIds.length === layoutIds.length &&
-        layoutIds.every((id) => id in prev)
-      if (sameTopology && prevIds.length > 0) return prev
-      // Topology changed — keep existing positions, fill in new ones from layout
+
       const merged: Record<string, NodePos> = {}
       for (const id of layoutIds) {
-        merged[id] = prev[id] ?? layout[id]
+        if (id in prev) {
+          merged[id] = prev[id]
+          continue
+        }
+        // New step — try midpoint of (single) preserved source and target
+        const newStep = steps.find((s) => s.id === id)
+        if (newStep) {
+          const sources = steps.filter((s) => {
+            if (s.id === id) return false
+            const opts = s.options.some((o) => o.nextStepId === id)
+            const btn = s.buttonConfig?.nextStepId === id
+            return opts || btn
+          })
+          const targets: string[] = []
+          for (const o of newStep.options) {
+            if (o.nextStepId && o.nextStepId !== '__end__') targets.push(o.nextStepId)
+          }
+          const btnTarget = newStep.buttonConfig?.nextStepId
+          if (btnTarget && btnTarget !== '__end__') targets.push(btnTarget)
+          const uniqueTargets = Array.from(new Set(targets))
+          if (sources.length === 1 && uniqueTargets.length === 1) {
+            const src = prev[sources[0].id]
+            const tgt = prev[uniqueTargets[0]]
+            if (src && tgt) {
+              merged[id] = { x: (src.x + tgt.x) / 2, y: (src.y + tgt.y) / 2 }
+              continue
+            }
+          }
+        }
+        merged[id] = layout[id]
       }
+
+      // Snap combined-with partners adjacent. If a partner is far away, slide
+      // it to sit immediately to the right of its primary so the "Combined"
+      // bracket actually engulfs them.
+      for (const step of steps) {
+        if (!step.combinedWithId) continue
+        const myPos = merged[step.id]
+        const partnerPos = merged[step.combinedWithId]
+        if (!myPos || !partnerPos) continue
+        const adjacentX = myPos.x + NODE_W + 20
+        const adjacentY = myPos.y
+        const isAdjacent =
+          Math.abs(partnerPos.x - adjacentX) < 4 && Math.abs(partnerPos.y - adjacentY) < 4
+        if (!isAdjacent) {
+          merged[step.combinedWithId] = { x: adjacentX, y: adjacentY }
+        }
+      }
+
+      // Avoid spurious re-renders when nothing actually moved
+      const prevKeys = Object.keys(prev)
+      const mergedKeys = Object.keys(merged)
+      if (prevKeys.length === mergedKeys.length) {
+        let identical = true
+        for (const k of mergedKeys) {
+          if (!(k in prev) || prev[k].x !== merged[k].x || prev[k].y !== merged[k].y) {
+            identical = false
+            break
+          }
+        }
+        if (identical) return prev
+      }
+
       return merged
     })
-  }, [computeLayout])
+  }, [computeLayout, steps])
 
   // Generate video thumbnails with cover-crop
   useEffect(() => {
