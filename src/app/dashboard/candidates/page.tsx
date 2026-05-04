@@ -141,12 +141,17 @@ export default function CandidatesPage() {
   }
 
   // Group candidates by resolved stage. Legacy statuses fall through to the
-  // mapped default stage; unknown ids go to the first stage.
+  // mapped default stage; unknown ids go to the first stage. Sort each column
+  // chronologically (oldest applied first) so candidates who've been sitting
+  // longest float to the top — FIFO surface for follow-up.
   const grouped = useMemo(() => {
     const g: Record<string, Candidate[]> = Object.fromEntries(stages.map((s) => [s.id, []]))
     for (const c of candidates) {
       const stage = resolveStage(c.pipelineStatus, stages)
       g[stage.id].push(c)
+    }
+    for (const id of Object.keys(g)) {
+      g[id].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
     }
     return g
   }, [candidates, stages])

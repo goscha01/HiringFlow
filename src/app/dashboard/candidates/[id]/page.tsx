@@ -156,6 +156,15 @@ export default function CandidateDetailPage() {
 
   const currentStepIdx = PIPELINE_STEPS.findIndex(s => s.value === candidate.pipelineStatus)
 
+  // Most recent scheduling event with a meeting URL (schedulingEvents is
+  // returned newest-first by the API). Used for the "Meeting" info card.
+  const latestMeeting = candidate.schedulingEvents.find(e => {
+    const url = (e.metadata as Record<string, unknown> | null)?.meetingUrl
+    return typeof url === 'string' && url.length > 0
+  })
+  const latestMeetingUrl = latestMeeting ? String((latestMeeting.metadata as Record<string, any>).meetingUrl) : null
+  const latestMeetingAt = latestMeeting ? String((latestMeeting.metadata as Record<string, any>).scheduledAt || latestMeeting.eventAt) : null
+
   // Build timeline events
   const timeline: { label: string; time: string; type: string; detail?: string }[] = []
   timeline.push({ label: 'Applied / Flow started', time: candidate.startedAt, type: 'start' })
@@ -334,11 +343,16 @@ export default function CandidateDetailPage() {
       </div>
 
       {/* Info cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className={`grid grid-cols-2 ${latestMeetingUrl ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-3 mb-6`}>
         <div className="bg-white rounded-[8px] border border-surface-border p-4">
           <div className="text-xs text-grey-40 mb-1">Source</div>
           <div className="text-sm font-medium text-grey-15 capitalize">{candidate.ad?.source || candidate.source || 'Direct'}</div>
-          {candidate.ad && <div className="text-xs text-grey-40 mt-0.5">{candidate.ad.name}</div>}
+          {candidate.ad && <div className="text-xs text-grey-40 mt-0.5 truncate" title={candidate.ad.name}>{candidate.ad.name}</div>}
+          {candidate.campaign && (
+            <div className="text-xs text-grey-40 mt-0.5 truncate" title={candidate.campaign}>
+              <span className="text-grey-50">Campaign:</span> {candidate.campaign}
+            </div>
+          )}
         </div>
         <div className="bg-white rounded-[8px] border border-surface-border p-4">
           <div className="text-xs text-grey-40 mb-1">Outcome</div>
@@ -346,6 +360,23 @@ export default function CandidateDetailPage() {
             {candidate.outcome ? candidate.outcome.charAt(0).toUpperCase() + candidate.outcome.slice(1) : 'In progress'}
           </div>
         </div>
+        {latestMeetingUrl && (
+          <div className="bg-white rounded-[8px] border border-surface-border p-4">
+            <div className="text-xs text-grey-40 mb-1">Meeting</div>
+            <a
+              href={latestMeetingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-brand-600 hover:underline truncate block"
+              title={latestMeetingUrl}
+            >
+              Open meeting link
+            </a>
+            {latestMeetingAt && (
+              <div className="text-xs text-grey-40 mt-0.5">{new Date(latestMeetingAt).toLocaleString()}</div>
+            )}
+          </div>
+        )}
         <div className="bg-white rounded-[8px] border border-surface-border p-4">
           <div className="text-xs text-grey-40 mb-1">Answers</div>
           <div className="text-sm font-medium text-grey-15">{candidate.answers.length}</div>
