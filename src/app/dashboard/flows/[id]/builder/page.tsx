@@ -149,6 +149,11 @@ export default function FlowBuilderPage() {
   const [stepVideoProgress, setStepVideoProgress] = useState(0)
   const [autoTitleEnabled, setAutoTitleEnabled] = useState(true)
   const [combineAfterCreateId, setCombineAfterCreateId] = useState<string | null>(null)
+  const [pendingArrowInsertion, setPendingArrowInsertion] = useState<
+    | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
+    | { kind: 'button'; fromStepId: string; toStepId: string }
+    | null
+  >(null)
   const [titleWarning, setTitleWarning] = useState(false)
   const stepVideoInputRef = useRef<HTMLInputElement>(null)
 
@@ -184,6 +189,54 @@ export default function FlowBuilderPage() {
           body: JSON.stringify({ combinedWithId: newStep.id }),
         })
         setCombineAfterCreateId(null)
+      }
+
+      // Auto-wire connections when triggered from "+" on a connection
+      if (pendingArrowInsertion) {
+        const info = pendingArrowInsertion
+        // After: route the new step forward to the original target.
+        // Question-type uses an option; other types use buttonConfig.
+        if (newStep.stepType === 'question') {
+          await fetch(`/api/steps/${newStep.id}/options`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ optionText: 'Continue', nextStepId: info.toStepId }),
+          })
+        } else {
+          await fetch(`/api/steps/${newStep.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              buttonConfig: {
+                ...(newStep.buttonConfig ?? {}),
+                enabled: true,
+                text: newStep.buttonConfig?.text || 'Continue',
+                nextStepId: info.toStepId,
+              },
+            }),
+          })
+        }
+        // Before: re-point the source connection to the new step
+        if (info.kind === 'option') {
+          await fetch(`/api/options/${info.optionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nextStepId: newStep.id }),
+          })
+        } else {
+          const sourceStep = flow?.steps.find((s) => s.id === info.fromStepId)
+          await fetch(`/api/steps/${info.fromStepId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              buttonConfig: {
+                ...(sourceStep?.buttonConfig ?? { enabled: true, text: 'Continue' }),
+                nextStepId: newStep.id,
+              },
+            }),
+          })
+        }
+        setPendingArrowInsertion(null)
       }
 
       await fetchFlow()
@@ -539,102 +592,15 @@ export default function FlowBuilderPage() {
     }
   }
 
-  const insertStepOnArrow = async (
+  const insertStepOnArrow = (
     info:
       | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
       | { kind: 'button'; fromStepId: string; toStepId: string }
   ) => {
-    if (!flow) return
-    markChanged()
-
-    // Create the new step (default: question, single, untitled)
-    const createRes = await fetch(`/api/flows/${flowId}/steps`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: 'New Step',
-        stepType: 'question',
-        questionType: 'single',
-      }),
-    })
-    if (!createRes.ok) return
-    const newStep = await createRes.json()
-    let newStepLocal: Step = {
-      ...newStep,
-      video: newStep.video ?? null,
-      options: newStep.options ?? [],
-      buttonConfig: newStep.buttonConfig ?? null,
-    }
-
-    if (info.kind === 'option') {
-      // New step gets an option that points to the original target
-      const optRes = await fetch(`/api/steps/${newStep.id}/options`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ optionText: 'Continue', nextStepId: info.toStepId }),
-      })
-      if (optRes.ok) {
-        const newOpt = await optRes.json()
-        newStepLocal = {
-          ...newStepLocal,
-          options: [...newStepLocal.options, newOpt],
-        }
-      }
-      // Source's existing option now points to the new step
-      await fetch(`/api/options/${info.optionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nextStepId: newStep.id }),
-      })
-    } else {
-      // Button arrow: new step's buttonConfig forwards to the original target
-      const newButtonForNewStep = { enabled: true, text: 'Continue', nextStepId: info.toStepId }
-      await fetch(`/api/steps/${newStep.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buttonConfig: newButtonForNewStep }),
-      })
-      newStepLocal = { ...newStepLocal, buttonConfig: newButtonForNewStep }
-
-      // Source's buttonConfig now points to the new step (preserve label/enabled)
-      const sourceStep = flow.steps.find((s) => s.id === info.fromStepId)
-      const sourceButton = {
-        ...(sourceStep?.buttonConfig ?? { enabled: true, text: 'Continue' }),
-        nextStepId: newStep.id,
-      }
-      await fetch(`/api/steps/${info.fromStepId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buttonConfig: sourceButton }),
-      })
-    }
-
-    // Optimistic local update
-    setFlow((f) => {
-      if (!f) return null
-      const updatedSteps = f.steps.map((s) => {
-        if (info.kind === 'option' && s.id === info.fromStepId) {
-          return {
-            ...s,
-            options: s.options.map((o) =>
-              o.id === info.optionId ? { ...o, nextStepId: newStep.id } : o
-            ),
-          }
-        }
-        if (info.kind === 'button' && s.id === info.fromStepId) {
-          return {
-            ...s,
-            buttonConfig: { ...(s.buttonConfig ?? {}), nextStepId: newStep.id },
-          }
-        }
-        return s
-      })
-      return { ...f, steps: [...updatedSteps, newStepLocal] }
-    })
-
-    // Open the new step for editing
-    setSelectedStepId(newStep.id)
-    setPopupStepId(newStep.id)
+    // Stash the connection wiring; open the regular Add Step modal so the
+    // user picks the step type. After creation, createStep() applies the wiring.
+    setPendingArrowInsertion(info)
+    addStep()
   }
 
   const deleteOption = async (stepId: string, optionId: string) => {
@@ -1596,7 +1562,7 @@ export default function FlowBuilderPage() {
                   {!addStepType ? 'Add Step' : addStepType === 'submission' ? 'Video Step' : addStepType === 'question' ? 'Question Step' : addStepType === 'form' ? 'Form Step' : 'Screen Step'}
                 </h2>
               </div>
-              <button onClick={() => setShowAddStepModal(false)} className="text-grey-40 hover:text-grey-15 text-xl">&times;</button>
+              <button onClick={() => { setShowAddStepModal(false); setPendingArrowInsertion(null) }} className="text-grey-40 hover:text-grey-15 text-xl">&times;</button>
             </div>
 
             <div className="p-6">
@@ -1761,7 +1727,7 @@ export default function FlowBuilderPage() {
                   </div>
 
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => setShowAddStepModal(false)} className="btn-secondary flex-1">Cancel</button>
+                    <button onClick={() => { setShowAddStepModal(false); setPendingArrowInsertion(null) }} className="btn-secondary flex-1">Cancel</button>
                     <button onClick={submitAddStep} disabled={uploadingStepVideo} className="btn-primary flex-1 disabled:opacity-50">Save</button>
                   </div>
                 </div>
@@ -1814,7 +1780,7 @@ export default function FlowBuilderPage() {
                     </div>
                   )}
                   <div className="flex gap-3 pt-2">
-                    <button onClick={() => setShowAddStepModal(false)} className="btn-secondary flex-1">Cancel</button>
+                    <button onClick={() => { setShowAddStepModal(false); setPendingArrowInsertion(null) }} className="btn-secondary flex-1">Cancel</button>
                     <button onClick={submitAddStep} className="btn-primary flex-1">Save</button>
                   </div>
                 </div>

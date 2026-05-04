@@ -266,9 +266,25 @@ export default function FlowSchemaView({
     return posMap
   }, [steps])
 
-  // Init layout on steps change
+  // Layout: preserve user-dragged positions across step edits.
+  // Only recompute when the set of step IDs actually changes (add/remove),
+  // and even then keep positions for steps the user already placed.
   useEffect(() => {
-    setPositions(computeLayout())
+    setPositions((prev) => {
+      const layout = computeLayout()
+      const layoutIds = Object.keys(layout)
+      const prevIds = Object.keys(prev)
+      const sameTopology =
+        prevIds.length === layoutIds.length &&
+        layoutIds.every((id) => id in prev)
+      if (sameTopology && prevIds.length > 0) return prev
+      // Topology changed — keep existing positions, fill in new ones from layout
+      const merged: Record<string, NodePos> = {}
+      for (const id of layoutIds) {
+        merged[id] = prev[id] ?? layout[id]
+      }
+      return merged
+    })
   }, [computeLayout])
 
   // Generate video thumbnails with cover-crop
