@@ -100,6 +100,36 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     },
   })
 
+  // Attach a placeholder InterviewMeeting so {{meeting_link}} and
+  // {{meeting_time}} render meaningfully in the test email/SMS. The
+  // executeRule path always reads the latest InterviewMeeting for the
+  // session — without one, those tokens render as empty strings, which
+  // looks broken even though it'll populate correctly for real candidates.
+  // Schedule for tomorrow at 14:00 local server time (matches the preview
+  // sample date so test ↔ preview are consistent).
+  const meetingStart = new Date()
+  meetingStart.setDate(meetingStart.getDate() + 1)
+  meetingStart.setHours(14, 0, 0, 0)
+  const meetingEnd = new Date(meetingStart.getTime() + 30 * 60 * 1000)
+  await prisma.interviewMeeting.create({
+    data: {
+      workspaceId: ws.workspaceId,
+      sessionId: session.id,
+      meetSpaceName: `spaces/test-${session.id}`,
+      meetingCode: 'test-abc-defg',
+      meetingUri: 'https://meet.google.com/test-abc-defg',
+      googleCalendarEventId: `test-${session.id}`,
+      scheduledStart: meetingStart,
+      scheduledEnd: meetingEnd,
+      recordingEnabled: false,
+      recordingState: 'disabled',
+      transcriptState: 'disabled',
+    },
+  }).catch((err) => {
+    // Non-fatal — the test still runs, just without {{meeting_link}}.
+    console.warn('[automation/test] could not seed placeholder InterviewMeeting:', (err as Error).message)
+  })
+
   // Run the rule against the real session. Uses the same code path as a real
   // trigger — renders template, sends email/SMS, writes AutomationExecution,
   // logs SchedulingEvent (if next step is scheduling), chains downstream rules.
