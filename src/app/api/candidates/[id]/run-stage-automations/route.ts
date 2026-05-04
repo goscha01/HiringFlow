@@ -1,0 +1,120 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getWorkspaceSession, unauthorized } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { executeRule } from '@/lib/automation'
+import { normalizeStages, type StageTriggerEvent } from '@/lib/funnel-stages'
+
+// Manually fire all automations attached (via funnel-stage triggers) to a
+// given stage, for one candidate. Each stage has zero or more StageTriggers
+// (event + optional targetId). For every trigger event we find active
+// AutomationRules that share the same triggerType and either match the
+// candidate's flowId or have no flow filter, then run them immediately —
+// delays are intentionally ignored: the recruiter is asking for it to fire
+// *now* for *this* candidate.
+//
+// GET returns the same matched-rule list without firing, so the UI can show
+// a count / button-enabled state.
+
+interface MatchedRule {
+  id: string
+  name: string
+  triggerType: string
+  isActive: boolean
+}
+
+async function findMatchingRules(opts: {
+  workspaceId: string
+  stageId: string
+  flowId: string
+}): Promise<{ stageExists: boolean; events: StageTriggerEvent[]; rules: MatchedRule[] }> {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: opts.workspaceId },
+    select: { settings: true },
+  })
+  const stages = normalizeStages((ws?.settings as { funnelStages?: unknown } | null)?.funnelStages)
+  const stage = stages.find((s) => s.id === opts.stageId)
+  if (!stage) return { stageExists: false, events: [], rules: [] }
+
+  const triggers = stage.triggers ?? []
+  if (triggers.length === 0) return { stageExists: true, events: [], rules: [] }
+
+  const events = Array.from(new Set(triggers.map((t) => t.event)))
+
+  const rules = await prisma.automationRule.findMany({
+    where: {
+      workspaceId: opts.workspaceId,
+      isActive: true,
+      triggerType: { in: events },
+      OR: [{ flowId: opts.flowId }, { flowId: null }],
+    },
+    select: { id: true, name: true, triggerType: true, isActive: true },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  return { stageExists: true, events, rules }
+}
+
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
+  const stageId = request.nextUrl.searchParams.get('stageId')
+  if (!stageId) return NextResponse.json({ error: 'stageId is required' }, { status: 400 })
+
+  const session = await prisma.session.findFirst({
+    where: { id: params.id, workspaceId: ws.workspaceId },
+    select: { id: true, flowId: true },
+  })
+  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const { stageExists, events, rules } = await findMatchingRules({
+    workspaceId: ws.workspaceId,
+    stageId,
+    flowId: session.flowId,
+  })
+  if (!stageExists) return NextResponse.json({ error: 'Stage not found' }, { status: 404 })
+
+  return NextResponse.json({ events, rules })
+}
+
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const ws = await getWorkspaceSession()
+  if (!ws) return unauthorized()
+
+  const { stageId } = await request.json().catch(() => ({})) as { stageId?: string }
+  if (!stageId || typeof stageId !== 'string') {
+    return NextResponse.json({ error: 'stageId is required' }, { status: 400 })
+  }
+
+  const session = await prisma.session.findFirst({
+    where: { id: params.id, workspaceId: ws.workspaceId },
+    select: { id: true, flowId: true },
+  })
+  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const { stageExists, rules } = await findMatchingRules({
+    workspaceId: ws.workspaceId,
+    stageId,
+    flowId: session.flowId,
+  })
+  if (!stageExists) return NextResponse.json({ error: 'Stage not found' }, { status: 404 })
+  if (rules.length === 0) return NextResponse.json({ fired: 0, results: [] })
+
+  const results: Array<{ ruleId: string; name: string; ok: boolean; error?: string }> = []
+  for (const rule of rules) {
+    try {
+      await executeRule(rule.id, session.id)
+      results.push({ ruleId: rule.id, name: rule.name, ok: true })
+    } catch (err) {
+      results.push({
+        ruleId: rule.id,
+        name: rule.name,
+        ok: false,
+        error: err instanceof Error ? err.message : 'Execution failed',
+      })
+    }
+  }
+
+  const fired = results.filter((r) => r.ok).length
+  return NextResponse.json({ fired, results })
+}

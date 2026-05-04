@@ -395,6 +395,7 @@ model Session {
   schedulingEvents     SchedulingEvent[]
   aiCalls              AICall[]
   interviewMeetings    InterviewMeeting[]
+  notes                CandidateNote[]
 
   @@map("sessions")
 }
@@ -428,6 +429,24 @@ model CandidateSubmission {
 
   @@unique([sessionId, stepId])
   @@map("candidate_submissions")
+}
+
+// Recruiter-authored notes on a candidate. authorId/authorName are
+// snapshot strings (no FK relation to keep it simple and so a deleted
+// user doesn't cascade-delete the note's authorship).
+model CandidateNote {
+  id          String   @id @default(uuid())
+  sessionId   String   @map("session_id")
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  workspaceId String   @map("workspace_id")
+  authorId    String?  @map("author_id")
+  authorName  String?  @map("author_name")
+  body        String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([sessionId, createdAt])
+  @@map("candidate_notes")
 }
 
 // ============ TRAININGS ============

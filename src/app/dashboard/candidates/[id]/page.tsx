@@ -3,7 +3,14 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import {
+  DEFAULT_FUNNEL_STAGES,
+  type FunnelStage,
+  normalizeStages,
+  resolveStage,
+} from '@/lib/funnel-stages'
 import { InterviewPanel } from './_InterviewPanel'
+import { NotesPanel } from './_NotesPanel'
 
 interface Answer {
   id: string; answeredAt: string
@@ -51,16 +58,6 @@ interface CandidateDetail {
 
 const REJECTION_PRESETS = ['No-show', 'Not qualified', 'Declined offer', 'Wrong location', 'Pay expectations']
 
-const PIPELINE_STEPS = [
-  { value: 'applied', label: 'Applied' },
-  { value: 'completed_flow', label: 'Completed Flow' },
-  { value: 'passed', label: 'Passed' },
-  { value: 'training_in_progress', label: 'Training' },
-  { value: 'training_completed', label: 'Trained' },
-  { value: 'invited_to_schedule', label: 'Invited' },
-  { value: 'scheduled', label: 'Scheduled' },
-]
-
 export default function CandidateDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -69,10 +66,52 @@ export default function CandidateDetailPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'answers' | 'submissions' | 'timeline'>('answers')
   const [deleting, setDeleting] = useState(false)
+  const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
+  // Stage the user has clicked on but not yet committed via "Run automations".
+  // null when no preview is active; the candidate's actual stage drives display.
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
+  const [stageRuleCounts, setStageRuleCounts] = useState<Record<string, number>>({})
+  const [runningAutomations, setRunningAutomations] = useState(false)
+  const [automationToast, setAutomationToast] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`/api/candidates/${id}`).then(r => r.json()).then(d => { setCandidate(d); setLoading(false) })
   }, [id])
+
+  useEffect(() => {
+    fetch('/api/workspace/settings')
+      .then((r) => r.json())
+      .then((d) => {
+        const raw = (d?.settings as { funnelStages?: unknown } | null)?.funnelStages
+        setStages(normalizeStages(raw))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Active rule counts per stage. Computed from active workspace rules whose
+  // triggerType matches one of the stage's trigger events AND whose flowId is
+  // either null (any flow) or matches the candidate's flow. Lets us disable
+  // the "Run automations" button when nothing would actually fire.
+  useEffect(() => {
+    if (!candidate?.flow?.id) return
+    fetch('/api/automations')
+      .then((r) => r.json())
+      .then((rules: Array<{ id: string; isActive: boolean; triggerType: string; flowId: string | null }>) => {
+        const candidateFlowId = candidate.flow!.id
+        const counts: Record<string, number> = {}
+        for (const stage of stages) {
+          const events = new Set((stage.triggers ?? []).map((t) => t.event))
+          if (events.size === 0) { counts[stage.id] = 0; continue }
+          counts[stage.id] = rules.filter((r) =>
+            r.isActive
+            && events.has(r.triggerType as never)
+            && (r.flowId === null || r.flowId === candidateFlowId),
+          ).length
+        }
+        setStageRuleCounts(counts)
+      })
+      .catch(() => {})
+  }, [stages, candidate?.flow?.id])
 
   const updateStatus = async (pipelineStatus: string) => {
     await fetch(`/api/candidates/${id}`, {
@@ -159,7 +198,56 @@ export default function CandidateDetailPage() {
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
   if (!candidate) return <div className="text-center py-12 text-grey-40">Candidate not found</div>
 
-  const currentStepIdx = PIPELINE_STEPS.findIndex(s => s.value === candidate.pipelineStatus)
+  const activeStage = resolveStage(candidate.pipelineStatus, stages)
+  const previewStage = selectedStageId ? stages.find((s) => s.id === selectedStageId) : null
+  const focusStage = previewStage ?? activeStage
+  const focusStageRuleCount = stageRuleCounts[focusStage.id] ?? 0
+  const focusStageHasTriggers = (focusStage.triggers?.length ?? 0) > 0
+
+  const runStageAutomations = async () => {
+    if (runningAutomations) return
+    if (focusStageRuleCount === 0) return
+    const verb = previewStage ? 'after switching to' : 'for'
+    const ok = confirm(
+      `Fire ${focusStageRuleCount} automation${focusStageRuleCount === 1 ? '' : 's'} ${verb} "${focusStage.label}" now? This will send any configured emails/SMS to the candidate immediately.`,
+    )
+    if (!ok) return
+    setRunningAutomations(true)
+    setAutomationToast(null)
+    try {
+      // If the user clicked into a different stage but hasn't moved the
+      // candidate yet, move them first so the automations fire from the
+      // correct pipeline state (and any stage_changed-style downstream logic
+      // sees consistent data).
+      if (previewStage && previewStage.id !== activeStage.id) {
+        await updateStatus(previewStage.id)
+      }
+      const res = await fetch(`/api/candidates/${id}/run-stage-automations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stageId: focusStage.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Failed to fire automations')
+      const fired: number = data.fired ?? 0
+      const failed = (data.results || []).filter((r: { ok: boolean }) => !r.ok).length
+      setAutomationToast(
+        failed > 0
+          ? `Fired ${fired}, ${failed} failed — see timeline for details.`
+          : `Fired ${fired} automation${fired === 1 ? '' : 's'}.`,
+      )
+      // Refresh candidate so the new AutomationExecution rows appear in the
+      // timeline.
+      fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
+      setSelectedStageId(null)
+    } catch (err) {
+      setAutomationToast(err instanceof Error ? err.message : 'Failed to fire automations')
+    } finally {
+      setRunningAutomations(false)
+      // Auto-clear the toast after 6s.
+      setTimeout(() => setAutomationToast(null), 6000)
+    }
+  }
 
   // Most recent scheduling event with a meeting URL (schedulingEvents is
   // returned newest-first by the API). Used for the "Meeting" info card.
@@ -343,25 +431,100 @@ export default function CandidateDetailPage() {
             </button>
           </div>
         </div>
-        <div className="flex gap-1">
-          {PIPELINE_STEPS.map((step, i) => {
-            const isActive = step.value === candidate.pipelineStatus
-            const isPast = i <= currentStepIdx
+        {/* Stage pills mirror the kanban funnel — one click moves the
+            candidate to that stage; a second click on the same stage just
+            de-selects (you stay on the active one). */}
+        <div className="flex gap-1 flex-wrap">
+          {stages.map((stage) => {
+            const isActive = stage.id === activeStage.id
+            const isPast = stage.order < activeStage.order
+            const isPreview = selectedStageId === stage.id && !isActive
             return (
               <button
-                key={step.value}
-                onClick={() => updateStatus(step.value)}
-                className={`flex-1 py-2.5 text-xs font-medium rounded-[6px] transition-colors ${
-                  isActive ? 'bg-brand-500 text-white' :
-                  isPast ? 'bg-brand-100 text-brand-700' :
-                  'bg-surface text-grey-40 hover:bg-surface-light'
+                key={stage.id}
+                onClick={() => {
+                  if (stage.id === activeStage.id) {
+                    setSelectedStageId(null)
+                    return
+                  }
+                  setSelectedStageId(stage.id)
+                }}
+                title={
+                  isActive
+                    ? 'Current stage'
+                    : `Click to select. Use "Run automations" to fire this stage's automations and move the candidate.`
+                }
+                className={`flex-1 min-w-[110px] py-2.5 text-xs font-medium rounded-[6px] transition-colors border ${
+                  isActive
+                    ? 'bg-brand-500 text-white border-brand-500'
+                    : isPreview
+                    ? 'bg-white text-brand-700 border-brand-500 ring-2 ring-brand-500/30'
+                    : isPast
+                    ? 'bg-brand-100 text-brand-700 border-transparent'
+                    : 'bg-surface text-grey-40 hover:bg-surface-light border-transparent'
                 }`}
               >
-                {step.label}
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: isActive ? 'rgba(255,255,255,0.85)' : stage.color }}
+                  />
+                  {stage.label}
+                </span>
               </button>
             )
           })}
         </div>
+
+        {/* Run-automations control sits below the pills so the action is
+            always reachable. The button targets the *focus* stage — the one
+            the user just clicked, or the candidate's current stage if no
+            preview is active. Disabled when no active rules match. */}
+        <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs text-grey-40">
+            {previewStage ? (
+              <>
+                Selected: <span className="font-medium text-grey-15">{previewStage.label}</span>
+                {previewStage.id !== activeStage.id && (
+                  <span className="ml-1.5 text-grey-50">— running automations also moves candidate here</span>
+                )}
+              </>
+            ) : (
+              <>
+                Current: <span className="font-medium text-grey-15">{activeStage.label}</span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {previewStage && previewStage.id !== activeStage.id && (
+              <button
+                onClick={() => { updateStatus(previewStage.id); setSelectedStageId(null) }}
+                className="text-xs px-3 py-1.5 rounded-[6px] border border-surface-border text-grey-15 hover:bg-surface-light font-medium"
+              >
+                Just move (no automations)
+              </button>
+            )}
+            <button
+              onClick={runStageAutomations}
+              disabled={!focusStageHasTriggers || focusStageRuleCount === 0 || runningAutomations}
+              title={
+                !focusStageHasTriggers
+                  ? 'This stage has no triggers configured. Add triggers in Stages settings.'
+                  : focusStageRuleCount === 0
+                  ? 'No active automations match this stage’s triggers.'
+                  : 'Fire matching automations for this candidate now'
+              }
+              className="text-xs px-3 py-1.5 rounded-[6px] bg-brand-500 text-white hover:bg-brand-600 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {runningAutomations ? 'Firing…' : `Run automations${focusStageRuleCount > 0 ? ` (${focusStageRuleCount})` : ''}`}
+            </button>
+          </div>
+        </div>
+        {automationToast && (
+          <div className="mt-2 text-xs px-3 py-2 rounded-[6px] bg-brand-50 text-brand-700 border border-brand-100">
+            {automationToast}
+          </div>
+        )}
       </div>
 
       {/* Info cards */}
@@ -413,6 +576,9 @@ export default function CandidateDetailPage() {
           the panel self-hides if the feature flag / scopes aren't active, so
           this never affects workspaces still on the Calendly flow) */}
       <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} isRebook={candidate.isRebook} />
+
+      {/* Internal notes — recruiter-only, not shown to the candidate */}
+      <NotesPanel candidateId={id} />
 
       {/* Form data */}
       {candidate.formData && Object.keys(candidate.formData).length > 0 && (
