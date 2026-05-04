@@ -161,6 +161,8 @@ export default function FlowBuilderPage() {
   const [addStepImageUrl, setAddStepImageUrl] = useState<string | null>(null)
   const [addStepButtonEnabled, setAddStepButtonEnabled] = useState(false)
   const [addStepButtonText, setAddStepButtonText] = useState('Continue')
+  // Action-button "next step" target. null = auto, '__end__' = End, else stepId.
+  const [addStepButtonNextStepId, setAddStepButtonNextStepId] = useState<string | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadingStepVideo, setUploadingStepVideo] = useState(false)
   const [stepVideoProgress, setStepVideoProgress] = useState(0)
@@ -175,6 +177,23 @@ export default function FlowBuilderPage() {
   >(null)
   const [titleWarning, setTitleWarning] = useState(false)
   const stepVideoInputRef = useRef<HTMLInputElement>(null)
+
+  // When the user clicks "+" on a connection, pre-populate the new step's
+  // outgoing target with the current connection's destination so the modal
+  // already shows where the new step will route to. Runs after addStep()'s
+  // resets because effects fire after state commits.
+  useEffect(() => {
+    if (!pendingArrowInsertion) return
+    const target =
+      pendingArrowInsertion.kind === 'end'
+        ? '__end__'
+        : (pendingArrowInsertion as { toStepId?: string }).toStepId ?? null
+    if (target == null) return
+    setAddStepButtonNextStepId(target)
+    setAddStepOptions((prev) =>
+      prev.length > 0 ? prev.map((o, i) => (i === 0 ? { ...o, nextStepId: target } : o)) : prev
+    )
+  }, [pendingArrowInsertion])
 
   const createStep = async (stepType: string, config?: Record<string, unknown>) => {
     markChanged()
@@ -228,15 +247,22 @@ export default function FlowBuilderPage() {
         // After: route the new step forward to the original target. Skip for
         // 'end' inserts — the new step is now the last step, so the implicit
         // last → End arrow takes care of forwarding.
+        // Also skip if the user already routed the step via the modal (the
+        // pre-populated dropdown / first option), which is the common path.
         const afterTargetId = info.kind === 'end' ? null : info.toStepId
         if (afterTargetId) {
           if (newStep.stepType === 'question') {
-            await fetch(`/api/steps/${newStep.id}/options`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ optionText: 'Continue', nextStepId: afterTargetId }),
-            })
-          } else {
+            const alreadyRouted = (newStep.options ?? []).some(
+              (o: { nextStepId?: string | null }) => o.nextStepId === afterTargetId
+            )
+            if (!alreadyRouted) {
+              await fetch(`/api/steps/${newStep.id}/options`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ optionText: 'Continue', nextStepId: afterTargetId }),
+              })
+            }
+          } else if (!newStep.buttonConfig?.nextStepId) {
             await fetch(`/api/steps/${newStep.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
@@ -317,6 +343,7 @@ export default function FlowBuilderPage() {
     setAddStepImageUrl(null)
     setAddStepButtonEnabled(false)
     setAddStepButtonText('Continue')
+    setAddStepButtonNextStepId(null)
     setUploadingImage(false)
     setAddStepFormFields([
       { id: 'name', label: 'Full Name', type: 'text', required: true, enabled: true, isBuiltIn: true },
@@ -419,10 +446,17 @@ export default function FlowBuilderPage() {
     finalTitle = makeUnique(finalTitle)
     setTitleWarning(false)
 
+    const buttonNext = addStepButtonNextStepId
+    const buttonConfigBase = (): Record<string, unknown> => ({
+      enabled: true,
+      text: addStepButtonText || 'Continue',
+      ...(buttonNext != null && { nextStepId: buttonNext }),
+    })
+
     if (addStepType === 'submission') {
       config.title = finalTitle
       config.videoId = addStepVideoId || undefined
-      if (addStepButtonEnabled) config.buttonConfig = { enabled: true, text: addStepButtonText || 'Continue' }
+      if (addStepButtonEnabled) config.buttonConfig = buttonConfigBase()
     } else if (addStepType === 'question') {
       config.title = finalTitle
       config.questionText = addStepQuestion
@@ -435,7 +469,7 @@ export default function FlowBuilderPage() {
       config.title = addStepTitle.trim() || 'Welcome'
       config.infoContent = addStepInfoText
       if (addStepImageUrl) config.formConfig = { imageUrl: addStepImageUrl }
-      if (addStepButtonEnabled) config.buttonConfig = { enabled: true, text: addStepButtonText || 'Continue' }
+      if (addStepButtonEnabled) config.buttonConfig = buttonConfigBase()
     }
     createStep(addStepType, config)
   }
@@ -1790,7 +1824,11 @@ export default function FlowBuilderPage() {
                           placeholder="Continue"
                           className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
                         />
-                        <select className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40">
+                        <select
+                          value={addStepButtonNextStepId ?? ''}
+                          onChange={(e) => setAddStepButtonNextStepId(e.target.value || null)}
+                          className="w-full px-3 py-1.5 text-xs border border-surface-border rounded-[8px] text-grey-40"
+                        >
                           <option value="">→ Next step (auto)</option>
                           <option value="__end__">→ End</option>
                           {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}

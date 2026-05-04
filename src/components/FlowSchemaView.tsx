@@ -296,6 +296,46 @@ export default function FlowSchemaView({
     return posMap
   }, [steps])
 
+  // When the selected step changes, pan the canvas to bring it into view if
+  // it isn't already on-screen. Important for newly-created steps that land
+  // outside the current viewport (e.g. column-0-stack for unconnected adds).
+  const lastPannedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedStepId) return
+    if (lastPannedRef.current === selectedStepId) return
+    const pos = positions[selectedStepId]
+    if (!pos) return
+    const container = containerRef.current
+    if (!container) return
+    lastPannedRef.current = selectedStepId
+
+    const w = container.clientWidth
+    const h = container.clientHeight
+    const isSpecial = selectedStepId === START_ID || selectedStepId === END_ID
+    const stepW = isSpecial ? SPECIAL_W : NODE_W
+    const stepH = isSpecial ? SPECIAL_H : NODE_H
+    const screenX = pos.x * scale + pan.x
+    const screenY = pos.y * scale + pan.y
+    const screenRight = screenX + stepW * scale
+    const screenBottom = screenY + stepH * scale
+    const padding = 40
+    const offScreen =
+      screenX < padding ||
+      screenY < padding ||
+      screenRight > w - padding ||
+      screenBottom > h - padding
+    if (offScreen) {
+      setPan({
+        x: w / 2 - (pos.x + stepW / 2) * scale,
+        y: h / 2 - (pos.y + stepH / 2) * scale,
+      })
+    }
+    // pan/scale read directly so they're current; intentionally not in deps
+    // to avoid re-firing on every pan tweak — the lastPannedRef guard is the
+    // real protection against re-firing for the same step.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStepId, positions])
+
   // Layout: preserve user-dragged positions across step edits.
   // Only recompute layout for newly-added IDs (insert/add); existing positions
   // are preserved. Combined partners are snapped adjacent regardless.
