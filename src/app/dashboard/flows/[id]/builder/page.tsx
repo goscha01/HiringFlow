@@ -152,6 +152,8 @@ export default function FlowBuilderPage() {
   const [pendingArrowInsertion, setPendingArrowInsertion] = useState<
     | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
     | { kind: 'button'; fromStepId: string; toStepId: string }
+    | { kind: 'start'; toStepId: string }
+    | { kind: 'end'; fromStepId: string }
     | null
   >(null)
   const [titleWarning, setTitleWarning] = useState(false)
@@ -194,28 +196,45 @@ export default function FlowBuilderPage() {
       // Auto-wire connections when triggered from "+" on a connection
       if (pendingArrowInsertion) {
         const info = pendingArrowInsertion
-        // After: route the new step forward to the original target.
-        // Question-type uses an option; other types use buttonConfig.
-        if (newStep.stepType === 'question') {
-          await fetch(`/api/steps/${newStep.id}/options`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ optionText: 'Continue', nextStepId: info.toStepId }),
-          })
-        } else {
+
+        // For 'start' insert, the new step must become the new first step.
+        // The API gave it stepOrder = max+1, so PATCH it to (currentMin - 1).
+        if (info.kind === 'start') {
+          const minOrder = Math.min(...(flow?.steps ?? []).map((s) => s.stepOrder), newStep.stepOrder) - 1
           await fetch(`/api/steps/${newStep.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              buttonConfig: {
-                ...(newStep.buttonConfig ?? {}),
-                enabled: true,
-                text: newStep.buttonConfig?.text || 'Continue',
-                nextStepId: info.toStepId,
-              },
-            }),
+            body: JSON.stringify({ stepOrder: minOrder }),
           })
         }
+
+        // After: route the new step forward to the original target. Skip for
+        // 'end' inserts — the new step is now the last step, so the implicit
+        // last → End arrow takes care of forwarding.
+        const afterTargetId = info.kind === 'end' ? null : info.toStepId
+        if (afterTargetId) {
+          if (newStep.stepType === 'question') {
+            await fetch(`/api/steps/${newStep.id}/options`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ optionText: 'Continue', nextStepId: afterTargetId }),
+            })
+          } else {
+            await fetch(`/api/steps/${newStep.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                buttonConfig: {
+                  ...(newStep.buttonConfig ?? {}),
+                  enabled: true,
+                  text: newStep.buttonConfig?.text || 'Continue',
+                  nextStepId: afterTargetId,
+                },
+              }),
+            })
+          }
+        }
+
         // Before: re-point the source connection to the new step
         if (info.kind === 'option') {
           await fetch(`/api/options/${info.optionId}`, {
@@ -223,7 +242,7 @@ export default function FlowBuilderPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nextStepId: newStep.id }),
           })
-        } else {
+        } else if (info.kind === 'button') {
           const sourceStep = flow?.steps.find((s) => s.id === info.fromStepId)
           await fetch(`/api/steps/${info.fromStepId}`, {
             method: 'PATCH',
@@ -235,7 +254,33 @@ export default function FlowBuilderPage() {
               },
             }),
           })
+        } else if (info.kind === 'end') {
+          // The original "last step" is no longer last — wire it explicitly to
+          // the new step via buttonConfig (or an option for question types) so
+          // the player still moves forward to the new last step.
+          const sourceStep = flow?.steps.find((s) => s.id === info.fromStepId)
+          if (sourceStep?.stepType === 'question') {
+            await fetch(`/api/steps/${info.fromStepId}/options`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ optionText: 'Continue', nextStepId: newStep.id }),
+            })
+          } else {
+            await fetch(`/api/steps/${info.fromStepId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                buttonConfig: {
+                  ...(sourceStep?.buttonConfig ?? { enabled: true, text: 'Continue' }),
+                  nextStepId: newStep.id,
+                },
+              }),
+            })
+          }
         }
+        // For 'start' insert: no source wiring needed (Start is implicit
+        // because new step is now the first by stepOrder).
+
         setPendingArrowInsertion(null)
       }
 
@@ -621,6 +666,8 @@ export default function FlowBuilderPage() {
     info:
       | { kind: 'option'; optionId: string; fromStepId: string; toStepId: string }
       | { kind: 'button'; fromStepId: string; toStepId: string }
+      | { kind: 'start'; toStepId: string }
+      | { kind: 'end'; fromStepId: string }
   ) => {
     // Stash the connection wiring; open the regular Add Step modal so the
     // user picks the step type. After creation, createStep() applies the wiring.
@@ -1118,6 +1165,8 @@ export default function FlowBuilderPage() {
             onAddStep={addStep}
             onInsertStepOnArrow={insertStepOnArrow}
             onButtonConfigUpdate={updateButtonConfigNext}
+            onClearStartScreen={() => updateFlow({ startMessage: '' })}
+            onClearEndScreen={() => updateFlow({ endMessage: '' })}
           />
 
           {/* Popup editor overlay — key forces re-render on flow change */}
