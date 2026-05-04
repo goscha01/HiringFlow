@@ -16,9 +16,9 @@
 import { PrismaClient } from '@prisma/client'
 import { google } from 'googleapis'
 import { createDecipheriv, createHash } from 'crypto'
-import { findAttendanceForMeeting } from '../src/lib/meet/attendance-fallback'
-import { logSchedulingEvent } from '../src/lib/scheduling'
-import { fireMeetingLifecycleAutomations } from '../src/lib/automation'
+import { findAttendanceForMeeting } from '../../src/lib/meet/attendance-fallback'
+import { logSchedulingEvent } from '../../src/lib/scheduling'
+import { fireMeetingLifecycleAutomations } from '../../src/lib/automation'
 
 const prisma = new PrismaClient()
 const ALGO = 'aes-256-gcm'

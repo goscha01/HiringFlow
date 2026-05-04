@@ -396,6 +396,7 @@ async function emitLifecycleEventOnce(
     eventType,
     metadata: { interviewMeetingId: meeting.id, at: at.toISOString(), ...extra },
   })
+  console.log('[Meet] lifecycle emitted from fallback', { meetingId: meeting.id, eventType, at: at.toISOString(), signal: extra.signal ?? null })
   await fireMeetingLifecycleAutomations(meeting.sessionId, eventType).catch((err) => {
     console.error(`[meet-sync] ${eventType} automations failed:`, err)
   })

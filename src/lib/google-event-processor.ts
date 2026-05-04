@@ -371,5 +371,5 @@ async function reconcileExternalMeetReschedule(
       rawEvents: undefined,
     },
   })
-  console.log('[ReconcileReschedule] re-bound meeting', existing.id, 'to space', newSpace.name)
+  console.log('[Meet] space adopted from reschedule', { meetingId: existing.id, oldSpace: existing.meetSpaceName, newSpace: newSpace.name })
 }
