@@ -75,6 +75,23 @@ export default function FlowBuilderPage() {
     fetchVideos()
   }, [flowId])
 
+  // Mirror the Media library's display preference so video pickers/labels
+  // here show the same names the user picked over there.
+  const [useAutoName, setUseAutoName] = useState(true)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = window.localStorage.getItem('media:useAutoName')
+    if (stored === 'false') setUseAutoName(false)
+    else if (stored === 'true') setUseAutoName(true)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'media:useAutoName') setUseAutoName(e.newValue !== 'false')
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  const videoLabel = (v: { displayName?: string | null; filename: string }) =>
+    useAutoName ? (v.displayName || v.filename) : v.filename
+
   const fetchFlow = async () => {
     const res = await fetch(`/api/flows/${flowId}`)
     if (res.ok) {
@@ -1245,7 +1262,7 @@ export default function FlowBuilderPage() {
                               className="flex-1 px-4 py-2.5 text-sm border border-surface-border rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500"
                             >
                               <option value="">Select video...</option>
-                              {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                              {videos.map(v => <option key={v.id} value={v.id}>{videoLabel(v)}</option>)}
                             </select>
                             <label className="px-4 py-2.5 text-xs font-medium bg-brand-50 text-brand-600 border border-brand-200 rounded-[8px] hover:bg-brand-100 cursor-pointer">
                               Upload
@@ -1729,7 +1746,7 @@ export default function FlowBuilderPage() {
                     ) : (
                       <div className="flex items-center gap-3 p-3 bg-brand-50 rounded-[8px] border border-brand-200">
                         <svg className="w-5 h-5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        <span className="text-sm text-brand-700 font-medium flex-1 truncate">{videos.find(v => v.id === addStepVideoId)?.displayName || videos.find(v => v.id === addStepVideoId)?.filename || 'Video selected'}</span>
+                        <span className="text-sm text-brand-700 font-medium flex-1 truncate">{(() => { const sv = videos.find(v => v.id === addStepVideoId); return sv ? videoLabel(sv) : 'Video selected' })()}</span>
                         <button onClick={() => setAddStepVideoId('')} className="text-xs text-brand-500 hover:text-brand-600">Change</button>
                       </div>
                     )}
@@ -1741,7 +1758,7 @@ export default function FlowBuilderPage() {
                           className="w-full px-3 py-2 text-xs border border-surface-border rounded-[8px] text-grey-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
                         >
                           <option value="">Or select from library...</option>
-                          {videos.map(v => <option key={v.id} value={v.id}>{v.displayName || v.filename}</option>)}
+                          {videos.map(v => <option key={v.id} value={v.id}>{videoLabel(v)}</option>)}
                         </select>
                       </div>
                     )}
