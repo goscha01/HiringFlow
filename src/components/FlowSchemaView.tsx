@@ -203,11 +203,33 @@ export default function FlowSchemaView({
     return ids
   }, [steps])
 
-  // Only the last step by order connects to End (single End connection)
+  // The implicit "End" arrow connects from the last step in the flow's
+  // reachable chain (BFS from the first step following options/buttonConfig).
+  // A step that was just added but isn't yet wired up should NOT inherit
+  // the End connection just because it bumped the highest stepOrder.
   const getEndStepId = useCallback((): string | null => {
     if (steps.length === 0) return null
     const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
-    return sorted[sorted.length - 1].id
+    const reachable = new Set<string>()
+    const queue = [sorted[0].id]
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      if (reachable.has(id)) continue
+      reachable.add(id)
+      const step = steps.find((s) => s.id === id)
+      if (!step) continue
+      for (const o of step.options) {
+        if (o.nextStepId && o.nextStepId !== '__end__' && !reachable.has(o.nextStepId)) {
+          queue.push(o.nextStepId)
+        }
+      }
+      const btn = step.buttonConfig?.nextStepId
+      if (btn && btn !== '__end__' && !reachable.has(btn)) queue.push(btn)
+    }
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      if (reachable.has(sorted[i].id)) return sorted[i].id
+    }
+    return null
   }, [steps])
 
   // Compute initial layout
