@@ -229,9 +229,11 @@ export default function AutomationsPage() {
   const [steps, setSteps] = useState<StepShape[]>([newStep(0)])
   // Index of the step the inline template creator is currently bound to.
   const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
-  // When the editor opens (idx becomes non-null), pull it into view.
+  // When the editor opens (idx becomes non-null), pull it into view AND
+  // clear any stale save error from a previous attempt.
   useEffect(() => {
     if (templateEditorStepIdx !== null) {
+      setTplSaveError(null)
       // Defer to next frame so the editor is in the DOM before we scroll.
       requestAnimationFrame(() => {
         tplEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -583,16 +585,25 @@ export default function AutomationsPage() {
     return `${candidate} (custom ${Date.now()})` // last-resort fallback
   }
 
+  const [tplSaveError, setTplSaveError] = useState<string | null>(null)
   const createTemplate = async () => {
-    if (!newTplName.trim() || !newTplSubject.trim() || !newTplBody.trim()) return
+    setTplSaveError(null)
+    if (!newTplName.trim()) { setTplSaveError('Template name is required'); return }
+    if (!newTplSubject.trim()) { setTplSaveError('Subject is required'); return }
+    if (!newTplBody.trim()) { setTplSaveError('Body is required'); return }
     setSavingTpl(true)
     const finalName = resolveUniqueTemplateName(newTplName.trim(), templates)
-    const r = await fetch('/api/email-templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml: newTplBody }),
-    })
-    if (r.ok) {
+    try {
+      const r = await fetch('/api/email-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml: newTplBody }),
+      })
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setTplSaveError(data.error || `Save failed (${r.status})`)
+        return
+      }
       const newTpl = await r.json()
       const tplRes = await fetch('/api/email-templates')
       if (tplRes.ok) setTemplates(await tplRes.json())
@@ -602,8 +613,12 @@ export default function AutomationsPage() {
       }
       setTemplateEditorStepIdx(null)
       setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
+    } catch (err) {
+      setTplSaveError(err instanceof Error ? err.message : 'Save failed')
+      return
+    } finally {
+      setSavingTpl(false)
     }
-    setSavingTpl(false)
   }
 
   const toggle = async (r: Rule) => {
@@ -955,6 +970,7 @@ export default function AutomationsPage() {
                       schedulingConfigs={schedulingConfigs}
                       companyEmail={companyEmail}
                       previewLoading={draftPreviewLoading}
+                      isEditingTemplate={templateEditorStepIdx === idx}
                       onChange={(patch) => updateStep(idx, patch)}
                       onRemove={() => removeStep(idx)}
                       onMoveUp={() => moveStep(idx, -1)}
@@ -972,6 +988,48 @@ export default function AutomationsPage() {
                         setTemplateEditorStepIdx(idx)
                         setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml)
                       }}
+                      editorSlot={templateEditorStepIdx === idx ? (
+                        <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-brand-300/50">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs font-medium text-grey-15">Template editor</div>
+                            <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-grey-40 mb-1">Template Name</label>
+                            <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                            {(() => {
+                              const trimmed = newTplName.trim()
+                              if (!trimmed) return null
+                              const conflict = templates.some((t) => t.name === trimmed)
+                              if (!conflict) return null
+                              const final = resolveUniqueTemplateName(trimmed, templates)
+                              return (
+                                <p className="mt-1 text-[11px] text-blue-700">
+                                  ℹ A template named &ldquo;{trimmed}&rdquo; already exists — this one will be saved as <span className="font-mono font-semibold">{final}</span>.
+                                </p>
+                              )
+                            })()}
+                          </div>
+                          <div>
+                            <label className="block text-xs text-grey-40 mb-1">Subject</label>
+                            <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
+                            <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={8} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                          </div>
+                          <div className="bg-white rounded-[6px] p-2">
+                            <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
+                            <div className="flex flex-wrap gap-1">{['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_link}}', '{{meeting_time}}', '{{source}}', '{{ad_name}}'].map(v => <button key={v} type="button" onClick={() => navigator.clipboard.writeText(v)} className="text-[10px] px-2 py-0.5 bg-surface border border-surface-border rounded text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div>
+                          </div>
+                          {tplSaveError && (
+                            <div className="px-3 py-2 rounded-[6px] bg-red-50 border border-red-200 text-xs text-red-700">
+                              {tplSaveError}
+                            </div>
+                          )}
+                          <button onClick={createTemplate} disabled={savingTpl} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Assign to step'}</button>
+                        </div>
+                      ) : null}
                     />
                   ))}
                 </div>
@@ -983,44 +1041,6 @@ export default function AutomationsPage() {
                 </button>
               </div>
 
-              {/* Inline template editor — bound to the step that opened it */}
-              {templateEditorStepIdx !== null && (
-                <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-brand-300/50">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-medium text-grey-15">Template editor (will be assigned to step {templateEditorStepIdx + 1})</div>
-                    <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-grey-40 mb-1">Template Name</label>
-                    <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                    {(() => {
-                      const trimmed = newTplName.trim()
-                      if (!trimmed) return null
-                      const conflict = templates.some((t) => t.name === trimmed)
-                      if (!conflict) return null
-                      const final = resolveUniqueTemplateName(trimmed, templates)
-                      return (
-                        <p className="mt-1 text-[11px] text-blue-700">
-                          ℹ A template named &ldquo;{trimmed}&rdquo; already exists — this one will be saved as <span className="font-mono font-semibold">{final}</span>.
-                        </p>
-                      )
-                    })()}
-                  </div>
-                  <div>
-                    <label className="block text-xs text-grey-40 mb-1">Subject</label>
-                    <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
-                    <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                  </div>
-                  <div className="bg-white rounded-[6px] p-2">
-                    <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
-                    <div className="flex flex-wrap gap-1">{['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{source}}', '{{ad_name}}'].map(v => <button key={v} onClick={() => navigator.clipboard.writeText(v)} className="text-[10px] px-2 py-0.5 bg-surface border border-surface-border rounded text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div>
-                  </div>
-                  <button onClick={createTemplate} disabled={savingTpl || !newTplName.trim() || !newTplSubject.trim()} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Assign to step'}</button>
-                </div>
-              )}
             </div>
             {saveError && <div className="mt-4 px-3 py-2 rounded-[8px] bg-red-50 border border-red-200 text-xs text-red-700">{saveError}</div>}
             <div className="flex gap-3 mt-6">
@@ -1087,6 +1107,8 @@ function StepCard(props: {
   onInsertTokenInSmsBody: (kind: 'training' | 'scheduling' | 'meet_link') => void
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
+  isEditingTemplate: boolean
+  editorSlot: React.ReactNode
 }) {
   const { step, idx, total, isFirst, triggerType, templates, trainings, schedulingConfigs, companyEmail } = props
   const wantsEmail = step.channel === 'email' || step.channel === 'both'
@@ -1192,6 +1214,9 @@ function StepCard(props: {
                 {props.previewLoading ? 'Loading…' : 'Preview email'}
               </button>
             </div>
+            {props.isEditingTemplate ? (
+              props.editorSlot
+            ) : (
             <div>
               <label className="block text-xs text-grey-40 mb-1">Template</label>
               <select
@@ -1285,6 +1310,7 @@ function StepCard(props: {
                 ))}
               </div>
             </div>
+            )}
             <div>
               <label className="block text-xs text-grey-40 mb-1">Send to</label>
               <div className="flex gap-2">
