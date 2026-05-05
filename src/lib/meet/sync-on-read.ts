@@ -26,7 +26,7 @@ import type { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../prisma'
 import { fetchUserInfo, getAuthedClientForWorkspace, hasSheetsScope } from '../google'
 import { withWorkspaceMeetClient, listConferenceRecords, listParticipants, listRecordings, type Participant } from './google-meet'
-import { findMeetRecordingsFolderId, searchMeetRecordings } from './google-drive'
+import { findMeetRecordingsFolderId, searchMeetRecordings, searchMeetTranscripts } from './google-drive'
 import { findAttendanceForMeeting, type AttendanceSignal } from './attendance-fallback'
 import { logSchedulingEvent } from '../scheduling'
 import { fireMeetingLifecycleAutomations } from '../automation'
@@ -49,7 +49,8 @@ const ATTENDANCE_SHEET_WAIT_MS = 6 * 60 * 60 * 1000
 
 type SyncableMeeting = Pick<InterviewMeeting,
   'id' | 'workspaceId' | 'sessionId' | 'meetSpaceName' |
-  'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd' | 'recordingState' |
+  'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd' |
+  'recordingState' | 'transcriptState' |
   'meetApiSyncedAt' | 'attendanceSheetFileId'
 >
 
@@ -160,6 +161,9 @@ export async function syncMeetingFromMeetApi(
         const driveOutcome = await syncFromDriveRecording(client, meeting, folderId, { extensionEnabled })
         if (driveOutcome.updated) updated = true
 
+        const transcriptUpdated = await syncFromDriveTranscript(client, meeting, folderId)
+        if (transcriptUpdated) updated = true
+
         const attendance = await findAttendanceForMeeting(client, {
           windowStart: meeting.scheduledStart,
           windowEnd: meeting.scheduledEnd,
@@ -237,7 +241,8 @@ export async function syncWorkspaceMeetings(workspaceId: string): Promise<number
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
       scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
-      recordingState: true, meetApiSyncedAt: true, attendanceSheetFileId: true,
+      recordingState: true, transcriptState: true,
+      meetApiSyncedAt: true, attendanceSheetFileId: true,
     },
   })
   const stale = candidates.filter((m) => shouldSync(m, extensionEnabled))
@@ -327,6 +332,50 @@ async function syncFromDriveRecording(
   }
   await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
   return { updated: true, recordingFileId: chosen.id, createdAt }
+}
+
+/**
+ * Drive transcript artifact lookup. Personal Gmail / Workspace Individual
+ * tenants don't get the Workspace Events `transcript.fileGenerated` webhook
+ * but Meet still lands the transcript Doc in their Drive — same name pattern
+ * as the recording, just `- Transcript` and a Google Docs mimeType. Returns
+ * true if a row update happened.
+ */
+async function syncFromDriveTranscript(
+  client: OAuth2Client,
+  meeting: SyncableMeeting,
+  folderId: string | null,
+): Promise<boolean> {
+  // Already linked, or recruiter explicitly removed it — leave alone.
+  if (meeting.transcriptState === 'ready') return false
+  if (meeting.transcriptState === 'unavailable') return false
+  if (!folderId) return false
+  const session = await prisma.session.findUnique({
+    where: { id: meeting.sessionId },
+    select: { candidateName: true },
+  })
+  if (!session?.candidateName) return false
+
+  const start = meeting.scheduledStart ?? new Date(0)
+  const end = meeting.scheduledEnd ?? new Date(Date.now() + 24 * 60 * 60 * 1000)
+  const docs = await searchMeetTranscripts(client, {
+    folderId,
+    candidateName: session.candidateName,
+    createdAfter: new Date(start.getTime() - 60 * 60 * 1000),
+    createdBefore: new Date(end.getTime() + 3 * 60 * 60 * 1000),
+    limit: 5,
+  }).catch((err) => {
+    console.error('[meet-sync] searchMeetTranscripts failed:', (err as Error).message)
+    return []
+  })
+  const chosen = docs[0]
+  if (!chosen) return false
+
+  await prisma.interviewMeeting.update({
+    where: { id: meeting.id },
+    data: { driveTranscriptFileId: chosen.id, transcriptState: 'ready' },
+  })
+  return true
 }
 
 /**

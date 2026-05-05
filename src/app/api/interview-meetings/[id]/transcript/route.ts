@@ -1,16 +1,18 @@
 /**
  * GET /api/interview-meetings/[id]/transcript
  *
- * Same contract as /recording but for the transcript Doc. Transcripts land as
- * Google Docs documents; we serve them as text/html by fetching via Drive's
- * files.get with alt=media (Google auto-exports text/html for Docs).
+ * Transcripts land as Google Docs, which can't be fetched via files.get
+ * alt=media (Drive returns 403 for Docs binaries). Instead we resolve the
+ * file's webViewLink and 302 to Google Docs — the recruiter is already
+ * signed into the same Google account that owns the doc, so they get
+ * straight in.
  */
 
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getAuthedClientForWorkspace } from '@/lib/google'
-import { streamFile } from '@/lib/meet/google-drive'
+import { getFileMeta } from '@/lib/meet/google-drive'
 import { verifyArtifactToken } from '@/lib/meet/pubsub-jwt'
 
 export const runtime = 'nodejs'
@@ -44,9 +46,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   if (!authed) return new Response('Google account not connected', { status: 409 })
 
   try {
-    return await streamFile(authed.client, meeting.driveTranscriptFileId, null)
+    const meta = await getFileMeta(authed.client, meeting.driveTranscriptFileId)
+    if (!meta.webViewLink) return new Response('Transcript link unavailable', { status: 502 })
+    return NextResponse.redirect(meta.webViewLink, 302)
   } catch (err) {
-    console.error('[Artifact] transcript stream failed:', err)
+    console.error('[Artifact] transcript redirect failed:', err)
     return new Response('Transcript fetch failed', { status: 502 })
   }
 }

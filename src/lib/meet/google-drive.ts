@@ -107,6 +107,51 @@ export async function searchMeetRecordings(
 }
 
 /**
+ * Search the user's Meet transcripts. Same naming convention as recordings —
+ * `<Names> - YYYY/MM/DD HH:MM TZ - Transcript` — but they land as Google Docs
+ * (`application/vnd.google-apps.document`) instead of MP4s. Used by the
+ * sync-on-read fallback for personal Gmail / Workspace Individual tenants
+ * where the Workspace Events `transcript.fileGenerated` webhook never fires.
+ */
+export async function searchMeetTranscripts(
+  client: OAuth2Client,
+  opts: {
+    folderId?: string | null
+    candidateName?: string
+    createdAfter?: Date
+    createdBefore?: Date
+    limit?: number
+  },
+): Promise<DriveFileMeta[]> {
+  const tok = await client.getAccessToken()
+  if (!tok?.token) throw new Error('No Drive access token')
+  const conditions: string[] = [
+    "mimeType='application/vnd.google-apps.document'",
+    "name contains 'Transcript'",
+    "trashed=false",
+  ]
+  if (opts.folderId) conditions.push(`'${opts.folderId}' in parents`)
+  if (opts.candidateName) {
+    const safe = opts.candidateName.replace(/'/g, "\\'")
+    conditions.push(`name contains '${safe}'`)
+  }
+  if (opts.createdAfter) conditions.push(`createdTime>='${opts.createdAfter.toISOString()}'`)
+  if (opts.createdBefore) conditions.push(`createdTime<='${opts.createdBefore.toISOString()}'`)
+  const q = encodeURIComponent(conditions.join(' and '))
+  const fields = encodeURIComponent('files(id,name,mimeType,size,thumbnailLink,webViewLink,createdTime)')
+  const pageSize = opts.limit ?? 5
+  const res = await fetch(`${DRIVE_V3}/files?q=${q}&fields=${fields}&pageSize=${pageSize}&orderBy=createdTime%20desc`, {
+    headers: { Authorization: `Bearer ${tok.token}` },
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Drive files.list (transcripts) ${res.status}: ${text}`)
+  }
+  const body = await res.json() as { files?: DriveFileMeta[] }
+  return body.files || []
+}
+
+/**
  * Parse a Meet recording filename: returns the participant names + the
  * timestamp Google embedded. Null if the filename doesn't match the pattern.
  *

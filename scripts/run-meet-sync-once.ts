@@ -24,7 +24,8 @@ async function main() {
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
       scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
-      recordingState: true, meetApiSyncedAt: true, attendanceSheetFileId: true,
+      recordingState: true, transcriptState: true,
+      meetApiSyncedAt: true, attendanceSheetFileId: true,
       session: { select: { candidateName: true, pipelineStatus: true } },
     },
     orderBy: { scheduledStart: 'asc' },

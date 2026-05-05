@@ -27,7 +27,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
       scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
-      recordingState: true, meetApiSyncedAt: true, attendanceSheetFileId: true,
+      recordingState: true, transcriptState: true,
+      meetApiSyncedAt: true, attendanceSheetFileId: true,
     },
   })
   await Promise.all(stale.map((m) => syncMeetingFromMeetApi(m).catch((err) =>
