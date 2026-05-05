@@ -500,6 +500,21 @@ async function dispatchStep(
       return
     }
 
+    // For before_meeting, skip when we're so late that the copy no longer
+    // matches reality. A "24h before" reminder going out 1h before the meeting
+    // contradicts itself ("Your interview is in 24 hours" while it's actually
+    // in 1 hour). Threshold: more than half the configured window has elapsed
+    // since the intended fire time. So a 24h reminder firing 22h out (2h
+    // late) still fires; firing <12h out skips. A 60m reminder firing 50m
+    // out (10m late) still fires; firing <30m out skips.
+    if (mode === 'before_meeting') {
+      const lateByMs = nowMs - (meeting.scheduledStart.getTime() - step.delayMinutes * 60_000)
+      if (lateByMs > (step.delayMinutes * 60_000) / 2) {
+        console.log(`[Automation] Skipping step ${step.id} for session ${sessionId} — before_meeting fire time too far past (late by ${Math.floor(lateByMs / 60000)}m vs ${step.delayMinutes}m configured)`)
+        return
+      }
+    }
+
     // Otherwise, if the computed fire time is in the past or imminent (the
     // recruiter just added/edited the rule mid-cycle for an upcoming
     // meeting), fire immediately rather than skip — better late than
