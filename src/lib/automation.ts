@@ -483,14 +483,26 @@ async function dispatchStep(
       select: { scheduledStart: true },
     })
     if (meeting?.scheduledStart) {
+      const nowMs = Date.now()
       const sign = mode === 'before_meeting' ? -1 : 1
       const fireAtMs = meeting.scheduledStart.getTime() + sign * step.delayMinutes * 60_000
-      delaySeconds = Math.floor((fireAtMs - Date.now()) / 1000)
-      if (delaySeconds < 60) {
-        // Fire time is in the past or imminent — skip rather than send a
-        // late "X minutes before" reminder after the meeting started.
-        console.log(`[Automation] Skipping step ${step.id} for session ${sessionId} — ${mode} fire time too close (${delaySeconds}s)`)
+      delaySeconds = Math.floor((fireAtMs - nowMs) / 1000)
+
+      // For before_meeting: if the MEETING itself has already started/passed,
+      // skip. Sending "X minutes before" copy after the meeting started is
+      // contradictory.
+      if (mode === 'before_meeting' && meeting.scheduledStart.getTime() <= nowMs) {
+        console.log(`[Automation] Skipping step ${step.id} for session ${sessionId} — before_meeting requested but meeting already started/passed`)
         return
+      }
+
+      // Otherwise, if the computed fire time is in the past or imminent (the
+      // recruiter just added/edited the rule mid-cycle for an upcoming
+      // meeting), fire immediately rather than skip — better late than
+      // missed. The 24h reminder for a meeting now 23h out goes out now.
+      if (delaySeconds < 60) {
+        console.log(`[Automation] Step ${step.id} (${mode}) fire time already past/imminent (${delaySeconds}s) — firing immediately for session ${sessionId}`)
+        delaySeconds = 0
       }
     }
     // No meeting yet → fall through with the original delaySeconds (trigger semantics).
@@ -638,20 +650,32 @@ export async function scheduleBeforeMeetingReminders(sessionId: string, schedule
     for (const rule of rules) {
       const minutesBefore = rule.minutesBefore ?? 0
       if (minutesBefore <= 0) continue
+      // If the meeting itself has already started/passed, drop ALL steps for
+      // this rule — sending "X before" copy after the meeting is wrong.
+      if (scheduledStart.getTime() <= now) {
+        console.log(`[Automation] Skipping rule ${rule.id} — meeting already started/passed`)
+        continue
+      }
       const firstFireAtMs = scheduledStart.getTime() - minutesBefore * 60_000
       for (let i = 0; i < rule.steps.length; i++) {
         const step = rule.steps[i]
         // Step 0 fires `minutesBefore` before the meeting; step N fires
         // step.delayMinutes minutes after step 0's fire time.
         const fireAtMs = firstFireAtMs + (i === 0 ? 0 : step.delayMinutes) * 60_000
-        const delaySeconds = Math.floor((fireAtMs - now) / 1000)
+        let delaySeconds = Math.floor((fireAtMs - now) / 1000)
+        // Late reminder for an upcoming meeting → fire immediately. Better
+        // late than missed.
         if (delaySeconds < 60) {
-          console.log(`[Automation] Skipping reminder step ${step.id} for session ${sessionId} — fire time too close (delay ${delaySeconds}s)`)
-          continue
+          console.log(`[Automation] Step ${step.id} fire time already past/imminent (${delaySeconds}s) — firing immediately for session ${sessionId}`)
+          delaySeconds = 0
         }
         const channels = expandChannels(step.channel)
         for (const channel of channels) {
-          await queueStepAtDelay(rule.id, step.id, sessionId, channel, delaySeconds)
+          if (delaySeconds > 0 && qstash) {
+            await queueStepAtDelay(rule.id, step.id, sessionId, channel, delaySeconds)
+          } else {
+            await executeStep(step.id, sessionId, channel)
+          }
         }
       }
     }
