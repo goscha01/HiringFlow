@@ -381,9 +381,24 @@ export default function FlowSchemaView({
         }
       }
 
-      // Pass 2: for each new step that has exactly one (preserved) source and
-      // one (preserved) target, slot it between them and shift the downstream
-      // chain right so the new step doesn't overlap the target.
+      // Compute the current viewport center in canvas coordinates so a new
+      // disconnected step can land where the user is actually looking.
+      const container = containerRef.current
+      let viewportCenter: NodePos | null = null
+      if (container) {
+        const w = container.clientWidth
+        const h = container.clientHeight
+        viewportCenter = {
+          x: (w / 2 - pan.x) / scale - NODE_W / 2,
+          y: (h / 2 - pan.y) / scale - NODE_H / 2,
+        }
+      }
+
+      // Pass 2: for each new step, decide where it goes:
+      // - Exactly one (preserved) source + one (preserved) target → slot it
+      //   between them and shift the downstream chain right.
+      // - Otherwise → drop it at the current viewport center, so the user
+      //   sees it land where they're looking instead of at column 0.
       const slot = NODE_W + H_GAP
       for (const id of newIds) {
         const newStep = steps.find((s) => s.id === id)
@@ -401,11 +416,18 @@ export default function FlowSchemaView({
         const btnTarget = newStep.buttonConfig?.nextStepId
         if (btnTarget && btnTarget !== '__end__') targets.push(btnTarget)
         const uniqueTargets = Array.from(new Set(targets))
-        if (sources.length !== 1 || uniqueTargets.length !== 1) continue
+
+        if (sources.length !== 1 || uniqueTargets.length !== 1) {
+          if (viewportCenter) merged[id] = { ...viewportCenter }
+          continue
+        }
 
         const src = merged[sources[0].id]
         const tgt = merged[uniqueTargets[0]]
-        if (!src || !tgt) continue
+        if (!src || !tgt) {
+          if (viewportCenter) merged[id] = { ...viewportCenter }
+          continue
+        }
 
         // Drop the new step right next to the source, on the same row.
         const newX = src.x + slot
