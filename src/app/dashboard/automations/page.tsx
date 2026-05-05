@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
 import { Button, PageHeader } from '@/components/design'
@@ -229,6 +229,15 @@ export default function AutomationsPage() {
   const [steps, setSteps] = useState<StepShape[]>([newStep(0)])
   // Index of the step the inline template creator is currently bound to.
   const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
+  // When the editor opens (idx becomes non-null), pull it into view.
+  useEffect(() => {
+    if (templateEditorStepIdx !== null) {
+      // Defer to next frame so the editor is in the DOM before we scroll.
+      requestAnimationFrame(() => {
+        tplEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
+  }, [templateEditorStepIdx])
   const [companyEmail, setCompanyEmail] = useState<string | null>(null)
   const [showCompanyEmailWarning, setShowCompanyEmailWarning] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -331,6 +340,11 @@ export default function AutomationsPage() {
     }
   }
 
+  // Ref on the inline template editor so we can scroll it into view when
+  // it opens — otherwise clicking "Edit" on a step buried near the bottom
+  // of the modal silently puts the editor below the visible area and the
+  // recruiter thinks the button didn't work.
+  const tplEditorRef = useRef<HTMLDivElement>(null)
   const [seedingNoShow, setSeedingNoShow] = useState(false)
   const seedNoShow = async () => {
     setSeedingNoShow(true)
@@ -971,9 +985,9 @@ export default function AutomationsPage() {
 
               {/* Inline template editor — bound to the step that opened it */}
               {templateEditorStepIdx !== null && (
-                <div className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3">
+                <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-brand-300/50">
                   <div className="flex items-center justify-between">
-                    <div className="text-xs font-medium text-grey-15">New template (will be assigned to step {templateEditorStepIdx + 1})</div>
+                    <div className="text-xs font-medium text-grey-15">Template editor (will be assigned to step {templateEditorStepIdx + 1})</div>
                     <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
                   </div>
                   <div>
