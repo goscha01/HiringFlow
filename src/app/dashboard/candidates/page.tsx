@@ -114,16 +114,31 @@ export default function CandidatesPage() {
   // on drop targets) in capture phase on window, so we always have a current
   // pointer position regardless of what's under the cursor.
   useEffect(() => {
+    console.log('[autoscroll] effect run, dragging=', dragging)
     if (!dragging) return
     const el = kanbanRef.current
+    console.log('[autoscroll] kanbanRef =', el, 'scrollWidth=', el?.scrollWidth, 'clientWidth=', el?.clientWidth)
     if (!el) return
     let pointerX = -1
     let raf = 0
+    let dragoverCount = 0
+    let dragCount = 0
+    let scrollAttempts = 0
     const EDGE = 140
     const MAX_SPEED = 32
-    const onMove = (ev: DragEvent) => {
-      // The final dragend often fires with (0,0) — ignore those so we don't
-      // jump back to the left edge as the drop completes.
+    const onDragOver = (ev: DragEvent) => {
+      dragoverCount++
+      if (dragoverCount <= 3 || dragoverCount % 30 === 0) {
+        console.log('[autoscroll] dragover#', dragoverCount, 'clientX=', ev.clientX, 'target=', (ev.target as HTMLElement)?.tagName)
+      }
+      if (ev.clientX === 0 && ev.clientY === 0) return
+      pointerX = ev.clientX
+    }
+    const onDrag = (ev: DragEvent) => {
+      dragCount++
+      if (dragCount <= 3 || dragCount % 30 === 0) {
+        console.log('[autoscroll] drag#', dragCount, 'clientX=', ev.clientX)
+      }
       if (ev.clientX === 0 && ev.clientY === 0) return
       pointerX = ev.clientX
     }
@@ -132,23 +147,32 @@ export default function CandidatesPage() {
         const rect = el.getBoundingClientRect()
         const distLeft = pointerX - rect.left
         const distRight = rect.right - pointerX
-        if (distLeft < EDGE) {
-          const factor = Math.min(1, Math.max(0, 1 - distLeft / EDGE))
-          el.scrollLeft -= MAX_SPEED * factor
-        } else if (distRight < EDGE) {
-          const factor = Math.min(1, Math.max(0, 1 - distRight / EDGE))
-          el.scrollLeft += MAX_SPEED * factor
+        if (distLeft < EDGE || distRight < EDGE) {
+          const before = el.scrollLeft
+          if (distLeft < EDGE) {
+            const factor = Math.min(1, Math.max(0, 1 - distLeft / EDGE))
+            el.scrollLeft -= MAX_SPEED * factor
+          } else if (distRight < EDGE) {
+            const factor = Math.min(1, Math.max(0, 1 - distRight / EDGE))
+            el.scrollLeft += MAX_SPEED * factor
+          }
+          scrollAttempts++
+          if (scrollAttempts <= 3 || scrollAttempts % 30 === 0) {
+            console.log('[autoscroll] tick#', scrollAttempts, 'pointerX=', pointerX, 'rect.left=', rect.left, 'rect.right=', rect.right, 'distLeft=', distLeft, 'distRight=', distRight, 'scrollLeft', before, '->', el.scrollLeft)
+          }
         }
       }
       raf = requestAnimationFrame(tick)
     }
-    window.addEventListener('dragover', onMove, true)
-    window.addEventListener('drag', onMove, true)
+    window.addEventListener('dragover', onDragOver, true)
+    window.addEventListener('drag', onDrag, true)
     raf = requestAnimationFrame(tick)
+    console.log('[autoscroll] listeners attached + RAF started')
     return () => {
-      window.removeEventListener('dragover', onMove, true)
-      window.removeEventListener('drag', onMove, true)
+      window.removeEventListener('dragover', onDragOver, true)
+      window.removeEventListener('drag', onDrag, true)
       cancelAnimationFrame(raf)
+      console.log('[autoscroll] cleanup. totals: dragover=', dragoverCount, 'drag=', dragCount, 'scrollAttempts=', scrollAttempts)
     }
   }, [dragging])
 
@@ -445,12 +469,13 @@ export default function CandidatesPage() {
                             setSelectedCard((cur) => (cur === c.id ? null : c.id))
                           }}
                           onDragStart={(e) => {
+                            console.log('[autoscroll] onDragStart card=', c.id, 'isSelected=', isSelected)
                             if (!isSelected) { e.preventDefault(); return }
                             e.dataTransfer.setData('text/candidate-id', c.id)
                             e.dataTransfer.effectAllowed = 'move'
                             setDragging(c.id)
                           }}
-                          onDragEnd={() => { setDragging(null); setHoverCol(null); setSelectedCard(null) }}
+                          onDragEnd={() => { console.log('[autoscroll] onDragEnd'); setDragging(null); setHoverCol(null); setSelectedCard(null) }}
                           className={`group relative rounded-[10px] border bg-white p-3 transition-shadow ${
                             isSelected
                               ? 'border-[color:var(--brand-primary)] ring-2 ring-[color:var(--brand-primary)]/40 shadow-[0_4px_12px_rgba(255,149,0,0.18)] cursor-grab active:cursor-grabbing'
