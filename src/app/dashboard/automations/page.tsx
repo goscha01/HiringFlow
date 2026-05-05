@@ -1240,8 +1240,20 @@ function StepCard(props: {
                   .trim()
                 return (
                   <div className="mt-2 p-2.5 bg-white border border-surface-border rounded-[6px] text-[11px] space-y-1">
-                    <div className="flex gap-2"><span className="text-grey-40 w-12 flex-shrink-0">Subject</span><span className="text-grey-15 font-medium truncate">{sel.subject}</span></div>
-                    {bodyText && <div className="flex gap-2"><span className="text-grey-40 w-12 flex-shrink-0">Body</span><span className="text-grey-35 line-clamp-2">{bodyText.slice(0, 200)}{bodyText.length > 200 ? '…' : ''}</span></div>}
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex-1 space-y-1 min-w-0">
+                        <div className="flex gap-2"><span className="text-grey-40 w-12 flex-shrink-0">Subject</span><span className="text-grey-15 font-medium truncate">{sel.subject}</span></div>
+                        {bodyText && <div className="flex gap-2"><span className="text-grey-40 w-12 flex-shrink-0">Body</span><span className="text-grey-35 line-clamp-2">{bodyText.slice(0, 200)}{bodyText.length > 200 ? '…' : ''}</span></div>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => props.onPickDefaultTemplate({ name: sel.name, subject: sel.subject, bodyHtml: sel.bodyHtml || '' })}
+                        className="text-[11px] text-brand-600 hover:text-brand-700 font-medium whitespace-nowrap flex-shrink-0"
+                        title={`Edit "${sel.name}" — saves as a new template (auto-suffixed if the name collides)`}
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </div>
                 )
               })()}
