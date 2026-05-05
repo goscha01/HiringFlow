@@ -109,20 +109,26 @@ export default function CandidatesPage() {
 
   // Auto-scroll the board horizontally while a card is being dragged near
   // (or past) either edge — without this, native HTML5 drag won't pan the
-  // container and cards can't be moved into off-screen stages. Listening on
-  // document so we keep getting positions when the cursor goes beyond the
-  // kanban's visible edges.
+  // container and cards can't be moved into off-screen stages. Track both
+  // `drag` (fires on the source element continuously) and `dragover` (fires
+  // on drop targets) in capture phase on window, so we always have a current
+  // pointer position regardless of what's under the cursor.
   useEffect(() => {
     if (!dragging) return
     const el = kanbanRef.current
     if (!el) return
-    let pointerX: number | null = null
+    let pointerX = -1
     let raf = 0
-    const EDGE = 120
-    const MAX_SPEED = 28
-    const onDragOver = (ev: DragEvent) => { pointerX = ev.clientX }
+    const EDGE = 140
+    const MAX_SPEED = 32
+    const onMove = (ev: DragEvent) => {
+      // The final dragend often fires with (0,0) — ignore those so we don't
+      // jump back to the left edge as the drop completes.
+      if (ev.clientX === 0 && ev.clientY === 0) return
+      pointerX = ev.clientX
+    }
     const tick = () => {
-      if (pointerX !== null) {
+      if (pointerX >= 0) {
         const rect = el.getBoundingClientRect()
         const distLeft = pointerX - rect.left
         const distRight = rect.right - pointerX
@@ -136,10 +142,12 @@ export default function CandidatesPage() {
       }
       raf = requestAnimationFrame(tick)
     }
-    document.addEventListener('dragover', onDragOver)
+    window.addEventListener('dragover', onMove, true)
+    window.addEventListener('drag', onMove, true)
     raf = requestAnimationFrame(tick)
     return () => {
-      document.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('dragover', onMove, true)
+      window.removeEventListener('drag', onMove, true)
       cancelAnimationFrame(raf)
     }
   }, [dragging])
