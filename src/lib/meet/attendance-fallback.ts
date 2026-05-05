@@ -249,9 +249,17 @@ export async function findAttendanceForMeeting(
         candidatePresent,
       }
     }
+    // Extension is the source of truth for this workspace, but the sheet
+    // hasn't landed in Drive yet. Return null so the caller emits nothing —
+    // falling back to Gemini Notes / recording here is unsafe because they
+    // can't tell us if the candidate was actually in the room (the host
+    // alone produces both signals). The caller's re-sync loop will pick up
+    // the sheet on a later pass.
+    return null
   }
 
-  // 2. Gemini Notes — strongest "happened" signal we get for free.
+  // 2. Gemini Notes — strongest "happened" signal we get for free when the
+  //    extension isn't enabled.
   const notes = await findGeminiNotesForMeeting(client, opts).catch(() => null)
   if (notes) {
     return {

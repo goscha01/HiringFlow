@@ -41,19 +41,39 @@ const GRACE_AFTER_SCHEDULED_END_MS = 15 * 60 * 1000
 // outbound API calls when many meetings are still pending recording artifacts.
 const MIN_RESYNC_INTERVAL_MS = 5 * 60 * 1000
 
+// How long after scheduledEnd we keep polling Drive for the attendance sheet
+// even if other artifacts already populated actualEnd. Six hours covers
+// extensions that batch-upload when the host's browser closes well after the
+// meeting itself ended.
+const ATTENDANCE_SHEET_WAIT_MS = 6 * 60 * 60 * 1000
+
 type SyncableMeeting = Pick<InterviewMeeting,
   'id' | 'workspaceId' | 'sessionId' | 'meetSpaceName' |
   'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd' | 'recordingState' |
-  'meetApiSyncedAt'
+  'meetApiSyncedAt' | 'attendanceSheetFileId'
 >
 
-function shouldSync(m: SyncableMeeting): boolean {
+function shouldSync(m: SyncableMeeting, extensionEnabled = false): boolean {
   if (m.actualEnd) {
-    // Already have an end time. Only re-sync if recording is still pending and
-    // we haven't checked recently.
-    if (m.recordingState === 'ready' || m.recordingState === 'failed' || m.recordingState === 'unavailable' || m.recordingState === 'disabled') return false
-    if (m.meetApiSyncedAt && Date.now() - m.meetApiSyncedAt.getTime() < MIN_RESYNC_INTERVAL_MS) return false
-    return true
+    const recordingTerminal =
+      m.recordingState === 'ready' || m.recordingState === 'failed' ||
+      m.recordingState === 'unavailable' || m.recordingState === 'disabled'
+    // Recording artifact still pending → keep checking for it.
+    if (!recordingTerminal) {
+      if (m.meetApiSyncedAt && Date.now() - m.meetApiSyncedAt.getTime() < MIN_RESYNC_INTERVAL_MS) return false
+      return true
+    }
+    // Extension is on but the attendance sheet hasn't landed yet — keep
+    // polling Drive so we eventually catch it. Without this, a recording
+    // artifact that arrives before the sheet permanently locks the meeting
+    // out of attendance evaluation.
+    if (extensionEnabled && !m.attendanceSheetFileId && m.scheduledEnd) {
+      if (Date.now() < m.scheduledEnd.getTime() + ATTENDANCE_SHEET_WAIT_MS) {
+        if (m.meetApiSyncedAt && Date.now() - m.meetApiSyncedAt.getTime() < MIN_RESYNC_INTERVAL_MS) return false
+        return true
+      }
+    }
+    return false
   }
   // No actualEnd — only sync once the meeting window + grace has passed.
   const end = m.scheduledEnd?.getTime()
@@ -64,12 +84,28 @@ function shouldSync(m: SyncableMeeting): boolean {
   return true
 }
 
+async function fetchExtensionEnabled(workspaceId: string): Promise<boolean> {
+  const integ = await prisma.googleIntegration.findUnique({
+    where: { workspaceId },
+    select: { attendanceExtensionEnabled: true },
+  })
+  return !!integ?.attendanceExtensionEnabled
+}
+
 /**
  * Sync a single meeting from Meet API. Safe to call on any meeting — it'll
  * no-op when shouldSync returns false. Returns true if any state was updated.
+ *
+ * `extensionEnabled` can be passed by batch callers that have already loaded
+ * the workspace's GoogleIntegration row, to avoid one DB hit per meeting.
+ * Otherwise we fetch it inline.
  */
-export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<boolean> {
-  if (!shouldSync(meeting)) return false
+export async function syncMeetingFromMeetApi(
+  meeting: SyncableMeeting,
+  opts: { extensionEnabled?: boolean } = {},
+): Promise<boolean> {
+  const extensionEnabled = opts.extensionEnabled ?? await fetchExtensionEnabled(meeting.workspaceId)
+  if (!shouldSync(meeting, extensionEnabled)) return false
 
   // Stamp the sync attempt timestamp upfront so concurrent loaders don't both
   // hit Meet API for the same meeting in parallel.
@@ -119,8 +155,9 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
           where: { id: meeting.sessionId },
           select: { candidateName: true, candidateEmail: true },
         })
+        const extensionEnabled = !!integ?.attendanceExtensionEnabled
         const folderId = await ensureFolderId(client, meeting.workspaceId, integ?.meetRecordingsFolderId ?? null)
-        const driveOutcome = await syncFromDriveRecording(client, meeting, folderId)
+        const driveOutcome = await syncFromDriveRecording(client, meeting, folderId, { extensionEnabled })
         if (driveOutcome.updated) updated = true
 
         const attendance = await findAttendanceForMeeting(client, {
@@ -129,14 +166,14 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
           folderId,
           candidateName: session?.candidateName ?? null,
           candidateEmail: session?.candidateEmail ?? null,
-          extensionEnabled: !!integ?.attendanceExtensionEnabled,
+          extensionEnabled,
           sheetsScopeGranted: hasSheetsScope(integ?.grantedScopes),
         }).catch((err) => {
           console.warn('[meet-sync] attendance fallback failed:', (err as Error).message)
           return null
         })
 
-        const lifecycleFired = await applyAttendanceSignal(meeting, attendance, driveOutcome)
+        const lifecycleFired = await applyAttendanceSignal(meeting, attendance, driveOutcome, { extensionEnabled })
         if (lifecycleFired) updated = true
         return updated
       }
@@ -190,22 +227,23 @@ export async function syncMeetingFromMeetApi(meeting: SyncableMeeting): Promise<
  * single page load.
  */
 export async function syncWorkspaceMeetings(workspaceId: string): Promise<number> {
+  const extensionEnabled = await fetchExtensionEnabled(workspaceId)
   const candidates = await prisma.interviewMeeting.findMany({
     where: { workspaceId },
     select: {
       id: true, workspaceId: true, sessionId: true, meetSpaceName: true,
       scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
-      recordingState: true, meetApiSyncedAt: true,
+      recordingState: true, meetApiSyncedAt: true, attendanceSheetFileId: true,
     },
   })
-  const stale = candidates.filter(shouldSync)
+  const stale = candidates.filter((m) => shouldSync(m, extensionEnabled))
   if (stale.length === 0) return 0
 
   const CONCURRENCY = 4
   let synced = 0
   for (let i = 0; i < stale.length; i += CONCURRENCY) {
     const batch = stale.slice(i, i + CONCURRENCY)
-    const results = await Promise.all(batch.map((m) => syncMeetingFromMeetApi(m)))
+    const results = await Promise.all(batch.map((m) => syncMeetingFromMeetApi(m, { extensionEnabled })))
     synced += results.filter(Boolean).length
   }
   return synced
@@ -235,6 +273,7 @@ async function syncFromDriveRecording(
   client: OAuth2Client,
   meeting: SyncableMeeting,
   folderId: string | null,
+  opts: { extensionEnabled?: boolean } = {},
 ): Promise<{ updated: boolean; recordingFileId: string | null; createdAt: Date | null }> {
   if (!folderId) return { updated: false, recordingFileId: null, createdAt: null }
   const session = await prisma.session.findUnique({
@@ -264,9 +303,17 @@ async function syncFromDriveRecording(
   const data: Prisma.InterviewMeetingUpdateInput = {
     driveRecordingFileId: chosen.id,
     recordingState: 'ready',
+  }
+  // Don't stamp actualEnd from the recording artifact when the workspace
+  // has the attendance extension enabled — it both (a) is wrong on no-shows
+  // (the host alone produces a recording, but the candidate never joined)
+  // and (b) trips the shouldSync lockout that prevents us from re-checking
+  // for the attendance sheet once it lands. Let applyAttendanceSignal own
+  // actualEnd from the sheet's data instead.
+  if (!opts.extensionEnabled) {
     // Recording's createdTime is right after the meeting ends — close enough
     // for "Ended" UI. scheduledStart stays authoritative for the start time.
-    actualEnd: createdAt,
+    data.actualEnd = createdAt
   }
   await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
   return { updated: true, recordingFileId: chosen.id, createdAt }
@@ -304,9 +351,11 @@ async function ensureFolderId(
  *   - **attendance_sheet** with `candidatePresent=false`:
  *       emit meeting_no_show (via the existing maybeFlagNoShow path).
  *   - **gemini_notes** or **recording**:
- *       proves *someone* met but can't disambiguate. Emit meeting_started +
- *       meeting_ended so the kanban card advances; recruiter still uses the
- *       manual "Mark as no-show" button if the candidate didn't show up.
+ *       proves *someone* met but can't disambiguate. When the workspace has
+ *       the attendance extension *off*, emit meeting_started + meeting_ended
+ *       so the kanban card advances; the recruiter manually marks no-show
+ *       if the candidate didn't show up. When the extension is *on*, these
+ *       weak signals are ignored — only the sheet drives lifecycle events.
  *
  * Idempotency guard: each event type is only emitted if no SchedulingEvent
  * with the same `(sessionId, eventType, interviewMeetingId)` already exists.
@@ -320,6 +369,7 @@ export async function applyAttendanceSignal(
   meeting: ApplyAttendanceMeeting,
   attendance: AttendanceSignal | null,
   driveOutcome: { recordingFileId: string | null; createdAt: Date | null },
+  opts: { extensionEnabled?: boolean } = {},
 ): Promise<boolean> {
   // Persist file pointers so the UI can deep-link them, even if we don't end
   // up emitting any lifecycle events from this run.
@@ -340,10 +390,19 @@ export async function applyAttendanceSignal(
     return true
   }
 
+  // When the workspace has the attendance extension enabled, the sheet is
+  // the only authoritative attendance signal. Gemini Notes / recordings
+  // can't disambiguate "candidate attended" from "host was alone", so we
+  // refuse to fire meeting_started/ended off them — that wrongly sends the
+  // post-meeting "next step" email for a no-show. The sync-on-read
+  // re-sync window keeps polling Drive until the sheet appears.
+  const sheetSaysPresent = attendance?.source === 'attendance_sheet' && attendance.candidatePresent === true
+  if (opts.extensionEnabled && !sheetSaysPresent) return false
+
   // Anything that proves the meeting *occurred*: attendance sheet (any
   // present row), Gemini Notes, or a recording artifact.
   const happened =
-    (attendance?.source === 'attendance_sheet' && attendance.candidatePresent === true) ||
+    sheetSaysPresent ||
     attendance?.source === 'gemini_notes' ||
     recordingPresent
   if (!happened) return false
