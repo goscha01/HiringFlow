@@ -32,6 +32,9 @@ export default function FlowsPage() {
   const [newFlowName, setNewFlowName] = useState('')
   const [creating, setCreating] = useState(false)
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<Flow | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renaming, setRenaming] = useState(false)
   const router = useRouter()
 
   useEffect(() => { fetchFlows() }, [])
@@ -78,6 +81,29 @@ export default function FlowsPage() {
     if (!confirm('Delete this flow?')) return
     await fetch(`/api/flows/${id}`, { method: 'DELETE' })
     fetchFlows()
+  }
+
+  const openRename = (flow: Flow) => {
+    setRenameTarget(flow)
+    setRenameValue(flow.name)
+  }
+
+  const submitRename = async () => {
+    if (!renameTarget || !renameValue.trim() || renameValue.trim() === renameTarget.name) {
+      setRenameTarget(null)
+      return
+    }
+    setRenaming(true)
+    const res = await fetch(`/api/flows/${renameTarget.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: renameValue.trim() }),
+    })
+    setRenaming(false)
+    if (res.ok) {
+      setRenameTarget(null)
+      fetchFlows()
+    }
   }
 
   const visible = flows.filter((f) =>
@@ -162,6 +188,7 @@ export default function FlowsPage() {
                   <div className="flex justify-between text-[12px] text-grey-35 pt-3 border-t border-surface-divider" onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-3">
                       <Link href={`/dashboard/flows/${flow.id}/builder?view=schema`} className="font-medium hover:text-ink">Edit</Link>
+                      <button onClick={() => openRename(flow)} className="hover:text-ink">Rename</button>
                       <Link href={`/dashboard/flows/${flow.id}/submissions`} className="hover:text-ink">Submissions</Link>
                       <button onClick={() => copyShareUrl(flow.slug)} className="hover:text-ink">
                         {copiedSlug === flow.slug ? 'Copied' : 'Share'}
@@ -175,6 +202,33 @@ export default function FlowsPage() {
           </div>
         )}
       </div>
+
+      {/* Rename modal */}
+      {renameTarget && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setRenameTarget(null)}>
+          <div className="bg-white rounded-xl border border-surface-border p-7 w-full max-w-md shadow-raised" onClick={(e) => e.stopPropagation()}>
+            <Eyebrow size="xs" className="mb-1.5">Rename flow</Eyebrow>
+            <h2 className="text-[20px] font-semibold text-ink mb-5">Edit flow name</h2>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="w-full px-4 py-3 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 text-ink placeholder-grey-50 mb-6 text-[14px]"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRename()
+                if (e.key === 'Escape') setRenameTarget(null)
+              }}
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="secondary" onClick={() => setRenameTarget(null)}>Cancel</Button>
+              <Button onClick={submitRename} disabled={renaming || !renameValue.trim()}>
+                {renaming ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create modal */}
       {showModal && (

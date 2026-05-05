@@ -42,6 +42,9 @@ export default function TrainingsPage() {
   const [uploadingCover, setUploadingCover] = useState(false)
   const coverInputRef = useRef<HTMLInputElement>(null)
   const [creating, setCreating] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<Training | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renaming, setRenaming] = useState(false)
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -91,6 +94,29 @@ export default function TrainingsPage() {
     if (!confirm('Delete this training?')) return
     await fetch(`/api/trainings/${id}`, { method: 'DELETE' })
     fetchTrainings()
+  }
+
+  const openRename = (t: Training) => {
+    setRenameTarget(t)
+    setRenameValue(t.title)
+  }
+
+  const submitRename = async () => {
+    if (!renameTarget || !renameValue.trim() || renameValue.trim() === renameTarget.title) {
+      setRenameTarget(null)
+      return
+    }
+    setRenaming(true)
+    const res = await fetch(`/api/trainings/${renameTarget.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: renameValue.trim() }),
+    })
+    setRenaming(false)
+    if (res.ok) {
+      setRenameTarget(null)
+      fetchTrainings()
+    }
   }
 
   if (loading) {
@@ -167,8 +193,11 @@ export default function TrainingsPage() {
                         <span>{limitType === 'unlimited' ? 'No limit' : limitType}</span>
                       </span>
                     </div>
-                    <div className="pt-3 flex justify-end">
-                      <button onClick={() => deleteTraining(t.id)} className="text-[11px] text-[color:var(--danger-fg)] hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="pt-3 flex justify-between items-center text-[11px]">
+                      <button onClick={() => openRename(t)} className="text-grey-35 hover:text-ink hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
+                        Rename
+                      </button>
+                      <button onClick={() => deleteTraining(t.id)} className="text-[color:var(--danger-fg)] hover:underline opacity-0 group-hover:opacity-100 transition-opacity">
                         Delete
                       </button>
                     </div>
@@ -179,6 +208,33 @@ export default function TrainingsPage() {
           </div>
         )}
       </div>
+
+      {/* Rename modal */}
+      {renameTarget && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setRenameTarget(null)}>
+          <div className="bg-white rounded-xl border border-surface-border shadow-raised p-7 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <Eyebrow size="xs" className="mb-1.5">Rename training</Eyebrow>
+            <h2 className="text-[20px] font-semibold text-ink mb-5">Edit training title</h2>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="w-full px-4 py-3 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 text-ink placeholder-grey-50 mb-6 text-[14px]"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRename()
+                if (e.key === 'Escape') setRenameTarget(null)
+              }}
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="secondary" onClick={() => setRenameTarget(null)}>Cancel</Button>
+              <Button onClick={submitRename} disabled={renaming || !renameValue.trim()}>
+                {renaming ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create modal */}
       {showCreate && (
