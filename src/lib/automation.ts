@@ -990,7 +990,19 @@ export async function executeStep(
       eventType: 'invite_sent',
       metadata: { automationRuleId: rule.id, automationStepId: step.id, executionId: execution.id },
     }).catch(() => {})
-    if (rule.triggerType !== 'meeting_no_show') {
+    // Don't regress pipeline status when the rule fires AFTER the candidate
+    // has already booked a meeting — those scheduling links are for
+    // rescheduling, not first-time scheduling. Without this guard, a
+    // before_meeting reminder with a scheduling link would knock the card
+    // back to "Application Done"/"Invited to Schedule" right before the
+    // interview. meeting_no_show keeps its existing exclusion (no-show flow
+    // manages status via its own path).
+    const POST_SCHEDULING_TRIGGERS = new Set([
+      'meeting_scheduled', 'before_meeting',
+      'meeting_started', 'meeting_ended', 'meeting_no_show',
+      'recording_ready', 'transcript_ready',
+    ])
+    if (!POST_SCHEDULING_TRIGGERS.has(rule.triggerType)) {
       await updatePipelineStatus(sessionId, 'invited_to_schedule').catch(() => {})
     }
   }
