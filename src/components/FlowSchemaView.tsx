@@ -2086,7 +2086,7 @@ function drawConnection(
   isDraft: boolean,
   color?: string
 ) {
-  const lineColor = color || '#262626'
+  const lineColor = color || '#FF9500'
   const dx = Math.abs(toX - fromX)
   const cpOffset = Math.max(dx * 0.4, 40)
 
