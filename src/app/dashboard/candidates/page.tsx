@@ -107,6 +107,39 @@ export default function CandidatesPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Auto-scroll the board horizontally while a card is being dragged near
+  // either edge — without this, native HTML5 drag won't pan the container
+  // and cards can't be moved into off-screen stages.
+  useEffect(() => {
+    if (!dragging) return
+    const el = kanbanRef.current
+    if (!el) return
+    let pointerX: number | null = null
+    let raf = 0
+    const EDGE = 90
+    const MAX_SPEED = 20
+    const onDragOver = (ev: DragEvent) => { pointerX = ev.clientX }
+    const tick = () => {
+      if (pointerX !== null) {
+        const rect = el.getBoundingClientRect()
+        const distLeft = pointerX - rect.left
+        const distRight = rect.right - pointerX
+        if (distLeft >= 0 && distLeft < EDGE) {
+          el.scrollLeft -= MAX_SPEED * (1 - distLeft / EDGE)
+        } else if (distRight >= 0 && distRight < EDGE) {
+          el.scrollLeft += MAX_SPEED * (1 - distRight / EDGE)
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    el.addEventListener('dragover', onDragOver)
+    raf = requestAnimationFrame(tick)
+    return () => {
+      el.removeEventListener('dragover', onDragOver)
+      cancelAnimationFrame(raf)
+    }
+  }, [dragging])
+
   useEffect(() => {
     fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
     fetch('/api/workspace/settings')
