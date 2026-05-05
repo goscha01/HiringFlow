@@ -138,7 +138,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   })
 }
 
-// Delete a candidate (Session) and all owned records.
+// Delete a candidate. The candidates list dedupes Session rows by email
+// (one card per person), so deleting only the visible row would leave older
+// applications by the same person in the DB and they'd reappear after refresh.
+// We delete every Session for that email in the workspace. If the row has no
+// email we can't identify "same person" — fall back to deleting just that row.
 // Cascades handle: SessionAnswer, CandidateSubmission, SchedulingEvent, InterviewMeeting.
 // Non-cascading FKs (TrainingEnrollment.sessionId, TrainingAccessToken.candidateId,
 // AICall.sessionId) and the FK-less AutomationExecution.sessionId are cleaned up
@@ -149,17 +153,28 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   const session = await prisma.session.findFirst({
     where: { id: params.id, workspaceId: ws.workspaceId },
-    select: { id: true },
+    select: { id: true, candidateEmail: true },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const email = session.candidateEmail?.trim() || null
+  const sessionIds: string[] = email
+    ? (await prisma.session.findMany({
+        where: {
+          workspaceId: ws.workspaceId,
+          candidateEmail: { equals: email, mode: 'insensitive' },
+        },
+        select: { id: true },
+      })).map((s) => s.id)
+    : [session.id]
+
   await prisma.$transaction([
-    prisma.aICall.updateMany({ where: { sessionId: params.id }, data: { sessionId: null } }),
-    prisma.trainingEnrollment.deleteMany({ where: { sessionId: params.id } }),
-    prisma.trainingAccessToken.deleteMany({ where: { candidateId: params.id } }),
-    prisma.automationExecution.deleteMany({ where: { sessionId: params.id } }),
-    prisma.session.delete({ where: { id: params.id } }),
+    prisma.aICall.updateMany({ where: { sessionId: { in: sessionIds } }, data: { sessionId: null } }),
+    prisma.trainingEnrollment.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+    prisma.trainingAccessToken.deleteMany({ where: { candidateId: { in: sessionIds } } }),
+    prisma.automationExecution.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+    prisma.session.deleteMany({ where: { id: { in: sessionIds } } }),
   ])
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, deletedCount: sessionIds.length })
 }
