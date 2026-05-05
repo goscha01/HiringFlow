@@ -845,7 +845,13 @@ export default function FlowBuilderPage() {
             >
               <option value="">→ Next step (auto)</option>
               <option value="__end__">→ End</option>
-              {flow?.steps.filter(s => s.id !== step.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+              {[...(flow?.steps ?? [])]
+                .sort((a, b) => a.stepOrder - b.stepOrder)
+                .map((s, i) => ({ s, idx: i + 1 }))
+                .filter(({ s }) => s.id !== step.id)
+                .map(({ s, idx }) => (
+                  <option key={s.id} value={s.id}>→ {idx}. {s.title}</option>
+                ))}
             </select>
           </div>
         )}
@@ -1371,7 +1377,13 @@ export default function FlowBuilderPage() {
                                   >
                                     <option value="">→ Next step (auto)</option>
                                     <option value="__end__">→ End</option>
-                                    {flow.steps.filter(s => s.id !== popupStep.id).map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                                    {[...flow.steps]
+                                      .sort((a, b) => a.stepOrder - b.stepOrder)
+                                      .map((s, i) => ({ s, idx: i + 1 }))
+                                      .filter(({ s }) => s.id !== popupStep.id)
+                                      .map(({ s, idx }) => (
+                                        <option key={s.id} value={s.id}>→ {idx}. {s.title}</option>
+                                      ))}
                                   </select>
                                 </div>
                               ))}
@@ -1831,7 +1843,11 @@ export default function FlowBuilderPage() {
                         >
                           <option value="">→ Next step (auto)</option>
                           <option value="__end__">→ End</option>
-                          {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                          {[...(flow?.steps ?? [])]
+                            .sort((a, b) => a.stepOrder - b.stepOrder)
+                            .map((s, i) => (
+                              <option key={s.id} value={s.id}>→ {i + 1}. {s.title}</option>
+                            ))}
                         </select>
                       </div>
                     )}
@@ -1901,7 +1917,11 @@ export default function FlowBuilderPage() {
                             >
                               <option value="">→ Next step (auto)</option>
                               <option value="__end__">→ End</option>
-                              {flow?.steps.map(s => <option key={s.id} value={s.id}>→ {s.title}</option>)}
+                              {[...(flow?.steps ?? [])]
+                                .sort((a, b) => a.stepOrder - b.stepOrder)
+                                .map((s, j) => (
+                                  <option key={s.id} value={s.id}>→ {j + 1}. {s.title}</option>
+                                ))}
                             </select>
                           </div>
                         ))}

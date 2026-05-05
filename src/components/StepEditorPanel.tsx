@@ -964,9 +964,13 @@ export default function StepEditorPanel({
                           >
                             <option value="">→ Next step (auto)</option>
                             <option value="__end__">→ End</option>
-                            {allSteps.filter((s) => s.id !== step.id).map((s) => (
-                              <option key={s.id} value={s.id}>→ {s.title}</option>
-                            ))}
+                            {[...allSteps]
+                              .sort((a, b) => a.stepOrder - b.stepOrder)
+                              .map((s, i) => ({ s, idx: i + 1 }))
+                              .filter(({ s }) => s.id !== step.id)
+                              .map(({ s, idx }) => (
+                                <option key={s.id} value={s.id}>→ {idx}. {s.title}</option>
+                              ))}
                           </select>
                         </div>
                         <button onClick={() => onDeleteOption(step.id, option.id)} className="text-red-500 hover:text-red-700 p-1">
