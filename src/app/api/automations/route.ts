@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { autoBackfillRuleForUpcomingMeetings } from '@/lib/automation'
 
 interface StepInput {
   order?: number
@@ -150,5 +151,12 @@ export async function POST(request: NextRequest) {
       steps: { orderBy: { order: 'asc' } },
     },
   })
+
+  // Auto-apply to existing upcoming meetings (no-op for non-meeting triggers).
+  // Past meetings are not touched.
+  await autoBackfillRuleForUpcomingMeetings(rule.id).catch((err) => {
+    console.error('[automations] auto-backfill on create failed:', err)
+  })
+
   return NextResponse.json(rule)
 }

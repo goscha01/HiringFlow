@@ -678,28 +678,6 @@ export default function AutomationsPage() {
     }
   }
 
-  // Backfill a rule against existing upcoming meetings — useful when the
-  // recruiter just added a new reminder rule and wants it to apply to
-  // candidates already booked. Only meaningful for meeting_scheduled and
-  // before_meeting triggers; other triggers' events are in the past.
-  const [backfillingId, setBackfillingId] = useState<string | null>(null)
-  const runBackfill = async (r: Rule) => {
-    if (!confirm(`Apply "${r.name}" to all candidates with upcoming meetings? Already-sent steps stay sent (no duplicates), but the rule's queued steps will fire for past bookings.`)) return
-    setBackfillingId(r.id)
-    try {
-      const res = await fetch(`/api/automations/${r.id}/backfill`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        alert(`Backfill failed: ${data.error || res.statusText}`)
-        return
-      }
-      alert(`Backfill complete.\n${data.queued ?? 0} of ${data.meetingsConsidered ?? 0} upcoming meetings queued${data.skipped ? `, ${data.skipped} skipped (errors)` : ''}.`)
-      refresh()
-    } finally {
-      setBackfillingId(null)
-    }
-  }
-
   if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
   return (
@@ -844,11 +822,6 @@ export default function AutomationsPage() {
                         <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
                           {testingId === r.id ? 'Sending…' : 'Test'}
                         </button>
-                        {(r.triggerType === 'meeting_scheduled' || r.triggerType === 'before_meeting') && (
-                          <button onClick={() => runBackfill(r)} disabled={backfillingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50" title="Apply this rule to candidates with upcoming meetings already booked">
-                            {backfillingId === r.id ? 'Backfilling…' : 'Backfill'}
-                          </button>
-                        )}
                         <button onClick={() => duplicate(r)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
                         <button onClick={() => openEdit(r)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
                         <button onClick={() => remove(r.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>

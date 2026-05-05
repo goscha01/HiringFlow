@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { autoBackfillRuleForUpcomingMeetings } from '@/lib/automation'
 
 interface StepInput {
   order?: number
@@ -174,6 +175,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       },
     },
   })
+
+  // Auto-apply to existing upcoming meetings (no-op for non-meeting triggers).
+  // Cancels any pending executions for this rule first so old QStash jobs
+  // from a prior step config don't fire alongside the new ones.
+  await autoBackfillRuleForUpcomingMeetings(params.id).catch((err) => {
+    console.error('[automations] auto-backfill on update failed:', err)
+  })
+
   return NextResponse.json(updated)
 }
 

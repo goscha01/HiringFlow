@@ -155,6 +155,76 @@ export async function rescheduleBeforeMeetingReminders(sessionId: string, newSch
 }
 
 /**
+ * Auto-apply a rule to every upcoming meeting in the workspace whenever the
+ * rule is created or edited. Cancels any pending executions for the rule
+ * (across all sessions) first, then re-dispatches against each upcoming
+ * InterviewMeeting.
+ *
+ * Only runs for meeting_scheduled and before_meeting triggers. Other triggers
+ * fire on past lifecycle events that can't be safely replayed.
+ *
+ * Past meetings are NOT touched (where: scheduledStart > now). Already-sent
+ * steps stay sent — dispatchStep's upsert skips them. The recruiter's intent
+ * is "this rule should apply to candidates already booked for upcoming
+ * meetings, going forward only".
+ */
+export async function autoBackfillRuleForUpcomingMeetings(ruleId: string) {
+  const rule = await prisma.automationRule.findUnique({
+    where: { id: ruleId },
+    select: { id: true, workspaceId: true, triggerType: true, isActive: true, flowId: true },
+  })
+  if (!rule) return
+  if (!['meeting_scheduled', 'before_meeting'].includes(rule.triggerType)) return
+
+  // Cancel any pending executions for THIS rule (across all sessions). Stops
+  // old QStash jobs from a prior step config from firing after an edit.
+  const pending = await prisma.automationExecution.findMany({
+    where: {
+      automationRuleId: ruleId,
+      status: { in: ['queued', 'pending'] },
+    },
+    select: { id: true, qstashMessageId: true },
+  })
+  for (const p of pending) {
+    if (p.qstashMessageId && qstash) {
+      try {
+        await (qstash.messages as unknown as { delete: (id: string) => Promise<unknown> }).delete(p.qstashMessageId)
+      } catch (err) {
+        console.warn('[Automation] qstash.messages.delete failed during backfill (likely already fired):', (err as Error).message)
+      }
+    }
+    await prisma.automationExecution.update({
+      where: { id: p.id },
+      data: { status: 'cancelled' },
+    }).catch(() => {})
+  }
+
+  if (!rule.isActive) return
+
+  const now = new Date()
+  const meetings = await prisma.interviewMeeting.findMany({
+    where: {
+      workspaceId: rule.workspaceId,
+      scheduledStart: { gt: now },
+      ...(rule.flowId ? { session: { flowId: rule.flowId } } : {}),
+    },
+    select: { sessionId: true, scheduledStart: true },
+    orderBy: { scheduledStart: 'asc' },
+  })
+  for (const m of meetings) {
+    try {
+      if (rule.triggerType === 'before_meeting') {
+        await scheduleBeforeMeetingReminders(m.sessionId, m.scheduledStart)
+      } else {
+        await dispatchRule(rule.id, m.sessionId)
+      }
+    } catch (err) {
+      console.error('[Automation] auto-backfill failed for session', m.sessionId, err)
+    }
+  }
+}
+
+/**
  * Find every step that has timingMode='before_meeting'/'after_meeting' on
  * a meeting-adjacent trigger and re-queue it. dispatchStep recomputes the
  * fire time against the latest InterviewMeeting.scheduledStart.
