@@ -734,9 +734,14 @@ model AutomationStep {
   ruleId                  String                @map("rule_id")
   rule                    AutomationRule        @relation(fields: [ruleId], references: [id], onDelete: Cascade)
   order                   Int
-  // Minutes after the rule's trigger event fired (or, for before_meeting
-  // rules, *additional* minutes on top of rule.minutesBefore — but multi-step
-  // before_meeting rules are not yet exposed in the UI).
+  // How `delayMinutes` is interpreted:
+  //  - 'trigger'        → minutes after the trigger event fired (default).
+  //  - 'before_meeting' → minutes BEFORE InterviewMeeting.scheduledStart.
+  //  - 'after_meeting'  → minutes AFTER InterviewMeeting.scheduledStart.
+  // Only meaningful for triggers tied to a meeting (meeting_scheduled,
+  // before_meeting, meeting_started, meeting_ended). Other triggers ignore
+  // any non-'trigger' value and behave as 'trigger'.
+  timingMode              String                @default("trigger") @map("timing_mode")
   delayMinutes            Int                   @default(0) @map("delay_minutes")
   // 'email' | 'sms' | 'both'. 'both' fans out into two executions at run time.
   channel                 String                @default("email")

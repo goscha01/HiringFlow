@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 interface StepInput {
   order?: number
   delayMinutes?: number
+  timingMode?: 'trigger' | 'before_meeting' | 'after_meeting'
   channel?: 'email' | 'sms' | 'both'
   emailTemplateId?: string | null
   smsBody?: string | null
@@ -33,6 +34,7 @@ function validateSteps(steps: unknown): { ok: true; steps: StepInput[] } | { ok:
     out.push({
       order: i,
       delayMinutes,
+      timingMode: (raw.timingMode === 'before_meeting' || raw.timingMode === 'after_meeting') ? raw.timingMode : 'trigger',
       channel,
       emailTemplateId: wantsEmail ? raw.emailTemplateId ?? null : null,
       smsBody: wantsSms ? raw.smsBody ?? null : null,
@@ -117,6 +119,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           ruleId: params.id,
           order: i,
           delayMinutes: s.delayMinutes ?? 0,
+          timingMode: s.timingMode ?? 'trigger',
           channel: s.channel ?? 'email',
           emailTemplateId: s.emailTemplateId ?? null,
           smsBody: s.smsBody ?? null,

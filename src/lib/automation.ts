@@ -136,12 +136,55 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
 
 /**
  * Called when a calendar event is rescheduled. Cancels any pending
- * before_meeting reminders (they were keyed off the old time) and queues
- * fresh ones for the new scheduledStart.
+ * meeting-relative reminders (they were keyed off the old time) and
+ * queues fresh ones for the new scheduledStart.
+ *
+ * Two paths re-fire:
+ *  1. Legacy `before_meeting` trigger rules — handled by
+ *     scheduleBeforeMeetingReminders.
+ *  2. Per-step timingMode='before_meeting'/'after_meeting' on rules with
+ *     other triggers (meeting_scheduled, meeting_started, etc.) — handled
+ *     by reScheduleMeetingRelativeSteps.
+ *
+ * Already-sent steps stay sent (the upsert in dispatchStep skips them).
  */
 export async function rescheduleBeforeMeetingReminders(sessionId: string, newScheduledStart: Date) {
   await cancelBeforeMeetingReminders(sessionId)
   await scheduleBeforeMeetingReminders(sessionId, newScheduledStart)
+  await reScheduleMeetingRelativeSteps(sessionId)
+}
+
+/**
+ * Find every step that has timingMode='before_meeting'/'after_meeting' on
+ * a meeting-adjacent trigger and re-queue it. dispatchStep recomputes the
+ * fire time against the latest InterviewMeeting.scheduledStart.
+ */
+async function reScheduleMeetingRelativeSteps(sessionId: string) {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { workspaceId: true, flowId: true },
+  })
+  if (!session) return
+  const rules = await prisma.automationRule.findMany({
+    where: {
+      isActive: true,
+      workspaceId: session.workspaceId,
+      OR: [{ flowId: session.flowId }, { flowId: null }],
+      triggerType: { in: ['meeting_scheduled', 'meeting_started', 'meeting_ended', 'recording_ready'] },
+      steps: { some: { timingMode: { in: ['before_meeting', 'after_meeting'] } } },
+    },
+    select: { id: true, steps: { orderBy: { order: 'asc' } } },
+  })
+  for (const rule of rules) {
+    for (const step of rule.steps) {
+      if (step.timingMode !== 'before_meeting' && step.timingMode !== 'after_meeting') continue
+      // dispatchStep's upsert respects already-sent rows, so this is safe to
+      // call again after a reschedule.
+      await dispatchStep(rule.id, step, sessionId).catch((err) => {
+        console.error('[Automation] re-schedule of meeting-relative step failed:', err)
+      })
+    }
+  }
 }
 
 /**
@@ -255,19 +298,25 @@ export async function fireMeetingLifecycleAutomations(
  */
 export async function cancelPendingStepsForSession(
   sessionId: string,
-  opts?: { ruleTriggerTypes?: Set<string> },
+  opts?: { ruleTriggerTypes?: Set<string>; stepTimingModes?: Set<string> },
 ): Promise<number> {
-  const where: {
+  type Where = {
     sessionId: string
     status: { in: string[] }
-    automationRule?: { triggerType: { in: string[] } }
-  } = {
+    OR?: Array<Record<string, unknown>>
+  }
+  const where: Where = {
     sessionId,
     status: { in: ['queued', 'pending', 'waiting_for_recording'] },
   }
+  const ors: Array<Record<string, unknown>> = []
   if (opts?.ruleTriggerTypes && opts.ruleTriggerTypes.size > 0) {
-    where.automationRule = { triggerType: { in: Array.from(opts.ruleTriggerTypes) } }
+    ors.push({ automationRule: { triggerType: { in: Array.from(opts.ruleTriggerTypes) } } })
   }
+  if (opts?.stepTimingModes && opts.stepTimingModes.size > 0) {
+    ors.push({ step: { timingMode: { in: Array.from(opts.stepTimingModes) } } })
+  }
+  if (ors.length > 0) where.OR = ors
   const queued = await prisma.automationExecution.findMany({
     where,
     select: { id: true, qstashMessageId: true },
@@ -337,16 +386,49 @@ async function dispatchRule(ruleId: string, sessionId: string) {
 /**
  * Queue a single step for a session at its delayMinutes. Splits step.channel='both'
  * into one execution per channel.
+ *
+ * Timing modes:
+ *  - 'trigger'        → delay seconds from NOW (default).
+ *  - 'before_meeting' → fire at InterviewMeeting.scheduledStart - delayMinutes.
+ *  - 'after_meeting'  → fire at InterviewMeeting.scheduledStart + delayMinutes.
+ *
+ * For meeting-relative modes we look up the latest InterviewMeeting attached
+ * to the session. If none exists yet, fall back to 'trigger' semantics so the
+ * step still fires (the recruiter set up a meeting-relative reminder for a
+ * candidate without an actual meeting — better to send "now" than never).
  */
 async function dispatchStep(
   ruleId: string,
-  step: { id: string; delayMinutes: number; channel: string },
+  step: { id: string; delayMinutes: number; channel: string; timingMode?: string | null },
   sessionId: string,
 ) {
   const channels = expandChannels(step.channel)
+  const mode = step.timingMode || 'trigger'
+  let delaySeconds: number = step.delayMinutes * 60
+
+  if (mode === 'before_meeting' || mode === 'after_meeting') {
+    const meeting = await prisma.interviewMeeting.findFirst({
+      where: { sessionId },
+      orderBy: { createdAt: 'desc' },
+      select: { scheduledStart: true },
+    })
+    if (meeting?.scheduledStart) {
+      const sign = mode === 'before_meeting' ? -1 : 1
+      const fireAtMs = meeting.scheduledStart.getTime() + sign * step.delayMinutes * 60_000
+      delaySeconds = Math.floor((fireAtMs - Date.now()) / 1000)
+      if (delaySeconds < 60) {
+        // Fire time is in the past or imminent — skip rather than send a
+        // late "X minutes before" reminder after the meeting started.
+        console.log(`[Automation] Skipping step ${step.id} for session ${sessionId} — ${mode} fire time too close (${delaySeconds}s)`)
+        return
+      }
+    }
+    // No meeting yet → fall through with the original delaySeconds (trigger semantics).
+  }
+
   for (const channel of channels) {
-    if (step.delayMinutes > 0 && qstash) {
-      await queueStepAtDelay(ruleId, step.id, sessionId, channel, step.delayMinutes * 60)
+    if (delaySeconds > 0 && qstash) {
+      await queueStepAtDelay(ruleId, step.id, sessionId, channel, delaySeconds)
     } else {
       await executeStep(step.id, sessionId, channel)
     }
@@ -509,11 +591,17 @@ export async function scheduleBeforeMeetingReminders(sessionId: string, schedule
 }
 
 /**
- * Cancel all queued before_meeting reminders for a session.
+ * Cancel all queued meeting-relative reminders for a session — both rules
+ * with triggerType='before_meeting' (legacy rule-level model) and any step
+ * whose timingMode is 'before_meeting' or 'after_meeting' (per-step model).
+ *
+ * Called when the calendar event is cancelled or rescheduled — both
+ * scenarios invalidate the meeting-relative fire times.
  */
 export async function cancelBeforeMeetingReminders(sessionId: string): Promise<number> {
   return cancelPendingStepsForSession(sessionId, {
     ruleTriggerTypes: new Set(['before_meeting']),
+    stepTimingModes: new Set(['before_meeting', 'after_meeting']),
   })
 }
 

@@ -41,6 +41,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
         create: source.steps.map((s) => ({
           order: s.order,
           delayMinutes: s.delayMinutes,
+          timingMode: s.timingMode,
           channel: s.channel,
           emailTemplateId: s.emailTemplateId,
           smsBody: s.smsBody,

@@ -14,6 +14,7 @@ interface StepShape {
   id?: string
   order: number
   delayMinutes: number
+  timingMode: 'trigger' | 'before_meeting' | 'after_meeting'
   channel: 'email' | 'sms' | 'both'
   emailTemplateId: string | null
   smsBody: string | null
@@ -190,6 +191,7 @@ function newStep(order: number, defaultTemplateId?: string): StepShape {
   return {
     order,
     delayMinutes: 0,
+    timingMode: 'trigger',
     channel: 'email',
     emailTemplateId: defaultTemplateId ?? null,
     smsBody: null,
@@ -201,6 +203,10 @@ function newStep(order: number, defaultTemplateId?: string): StepShape {
     schedulingConfigId: null,
   }
 }
+
+// Triggers tied to an actual InterviewMeeting — these are the only triggers
+// where step.timingMode='before_meeting' / 'after_meeting' makes sense.
+const MEETING_TRIGGERS = new Set(['meeting_scheduled', 'before_meeting', 'meeting_started', 'meeting_ended', 'recording_ready'])
 
 function formatDelay(m: number): string {
   if (m <= 0) return 'Instant'
@@ -473,16 +479,21 @@ export default function AutomationsPage() {
     // Synthesize a single step from the legacy rule fields in that case so
     // the editor stays usable until the backfill runs.
     if (r.steps && r.steps.length > 0) {
-      setSteps(r.steps.map((s, i) => ({
-        ...s,
-        order: i,
-        channel: (s.channel === 'sms' || s.channel === 'both') ? s.channel : 'email',
-        emailDestination: (s.emailDestination as StepShape['emailDestination']) || 'applicant',
-      })))
+      setSteps(r.steps.map((s, i) => {
+        const tm = (s as StepShape).timingMode
+        return {
+          ...s,
+          order: i,
+          channel: (s.channel === 'sms' || s.channel === 'both') ? s.channel : 'email',
+          timingMode: (tm === 'before_meeting' || tm === 'after_meeting') ? tm : 'trigger',
+          emailDestination: (s.emailDestination as StepShape['emailDestination']) || 'applicant',
+        }
+      }))
     } else {
       setSteps([{
         order: 0,
         delayMinutes: r.delayMinutes ?? 0,
+        timingMode: 'trigger',
         channel: r.channel === 'sms' ? 'sms' : 'email',
         emailTemplateId: r.emailTemplateId ?? null,
         smsBody: r.smsBody ?? null,
@@ -543,6 +554,7 @@ export default function AutomationsPage() {
       steps: steps.map((s, i) => ({
         order: i,
         delayMinutes: s.delayMinutes ?? 0,
+        timingMode: s.timingMode ?? 'trigger',
         channel: s.channel,
         emailTemplateId: s.emailTemplateId,
         smsBody: s.smsBody,
@@ -1168,12 +1180,43 @@ function StepCard(props: {
           )}
         </div>
 
-        {/* Delay */}
-        {!delayLocked && (
+        {/* Delay + timing mode */}
+        {!delayLocked && (() => {
+          const isMeetingTrigger = MEETING_TRIGGERS.has(triggerType)
+          const mode = step.timingMode || 'trigger'
+          const delayLabel = mode === 'before_meeting' ? 'Minutes before meeting'
+            : mode === 'after_meeting' ? 'Minutes after meeting'
+            : 'Delay after trigger'
+          const fireDescription = mode === 'before_meeting'
+            ? `Fires ${formatDelay(step.delayMinutes)} BEFORE the candidate's scheduled meeting time.`
+            : mode === 'after_meeting'
+              ? `Fires ${formatDelay(step.delayMinutes)} AFTER the candidate's scheduled meeting time.`
+              : `Fires ${formatDelay(step.delayMinutes)} after the trigger event.`
+          return (
           <div>
-            <label className="block text-xs font-medium text-grey-20 mb-1.5">
-              {isFirst ? 'Delay after trigger' : 'Delay after trigger'}
-            </label>
+            {/* Timing-mode picker — only meaningful when the trigger is meeting-related */}
+            {isMeetingTrigger && (
+              <div className="mb-2">
+                <label className="block text-xs font-medium text-grey-20 mb-1.5">When to fire</label>
+                <div className="flex gap-2">
+                  {[
+                    { v: 'trigger' as const, l: 'After trigger' },
+                    { v: 'before_meeting' as const, l: 'Before meeting' },
+                    { v: 'after_meeting' as const, l: 'After meeting' },
+                  ].map(({ v, l }) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => props.onChange({ timingMode: v })}
+                      className={`flex-1 py-1.5 text-xs rounded-[8px] border font-medium ${mode === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35'}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <label className="block text-xs font-medium text-grey-20 mb-1.5">{delayLabel}</label>
             <div className="flex flex-wrap gap-1.5">
               {DELAY_PRESETS.map(d => (
                 <button key={d.value} onClick={() => props.onChange({ delayMinutes: d.value })} className={`px-3 py-1.5 text-xs rounded-[6px] border font-medium ${step.delayMinutes === d.value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
@@ -1192,9 +1235,10 @@ function StepCard(props: {
                 <span className="text-xs text-grey-40">minutes</span>
               </div>
             )}
-            {step.delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">Fires {formatDelay(step.delayMinutes)} after the trigger event.</p>}
+            {step.delayMinutes > 0 && <p className="text-xs text-grey-50 mt-1">{fireDescription}</p>}
           </div>
-        )}
+          )
+        })()}
         {delayLocked && (
           <p className="text-xs text-grey-50">Step 1 of a before_meeting rule fires at the rule&apos;s &quot;X minutes before meeting&quot; setting (above).</p>
         )}
