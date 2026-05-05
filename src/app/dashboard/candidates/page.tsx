@@ -171,8 +171,8 @@ export default function CandidatesPage() {
     })
   }
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const load = useCallback((opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     const params = new URLSearchParams()
     if (flowFilter) params.set('flowId', flowFilter)
     if (search) params.set('search', search)
@@ -180,6 +180,30 @@ export default function CandidatesPage() {
   }, [flowFilter, search])
 
   useEffect(() => { load() }, [load])
+
+  // Auto-refresh: pick up server-side stage changes (meeting_ended,
+  // recording_ready, etc.) without requiring the recruiter to hard-refresh.
+  // Polls every 30s while the tab is visible and refetches instantly on
+  // focus. Skipped while a card is mid-drag so the optimistic update isn't
+  // clobbered.
+  const draggingRef = useRef(false)
+  useEffect(() => { draggingRef.current = dragging !== null }, [dragging])
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return
+      if (draggingRef.current) return
+      load({ silent: true })
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+    const id = window.setInterval(tick, 30_000)
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [load])
 
   const updateStatus = async (id: string, pipelineStatus: string) => {
     setCandidates((prev) => prev.map((c) => c.id === id ? { ...c, pipelineStatus } : c))
