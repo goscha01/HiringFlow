@@ -189,19 +189,23 @@ export async function syncMeetingFromMeetApi(
       if (conf.endTime) data.actualEnd = new Date(conf.endTime)
       data.participants = participants.map(toParticipantRow) as unknown as Prisma.InputJsonValue
 
-      // Recording artifact (best-effort)
-      try {
-        const recs = await listRecordings(client, conf.name)
-        const rec = recs[0]
-        if (rec?.driveDestination?.file && rec.state === 'FILE_GENERATED') {
-          data.recordingState = 'ready'
-          data.driveRecordingFileId = rec.driveDestination.file
-        } else if (rec && rec.state && rec.state !== 'FILE_GENERATED') {
-          // Recording exists but artifact not finalized yet.
-          if (meeting.recordingState !== 'ready') data.recordingState = 'processing'
+      // Recording artifact (best-effort). Skip when the recruiter explicitly
+      // removed the recording from the candidate profile — re-linking would
+      // silently undo their action on the next page load.
+      if (meeting.recordingState !== 'unavailable') {
+        try {
+          const recs = await listRecordings(client, conf.name)
+          const rec = recs[0]
+          if (rec?.driveDestination?.file && rec.state === 'FILE_GENERATED') {
+            data.recordingState = 'ready'
+            data.driveRecordingFileId = rec.driveDestination.file
+          } else if (rec && rec.state && rec.state !== 'FILE_GENERATED') {
+            // Recording exists but artifact not finalized yet.
+            if (meeting.recordingState !== 'ready') data.recordingState = 'processing'
+          }
+        } catch (err) {
+          console.error('[meet-sync] listRecordings failed for', meeting.id, ':', (err as Error).message)
         }
-      } catch (err) {
-        console.error('[meet-sync] listRecordings failed for', meeting.id, ':', (err as Error).message)
       }
 
       await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
@@ -275,6 +279,12 @@ async function syncFromDriveRecording(
   folderId: string | null,
   opts: { extensionEnabled?: boolean } = {},
 ): Promise<{ updated: boolean; recordingFileId: string | null; createdAt: Date | null }> {
+  // Honor explicit removal by the recruiter. recordingState='unavailable'
+  // means "remove recording" was clicked — re-finding the file in Drive and
+  // writing it back would silently undo that on the next page load.
+  if (meeting.recordingState === 'unavailable') {
+    return { updated: false, recordingFileId: null, createdAt: null }
+  }
   if (!folderId) return { updated: false, recordingFileId: null, createdAt: null }
   const session = await prisma.session.findUnique({
     where: { id: meeting.sessionId },
