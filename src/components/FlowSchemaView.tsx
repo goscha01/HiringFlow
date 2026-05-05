@@ -340,44 +340,81 @@ export default function FlowSchemaView({
   // Only recompute layout for newly-added IDs (insert/add); existing positions
   // are preserved. Combined partners are snapped adjacent regardless.
   // For newly-added "inserted" steps (exactly one source + one target, both
-  // already positioned), drop them at the midpoint of the connection.
+  // already positioned), drop them adjacent to the source and shift the
+  // downstream chain right to make room.
   useEffect(() => {
     setPositions((prev) => {
       const layout = computeLayout()
       const layoutIds = Object.keys(layout)
 
+      // Pass 1: preserve existing positions, fall back to layout for new ones.
       const merged: Record<string, NodePos> = {}
+      const newIds: string[] = []
       for (const id of layoutIds) {
         if (id in prev) {
           merged[id] = prev[id]
-          continue
+        } else {
+          merged[id] = layout[id]
+          newIds.push(id)
         }
-        // New step — try midpoint of (single) preserved source and target
+      }
+
+      // Pass 2: for each new step that has exactly one (preserved) source and
+      // one (preserved) target, slot it between them and shift the downstream
+      // chain right so the new step doesn't overlap the target.
+      const slot = NODE_W + H_GAP
+      for (const id of newIds) {
         const newStep = steps.find((s) => s.id === id)
-        if (newStep) {
-          const sources = steps.filter((s) => {
-            if (s.id === id) return false
-            const opts = s.options.some((o) => o.nextStepId === id)
-            const btn = s.buttonConfig?.nextStepId === id
-            return opts || btn
-          })
-          const targets: string[] = []
-          for (const o of newStep.options) {
-            if (o.nextStepId && o.nextStepId !== '__end__') targets.push(o.nextStepId)
-          }
-          const btnTarget = newStep.buttonConfig?.nextStepId
-          if (btnTarget && btnTarget !== '__end__') targets.push(btnTarget)
-          const uniqueTargets = Array.from(new Set(targets))
-          if (sources.length === 1 && uniqueTargets.length === 1) {
-            const src = prev[sources[0].id]
-            const tgt = prev[uniqueTargets[0]]
-            if (src && tgt) {
-              merged[id] = { x: (src.x + tgt.x) / 2, y: (src.y + tgt.y) / 2 }
-              continue
-            }
-          }
+        if (!newStep) continue
+        const sources = steps.filter((s) => {
+          if (s.id === id) return false
+          const opts = s.options.some((o) => o.nextStepId === id)
+          const btn = s.buttonConfig?.nextStepId === id
+          return opts || btn
+        })
+        const targets: string[] = []
+        for (const o of newStep.options) {
+          if (o.nextStepId && o.nextStepId !== '__end__') targets.push(o.nextStepId)
         }
-        merged[id] = layout[id]
+        const btnTarget = newStep.buttonConfig?.nextStepId
+        if (btnTarget && btnTarget !== '__end__') targets.push(btnTarget)
+        const uniqueTargets = Array.from(new Set(targets))
+        if (sources.length !== 1 || uniqueTargets.length !== 1) continue
+
+        const src = merged[sources[0].id]
+        const tgt = merged[uniqueTargets[0]]
+        if (!src || !tgt) continue
+
+        // Drop the new step right next to the source, on the same row.
+        const newX = src.x + slot
+        const newY = src.y
+        merged[id] = { x: newX, y: newY }
+
+        // If the new step overlaps the target, shift target and everything
+        // downstream right by the slot width so there's clean spacing.
+        if (newX + NODE_W > tgt.x - 4) {
+          const shift = newX + slot - tgt.x
+          const toShift = new Set<string>()
+          const queue = [uniqueTargets[0]]
+          while (queue.length > 0) {
+            const sid = queue.shift()!
+            if (toShift.has(sid)) continue
+            toShift.add(sid)
+            const s = steps.find((x) => x.id === sid)
+            if (!s) continue
+            for (const o of s.options) {
+              if (o.nextStepId && o.nextStepId !== '__end__' && !toShift.has(o.nextStepId)) {
+                queue.push(o.nextStepId)
+              }
+            }
+            const cBtn = s.buttonConfig?.nextStepId
+            if (cBtn && cBtn !== '__end__' && !toShift.has(cBtn)) queue.push(cBtn)
+          }
+          toShift.forEach((sid) => {
+            const p = merged[sid]
+            if (p) merged[sid] = { x: p.x + shift, y: p.y }
+          })
+        }
       }
 
       // Snap combined-with partners adjacent. If a partner is far away, slide
