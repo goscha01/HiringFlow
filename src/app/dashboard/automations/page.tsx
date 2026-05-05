@@ -54,6 +54,7 @@ interface Rule {
 const PIPELINE_ORDER: Array<{ value: string; label: string; group: 'flow' | 'training' | 'meeting' }> = [
   { value: 'flow_completed',     label: 'Flow Completed',   group: 'flow' },
   { value: 'flow_passed',        label: 'Flow Passed',      group: 'flow' },
+  { value: 'training_started',   label: 'Training Started', group: 'training' },
   { value: 'training_completed', label: 'Training Done',    group: 'training' },
   { value: 'meeting_scheduled',  label: 'Meeting Scheduled',group: 'meeting' },
   { value: 'before_meeting',     label: 'Before Meeting',   group: 'meeting' },
@@ -69,6 +70,7 @@ type DestinationFilter = 'all' | 'applicant' | 'company'
 const TRIGGERS = [
   { value: 'flow_completed', label: 'Flow Completed' },
   { value: 'flow_passed', label: 'Flow Passed' },
+  { value: 'training_started', label: 'Training Started' },
   { value: 'training_completed', label: 'Training Done' },
   { value: 'meeting_scheduled', label: 'Meeting Scheduled' },
   { value: 'before_meeting', label: 'Before Meeting' },
@@ -81,6 +83,7 @@ const TRIGGERS = [
 ]
 
 const SESSION_WIDE_TRIGGERS = new Set([
+  'training_started',
   'training_completed',
   'automation_completed',
   'meeting_scheduled',
@@ -95,6 +98,7 @@ const SESSION_WIDE_TRIGGERS = new Set([
 const TRIGGER_LABELS: Record<string, string> = {
   flow_completed: 'Flow Completed',
   flow_passed: 'Flow Passed',
+  training_started: 'Training Started',
   training_completed: 'Training Done',
   meeting_scheduled: 'Meeting Scheduled',
   before_meeting: 'Before Meeting',
@@ -123,6 +127,7 @@ const DELAY_PRESETS: Array<{ value: number; label: string }> = [
 const TRIGGER_TO_SMS_BODY: Record<string, string> = {
   flow_completed:     'Hi {{candidate_name}}, thanks for applying to {{flow_name}}. We received your application — we\'ll be in touch.',
   flow_passed:        'Hi {{candidate_name}}, you passed the screening for {{flow_name}}! Next step: {{training_link}}',
+  training_started:   'Hi {{candidate_name}}, you\'ve started the training. Reply if you have any questions along the way.',
   training_completed: 'Hi {{candidate_name}}, training done! Book your interview: {{schedule_link}}',
   meeting_scheduled:  'Hi {{candidate_name}}, your interview is confirmed for {{meeting_time}}. Join: {{meeting_link}}',
   before_meeting:     'Hi {{candidate_name}}, reminder: your interview starts at {{meeting_time}}. Join: {{meeting_link}}',
@@ -166,6 +171,7 @@ function detectStepLinkType(step: StepShape, templates: Template[]): LinkType | 
 const TRIGGER_TO_TEMPLATE_NAME: Record<string, string> = {
   flow_completed:     'Form Submit Confirmation',
   flow_passed:        'Training Invitation',
+  training_started:   'Generic Follow-up',
   training_completed: 'Scheduling Invitation',
   meeting_scheduled:  'Interview Confirmation',
   before_meeting:     'Interview Reminder',

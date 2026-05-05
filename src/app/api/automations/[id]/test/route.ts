@@ -8,6 +8,7 @@ import { executeRule } from '@/lib/automation'
 const TRIGGER_TO_PIPELINE: Record<string, string> = {
   flow_completed: 'completed_flow',
   flow_passed: 'passed',
+  training_started: 'training_in_progress',
   training_completed: 'training_completed',
   meeting_scheduled: 'scheduled',
   meeting_started: 'scheduled',
