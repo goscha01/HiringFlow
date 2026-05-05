@@ -203,12 +203,12 @@ export default function FlowSchemaView({
     return ids
   }, [steps])
 
-  // The implicit "End" arrow connects from the last step in the flow's
-  // reachable chain (BFS from the first step following options/buttonConfig).
-  // A step that was just added but isn't yet wired up should NOT inherit
-  // the End connection just because it bumped the highest stepOrder.
-  const getEndStepId = useCallback((): string | null => {
-    if (steps.length === 0) return null
+  // Implicit "End" arrows connect from every reachable step that has no
+  // forward connections — i.e. every leaf of the flow's reachable graph.
+  // Multiple branches can each terminate in End independently.
+  const getEndStepIds = useCallback((): Set<string> => {
+    const result = new Set<string>()
+    if (steps.length === 0) return result
     const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
     const reachable = new Set<string>()
     const queue = [sorted[0].id]
@@ -226,11 +226,30 @@ export default function FlowSchemaView({
       const btn = step.buttonConfig?.nextStepId
       if (btn && btn !== '__end__' && !reachable.has(btn)) queue.push(btn)
     }
+    reachable.forEach((id) => {
+      const step = steps.find((s) => s.id === id)
+      if (!step) return
+      const hasOptionForward = step.options.some(
+        (o) => o.nextStepId && o.nextStepId !== '__end__'
+      )
+      const btn = step.buttonConfig?.nextStepId
+      const hasButtonForward = !!btn && btn !== '__end__'
+      if (!hasOptionForward && !hasButtonForward) result.add(id)
+    })
+    return result
+  }, [steps])
+
+  // Backward-compat single-step variant: pick the one with highest stepOrder
+  // among the terminal set. Used by the End-arrow click selection path.
+  const getEndStepId = useCallback((): string | null => {
+    const ids = getEndStepIds()
+    if (ids.size === 0) return null
+    const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
     for (let i = sorted.length - 1; i >= 0; i--) {
-      if (reachable.has(sorted[i].id)) return sorted[i].id
+      if (ids.has(sorted[i].id)) return sorted[i].id
     }
     return null
-  }, [steps])
+  }, [steps, getEndStepIds])
 
   // Compute initial layout
   const computeLayout = useCallback((): Record<string, NodePos> => {
@@ -738,7 +757,7 @@ export default function FlowSchemaView({
     }
 
     const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
-    const endStepId = getEndStepId()
+    const implicitEndIds = getEndStepIds()
 
     // --- Draw connections ---
 
@@ -836,17 +855,14 @@ export default function FlowSchemaView({
       }
     }
 
-    // End connections — from last step + any step explicitly set to End
+    // End connections — from every reachable terminal step + any step
+    // explicitly set to End via buttonConfig.
     const endPos = positions[END_ID]
     if (endPos && endMessage !== '') {
       const toX = endPos.x
       const toY = endPos.y + SPECIAL_H / 2
-      const drawnEndFrom = new Set<string>()
+      const drawnEndFrom = new Set<string>(implicitEndIds)
 
-      // Last step by order always connects to End
-      if (endStepId) drawnEndFrom.add(endStepId)
-
-      // Steps with buttonConfig.nextStepId === '__end__'
       for (const step of steps) {
         if ((step as any).buttonConfig?.nextStepId === '__end__') {
           drawnEndFrom.add(step.id)
@@ -860,9 +876,9 @@ export default function FlowSchemaView({
         const fromY = eStepPos.y + NODE_H / 2
         drawConnection(ctx, fromX, fromY, toX, toY, '', false, '#FF9500')
 
-        // Only the implicit "last step → End" arrow gets the +/delete UI;
+        // Implicit-End arrows (terminal reachable steps) get the +/delete UI;
         // buttonConfig=__end__ arrows are handled via button-arrow logic.
-        if (stepId !== endStepId) return
+        if (!implicitEndIds.has(stepId)) return
         const isThisEndSelected =
           selectedArrow?.kind === 'end' && selectedArrow.stepId === stepId
         const eddx = Math.abs(toX - fromX)
@@ -985,7 +1001,7 @@ export default function FlowSchemaView({
     }
 
     ctx.restore()
-  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepId, selectedArrow])
+  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepIds, selectedArrow])
 
   // Animation frame for smooth rendering
   useEffect(() => {
@@ -1203,25 +1219,24 @@ export default function FlowSchemaView({
         }
       }
 
-      // End arrow (implicit only — last step → End)
-      const endStepIdLocal = (() => {
-        if (steps.length === 0) return null
-        const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
-        return sorted[sorted.length - 1].id
-      })()
-      const endSelectedMatch =
-        selectedArrow?.kind === 'end' && selectedArrow.stepId === endStepIdLocal
-      if (endStepIdLocal && !endSelectedMatch && endMessage !== '') {
+      // End arrows (implicit) — any terminal reachable step's arrow to End.
+      if (endMessage !== '') {
         const ePos = posRef.current[END_ID]
-        const sPos = posRef.current[endStepIdLocal]
-        if (ePos && sPos) {
-          const fromX = sPos.x + NODE_W
-          const fromY = sPos.y + NODE_H / 2
+        if (ePos) {
           const toX = ePos.x
           const toY = ePos.y + SPECIAL_H / 2
-          if (isNearBezier(cx, cy, fromX, fromY, toX, toY, 12)) {
-            return { kind: 'end', fromStepId: endStepIdLocal }
-          }
+          const ends = getEndStepIds()
+          let hovered: string | null = null
+          ends.forEach((sid) => {
+            if (hovered) return
+            if (selectedArrow?.kind === 'end' && selectedArrow.stepId === sid) return
+            const sPos = posRef.current[sid]
+            if (!sPos) return
+            const fromX = sPos.x + NODE_W
+            const fromY = sPos.y + NODE_H / 2
+            if (isNearBezier(cx, cy, fromX, fromY, toX, toY, 12)) hovered = sid
+          })
+          if (hovered) return { kind: 'end', fromStepId: hovered }
         }
       }
 
@@ -1258,7 +1273,7 @@ export default function FlowSchemaView({
       }
       return null
     },
-    [steps, selectedArrow, startMessage, endMessage]
+    [steps, selectedArrow, startMessage, endMessage, getEndStepIds]
   )
 
   // Mouse handlers
@@ -1268,7 +1283,7 @@ export default function FlowSchemaView({
 
     const { x: cx, y: cy } = toCanvas(e.clientX, e.clientY)
     const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
-    const endStepId = getEndStepId()
+    const implicitEndIds = getEndStepIds()
     const endPos = positions[END_ID]
 
     // DEBUG: log click info
@@ -1502,18 +1517,22 @@ export default function FlowSchemaView({
       }
     }
 
-    // Check End arrow click (single connection)
-    if (endPos && endStepId && endMessage !== '') {
-      const ePos = positions[endStepId]
-      if (ePos) {
+    // Check End arrow click — pick whichever terminal step's End arrow is hit.
+    if (endPos && implicitEndIds.size > 0 && endMessage !== '') {
+      const toX = endPos.x
+      const toY = endPos.y + SPECIAL_H / 2
+      let hitStepId: string | null = null
+      implicitEndIds.forEach((sid) => {
+        if (hitStepId) return
+        const ePos = positions[sid]
+        if (!ePos) return
         const fromX = ePos.x + NODE_W
         const fromY = ePos.y + NODE_H / 2
-        const toX = endPos.x
-        const toY = endPos.y + SPECIAL_H / 2
-        if (isNearBezier(cx, cy, fromX, fromY, toX, toY, 10)) {
-          setSelectedArrow({ optionId: '__end_arrow__', stepId: endStepId, kind: 'end' })
-          return
-        }
+        if (isNearBezier(cx, cy, fromX, fromY, toX, toY, 10)) hitStepId = sid
+      })
+      if (hitStepId) {
+        setSelectedArrow({ optionId: '__end_arrow__', stepId: hitStepId, kind: 'end' })
+        return
       }
     }
 
