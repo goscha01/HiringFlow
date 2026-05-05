@@ -30,6 +30,7 @@ import { findMeetRecordingsFolderId, searchMeetRecordings } from './google-drive
 import { findAttendanceForMeeting, type AttendanceSignal } from './attendance-fallback'
 import { logSchedulingEvent } from '../scheduling'
 import { fireMeetingLifecycleAutomations } from '../automation'
+import { bumpSessionActivity } from '../session-activity'
 
 // Wait this long after scheduledEnd before pulling state. Avoids racing the
 // recording artifact pipeline on Workspace tenants and avoids treating a
@@ -360,6 +361,11 @@ export async function applyAttendanceSignal(
   if (!meeting.actualEnd) stateUpdate.actualEnd = endAt
   if (Object.keys(stateUpdate).length > 0) {
     await prisma.interviewMeeting.update({ where: { id: meeting.id }, data: stateUpdate }).catch(() => {})
+    // The candidate was actually in this meeting — make that count as
+    // engagement on the recruiter's "last active" indicator. Without this,
+    // a candidate who only interacts with HireFunnel via interviews looks
+    // permanently idle.
+    await bumpSessionActivity(meeting.sessionId)
   }
 
   const startedSource = attendance?.source ?? 'recording'

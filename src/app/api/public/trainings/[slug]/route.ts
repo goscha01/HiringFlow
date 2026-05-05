@@ -192,6 +192,12 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     enrollmentProgress = enrollment.progress
     candidateName = accessToken.candidate?.candidateName || null
     candidateEmail = accessToken.candidate?.candidateEmail || null
+
+    // Loading the training page is itself an engagement signal — without
+    // this, a candidate watching videos but never finishing a section
+    // (and therefore never PATCHing `completedSections`) would look idle
+    // on the recruiter dashboard.
+    await bumpSessionActivity(accessToken.candidateId)
   }
 
   return NextResponse.json({

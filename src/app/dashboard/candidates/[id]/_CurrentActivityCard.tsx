@@ -27,6 +27,7 @@ interface TrainingSection {
   title: string
   sortOrder: number
   kind: string
+  contents?: { id: string; type: string }[]
 }
 
 interface TrainingEnrollment {
@@ -38,6 +39,7 @@ interface TrainingEnrollment {
     completedSections?: string[]
     quizScores?: { sectionId: string; score: number }[]
     sectionTimestamps?: Record<string, string>
+    currentLesson?: { sectionId: string; lessonIdx: number; at: string }
   } | null
   training: { id: string; title: string; sections?: TrainingSection[] }
 }
@@ -137,9 +139,35 @@ export function CurrentActivityCard({
     const done = sections.filter((s) => completedIds.has(s.id)).length
     const pct = total > 0 ? Math.round((done / total) * 100) : 0
     const isCompleted = e.status === 'completed' || e.completedAt !== null
-    const currentSection = isCompleted
-      ? null
-      : sections.find((s) => !completedIds.has(s.id)) || null
+
+    // Prefer the candidate's most recent position ping when they're
+    // mid-section — that's "where they are right now" with finer
+    // granularity than the next-incomplete-section fallback. Skip if
+    // the pinged section is already complete (stale ping) or no longer
+    // exists (training was edited).
+    const cl = e.progress?.currentLesson
+    let currentSection: TrainingSection | null = null
+    let currentLessonIdx: number | null = null
+    let currentLessonTotal: number | null = null
+    if (!isCompleted && cl) {
+      const pinged = sections.find((s) => s.id === cl.sectionId)
+      if (pinged && !completedIds.has(pinged.id)) {
+        currentSection = pinged
+        currentLessonIdx = cl.lessonIdx
+        // The training editor stores the section's description as the
+        // first text-type content — exclude it so "Lesson 3 of N" matches
+        // what the candidate sees in the viewer.
+        const lessonContents = (pinged.contents || []).filter((c, i) => {
+          if (i === 0 && c.type === 'text') return false
+          return true
+        })
+        currentLessonTotal = lessonContents.length || null
+      }
+    }
+    if (!isCompleted && !currentSection) {
+      currentSection = sections.find((s) => !completedIds.has(s.id)) || null
+    }
+
     return {
       id: e.id,
       title: e.training.title,
@@ -148,6 +176,9 @@ export function CurrentActivityCard({
       total,
       pct,
       currentSection,
+      currentLessonIdx,
+      currentLessonTotal,
+      lastPingAt: cl?.at ?? null,
       completedAt: e.completedAt,
       startedAt: e.startedAt,
     }
@@ -215,6 +246,15 @@ export function CurrentActivityCard({
               {!t.isCompleted && t.currentSection && (
                 <div className="text-xs text-grey-40 mt-1.5">
                   Currently on: {t.currentSection.title}
+                  {t.currentLessonIdx !== null && (
+                    <>
+                      {' '}· Lesson {t.currentLessonIdx + 1}
+                      {t.currentLessonTotal ? ` of ${t.currentLessonTotal}` : ''}
+                    </>
+                  )}
+                  {t.lastPingAt && (
+                    <span className="text-grey-50"> · last ping {relativeTime(t.lastPingAt).text.replace('Last active ', '').replace('Active now', 'just now')}</span>
+                  )}
                 </div>
               )}
               {t.isCompleted && t.completedAt && (

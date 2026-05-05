@@ -33,6 +33,7 @@ import {
 import { logSchedulingEvent } from '@/lib/scheduling'
 import { renewSubscription } from '@/lib/meet/workspace-events'
 import { getFileMeta } from '@/lib/meet/google-drive'
+import { bumpSessionActivity } from '@/lib/session-activity'
 import { fireMeetingLifecycleAutomations } from '@/lib/automation'
 
 export const dynamic = 'force-dynamic'
@@ -184,6 +185,7 @@ export async function POST(request: NextRequest) {
       case 'google.workspace.meet.conference.v2.started': {
         const at = new Date(envelope.data?.conferenceRecord?.startTime || envelope.time || Date.now())
         await markConferenceStarted(meeting.id, at)
+        await bumpSessionActivity(meeting.sessionId)
         await logSchedulingEvent({
           sessionId: meeting.sessionId,
           eventType: 'meeting_started',
@@ -197,6 +199,7 @@ export async function POST(request: NextRequest) {
       case 'google.workspace.meet.conference.v2.ended': {
         const at = new Date(envelope.data?.conferenceRecord?.endTime || envelope.time || Date.now())
         await markConferenceEnded(meeting.id, at)
+        await bumpSessionActivity(meeting.sessionId)
         await logSchedulingEvent({
           sessionId: meeting.sessionId,
           eventType: 'meeting_ended',

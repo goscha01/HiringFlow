@@ -233,6 +233,34 @@ export default function TrainingPage() {
     } catch { /* silent */ }
   }, [training?.enrollmentId, slug])
 
+  // Position ping — tells the backend which lesson the candidate is currently
+  // on so the recruiter dashboard can show "Section X · Lesson Y" before the
+  // section is fully complete. Doubles as an activity heartbeat (the PATCH
+  // handler bumps Session.lastActivityAt). Best-effort, no UI feedback.
+  const pingLesson = useCallback(async (sectionId: string, lessonIdx: number) => {
+    if (!training?.enrollmentId) return
+    try {
+      await fetch(`/api/public/trainings/${slug}/progress`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enrollmentId: training.enrollmentId,
+          currentLesson: { sectionId, lessonIdx },
+        }),
+      })
+    } catch { /* silent */ }
+  }, [training?.enrollmentId, slug])
+
+  // Tell the backend which lesson the candidate is sitting on now. Fires on
+  // every section/content change while in active-learning view. Skipped on
+  // the landing page so just opening overview doesn't churn position state.
+  useEffect(() => {
+    if (!started || !training) return
+    const s = training.sections[sectionIdx]
+    if (!s) return
+    pingLesson(s.id, contentIdx)
+  }, [started, sectionIdx, contentIdx, training, pingLesson])
+
   // Mark training completed on backend
   const markCompleted = useCallback(async () => {
     if (!training?.enrollmentId) return

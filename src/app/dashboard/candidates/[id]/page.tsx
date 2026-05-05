@@ -24,6 +24,7 @@ interface Submission {
 }
 interface TrainingSection {
   id: string; title: string; sortOrder: number; kind: string
+  contents?: { id: string; type: string }[]
 }
 interface TrainingEnrollment {
   id: string; status: string; startedAt: string; completedAt: string | null
@@ -31,6 +32,7 @@ interface TrainingEnrollment {
     completedSections?: string[]
     quizScores?: { sectionId: string; score: number }[]
     sectionTimestamps?: Record<string, string>
+    currentLesson?: { sectionId: string; lessonIdx: number; at: string }
   } | null
   training: { id: string; title: string; sections?: TrainingSection[] }
 }

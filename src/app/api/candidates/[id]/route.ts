@@ -35,9 +35,19 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
               id: true,
               title: true,
               // Section list lets us render "2 of 5 — currently on
-              // <name>" and label per-section timeline events.
+              // <name>" and label per-section timeline events. Includes
+              // each section's content rows so the card can compute
+              // "Lesson 3 of 4" from the candidate's currentLesson ping.
+              // We pull only ids here — counting client-side keeps the
+              // payload small and avoids a separate aggregate query.
               sections: {
-                select: { id: true, title: true, sortOrder: true, kind: true },
+                select: {
+                  id: true,
+                  title: true,
+                  sortOrder: true,
+                  kind: true,
+                  contents: { select: { id: true, type: true }, orderBy: { sortOrder: 'asc' } },
+                },
                 orderBy: { sortOrder: 'asc' },
               },
             },

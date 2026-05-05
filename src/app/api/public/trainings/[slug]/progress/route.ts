@@ -5,14 +5,21 @@ import { fireTrainingCompletedAutomations, fireTrainingStartedAutomations } from
 import { bumpSessionActivity } from '@/lib/session-activity'
 
 // Progress JSON shape stored on TrainingEnrollment.progress.
-// `sectionTimestamps` is keyed by sectionId → ISO completion time and lets
-// the recruiter timeline show "Training section completed: X" with a real
-// time, not the enrollment's startedAt. Older enrollments may not have it;
-// readers must treat it as optional.
+//   `sectionTimestamps`: sectionId → ISO completion time, so the recruiter
+//      timeline can render real per-section events instead of inheriting
+//      the enrollment.startedAt.
+//   `currentLesson`: where the candidate is right now (mid-section). Pinged
+//      by the training viewer on every lesson navigation; lets the recruiter
+//      see "Section 2: Safety · Lesson 3" before the section is finished.
+//      Without this, a candidate who watches videos but never finishes a
+//      section looks like they haven't started.
+// All optional — older enrollments lack these fields and readers must
+// tolerate their absence.
 type EnrollmentProgress = {
   completedSections: string[]
   quizScores: { sectionId: string; score: number }[]
   sectionTimestamps?: Record<string, string>
+  currentLesson?: { sectionId: string; lessonIdx: number; at: string }
 }
 
 /**
@@ -20,7 +27,7 @@ type EnrollmentProgress = {
  * POST  — Mark training as completed
  */
 export async function PATCH(request: NextRequest) {
-  const { enrollmentId, completedSections } = await request.json()
+  const { enrollmentId, completedSections, currentLesson } = await request.json()
 
   if (!enrollmentId) {
     return NextResponse.json({ error: 'enrollmentId required' }, { status: 400 })
@@ -45,6 +52,21 @@ export async function PATCH(request: NextRequest) {
     }
     progress.completedSections = completedSections
     progress.sectionTimestamps = stamps
+  }
+
+  // Lightweight position ping: validate shape and stamp received-at so
+  // the recruiter card can show "Lesson 3 of section X" with a freshness
+  // signal. Lesson-navigation pings double as activity heartbeats — the
+  // bumpSessionActivity below catches them whether or not they include
+  // a `completedSections` change.
+  if (currentLesson && typeof currentLesson === 'object'
+      && typeof currentLesson.sectionId === 'string'
+      && Number.isInteger(currentLesson.lessonIdx) && currentLesson.lessonIdx >= 0) {
+    progress.currentLesson = {
+      sectionId: currentLesson.sectionId,
+      lessonIdx: currentLesson.lessonIdx,
+      at: new Date().toISOString(),
+    }
   }
 
   // Once an enrollment is completed, navigating back to a section or
