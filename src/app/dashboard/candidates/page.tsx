@@ -436,7 +436,6 @@ export default function CandidatesPage() {
                       </div>
                     ) : items.map((c) => {
                       const cardStage = resolveStage(c.pipelineStatus, stages)
-                      const isDragging = dragging === c.id
                       const isSelected = selectedCard === c.id
                       return (
                         <div
@@ -459,7 +458,7 @@ export default function CandidatesPage() {
                             isSelected
                               ? 'border-[color:var(--brand-primary)] ring-2 ring-[color:var(--brand-primary)]/40 shadow-[0_4px_12px_rgba(255,149,0,0.18)] cursor-grab active:cursor-grabbing'
                               : 'border-surface-border cursor-pointer hover:shadow-[0_2px_6px_rgba(26,24,21,0.06)]'
-                          } ${isDragging ? 'opacity-50' : ''}`}
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2 mb-1.5">
                             <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight pr-6">
