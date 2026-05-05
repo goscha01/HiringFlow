@@ -94,11 +94,16 @@ export async function processCalendarEvent(
 
   if (eventType === 'meeting_scheduled') {
     await updatePipelineStatus(sessionId, 'scheduled').catch(() => {})
-    await fireMeetingScheduledAutomations(sessionId).catch((err) => {
-      console.error('[GCal] fireMeetingScheduledAutomations failed:', err)
-    })
+    // Adopt the Meet space FIRST so the InterviewMeeting row exists before
+    // automations dispatch. Steps with timingMode='before_meeting' /
+    // 'after_meeting' read scheduledStart off that row to compute their
+    // fire time — without it they'd silently fall back to trigger semantics
+    // and fire delayMinutes from now instead of relative to the meeting.
     await adoptExternalMeet(workspaceId, sessionId, event, start, end, meetingUrl).catch((err) => {
       console.error('[GCal] adoptExternalMeet failed (non-fatal):', (err as Error).message)
+    })
+    await fireMeetingScheduledAutomations(sessionId).catch((err) => {
+      console.error('[GCal] fireMeetingScheduledAutomations failed:', err)
     })
   } else if (eventType === 'meeting_rescheduled' && start) {
     // Re-key any pending before_meeting reminders to the new scheduledStart.

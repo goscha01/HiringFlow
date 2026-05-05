@@ -463,9 +463,10 @@ export async function dispatchRule(ruleId: string, sessionId: string) {
  *  - 'after_meeting'  → fire at InterviewMeeting.scheduledStart + delayMinutes.
  *
  * For meeting-relative modes we look up the latest InterviewMeeting attached
- * to the session. If none exists yet, fall back to 'trigger' semantics so the
- * step still fires (the recruiter set up a meeting-relative reminder for a
- * candidate without an actual meeting — better to send "now" than never).
+ * to the session. If none exists, we SKIP — falling through to trigger
+ * semantics ("send now") would defeat the recruiter's intent ("send X minutes
+ * before the meeting") and produces the bug where reminders fire immediately
+ * after meeting_scheduled instead of relative to scheduledStart.
  */
 async function dispatchStep(
   ruleId: string,
@@ -482,30 +483,31 @@ async function dispatchStep(
       orderBy: { createdAt: 'desc' },
       select: { scheduledStart: true },
     })
-    if (meeting?.scheduledStart) {
-      const nowMs = Date.now()
-      const sign = mode === 'before_meeting' ? -1 : 1
-      const fireAtMs = meeting.scheduledStart.getTime() + sign * step.delayMinutes * 60_000
-      delaySeconds = Math.floor((fireAtMs - nowMs) / 1000)
-
-      // For before_meeting: if the MEETING itself has already started/passed,
-      // skip. Sending "X minutes before" copy after the meeting started is
-      // contradictory.
-      if (mode === 'before_meeting' && meeting.scheduledStart.getTime() <= nowMs) {
-        console.log(`[Automation] Skipping step ${step.id} for session ${sessionId} — before_meeting requested but meeting already started/passed`)
-        return
-      }
-
-      // Otherwise, if the computed fire time is in the past or imminent (the
-      // recruiter just added/edited the rule mid-cycle for an upcoming
-      // meeting), fire immediately rather than skip — better late than
-      // missed. The 24h reminder for a meeting now 23h out goes out now.
-      if (delaySeconds < 60) {
-        console.log(`[Automation] Step ${step.id} (${mode}) fire time already past/imminent (${delaySeconds}s) — firing immediately for session ${sessionId}`)
-        delaySeconds = 0
-      }
+    if (!meeting?.scheduledStart) {
+      console.warn(`[Automation] Skipping step ${step.id} for session ${sessionId} — timingMode=${mode} but no InterviewMeeting found`)
+      return
     }
-    // No meeting yet → fall through with the original delaySeconds (trigger semantics).
+    const nowMs = Date.now()
+    const sign = mode === 'before_meeting' ? -1 : 1
+    const fireAtMs = meeting.scheduledStart.getTime() + sign * step.delayMinutes * 60_000
+    delaySeconds = Math.floor((fireAtMs - nowMs) / 1000)
+
+    // For before_meeting: if the MEETING itself has already started/passed,
+    // skip. Sending "X minutes before" copy after the meeting started is
+    // contradictory.
+    if (mode === 'before_meeting' && meeting.scheduledStart.getTime() <= nowMs) {
+      console.log(`[Automation] Skipping step ${step.id} for session ${sessionId} — before_meeting requested but meeting already started/passed`)
+      return
+    }
+
+    // Otherwise, if the computed fire time is in the past or imminent (the
+    // recruiter just added/edited the rule mid-cycle for an upcoming
+    // meeting), fire immediately rather than skip — better late than
+    // missed. The 24h reminder for a meeting now 23h out goes out now.
+    if (delaySeconds < 60) {
+      console.log(`[Automation] Step ${step.id} (${mode}) fire time already past/imminent (${delaySeconds}s) — firing immediately for session ${sessionId}`)
+      delaySeconds = 0
+    }
   }
 
   for (const channel of channels) {
