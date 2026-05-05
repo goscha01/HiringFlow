@@ -375,6 +375,12 @@ model Session {
   formData             Json?                 @map("form_data")
   startedAt            DateTime              @default(now()) @map("started_at")
   finishedAt           DateTime?             @map("finished_at")
+  // Heartbeat — bumped whenever the candidate POSTs to a public flow / training
+  // / quiz endpoint. Recruiters use this to see if a candidate is actively
+  // engaging right now or has gone quiet. Distinct from `startedAt` (creation)
+  // and `finishedAt` (flow completion) because it covers post-flow activity
+  // like training and quiz progress.
+  lastActivityAt       DateTime?             @map("last_activity_at")
   outcome              String? // 'completed' | 'passed' | 'failed' | 'abandoned'
   pipelineStatus       String?               @map("pipeline_status")
   // Free-form reason captured when a candidate lands in a Rejected-style

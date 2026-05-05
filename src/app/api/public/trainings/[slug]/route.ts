@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
 import { validateAccessToken, getOrCreateEnrollment } from '@/lib/training-access'
 import { getWorkspaceSession } from '@/lib/auth'
+import { bumpSessionActivity } from '@/lib/session-activity'
 
 // ─────────────────────────── Quiz options shapes ───────────────────────────
 //
@@ -314,7 +315,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     try {
       const enrollment = await prisma.trainingEnrollment.findUnique({ where: { id: enrollmentId } })
       if (enrollment) {
-        const progress = (enrollment.progress as { completedSections: string[]; quizScores: { sectionId: string; score: number }[] }) || { completedSections: [], quizScores: [] }
+        const progress = (enrollment.progress as { completedSections: string[]; quizScores: { sectionId: string; score: number }[]; sectionTimestamps?: Record<string, string> }) || { completedSections: [], quizScores: [] }
         // Find which section this quiz belongs to
         const section = training.sections.find(s => s.quiz?.id === quizId)
         if (section) {
@@ -325,15 +326,22 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
           } else {
             progress.quizScores.push({ sectionId: section.id, score })
           }
-          // Mark section as completed if passed
+          // Mark section as completed if passed, stamping the timestamp on
+          // first transition so the recruiter timeline gets a real moment
+          // ("Section 2 quiz passed @ 14:32") instead of falling back to the
+          // enrollment.startedAt.
           if (passed && !progress.completedSections.includes(section.id)) {
             progress.completedSections.push(section.id)
+            const stamps = { ...(progress.sectionTimestamps || {}) }
+            if (!stamps[section.id]) stamps[section.id] = new Date().toISOString()
+            progress.sectionTimestamps = stamps
           }
           await prisma.trainingEnrollment.update({
             where: { id: enrollmentId },
             data: { progress },
           })
         }
+        await bumpSessionActivity(enrollment.sessionId)
       }
     } catch (err) {
       console.error('[Training] Failed to update enrollment progress:', err)

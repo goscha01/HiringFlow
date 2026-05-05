@@ -11,6 +11,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     where: { id: params.id, workspaceId: ws.workspaceId },
     include: {
       flow: { select: { id: true, name: true, slug: true } },
+      // Step the candidate is currently sitting on. Drives the "Step X of Y"
+      // progress card on the dashboard. Null once the flow is finished.
+      lastStep: { select: { id: true, title: true, stepOrder: true, stepType: true, questionType: true } },
       ad: { select: { id: true, name: true, source: true } },
       answers: {
         include: {
@@ -26,13 +29,32 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         orderBy: { submittedAt: 'asc' },
       },
       trainingEnrollments: {
-        include: { training: { select: { id: true, title: true } } },
+        include: {
+          training: {
+            select: {
+              id: true,
+              title: true,
+              // Section list lets us render "2 of 5 — currently on
+              // <name>" and label per-section timeline events.
+              sections: {
+                select: { id: true, title: true, sortOrder: true, kind: true },
+                orderBy: { sortOrder: 'asc' },
+              },
+            },
+          },
+        },
       },
       schedulingEvents: { orderBy: { eventAt: 'desc' } },
     },
   })
 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Total step count for the flow — used to render the candidate's flow
+  // progress as "Step 3 / 8". Counted once and serialized into the response.
+  const flowStepCount = session.flow?.id
+    ? await prisma.flowStep.count({ where: { flowId: session.flow.id } })
+    : 0
 
   const automationExecutions = await prisma.automationExecution.findMany({
     where: { sessionId: params.id },
@@ -90,7 +112,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     isRebook = !!earlier
   }
 
-  return NextResponse.json({ ...session, automationExecutions, formFieldLabels, isRebook })
+  return NextResponse.json({ ...session, automationExecutions, formFieldLabels, isRebook, flowStepCount })
 }
 
 // Update pipeline status

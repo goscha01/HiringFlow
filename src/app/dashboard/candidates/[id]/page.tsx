@@ -11,6 +11,7 @@ import {
 } from '@/lib/funnel-stages'
 import { InterviewPanel } from './_InterviewPanel'
 import { NotesPanel } from './_NotesPanel'
+import { CurrentActivityCard } from './_CurrentActivityCard'
 
 interface Answer {
   id: string; answeredAt: string
@@ -21,9 +22,17 @@ interface Submission {
   id: string; submittedAt: string; videoStorageKey: string | null; videoFilename: string | null; textMessage: string | null
   step: { id: string; title: string; questionText: string | null }
 }
+interface TrainingSection {
+  id: string; title: string; sortOrder: number; kind: string
+}
 interface TrainingEnrollment {
   id: string; status: string; startedAt: string; completedAt: string | null
-  training: { id: string; title: string }
+  progress: {
+    completedSections?: string[]
+    quizScores?: { sectionId: string; score: number }[]
+    sectionTimestamps?: Record<string, string>
+  } | null
+  training: { id: string; title: string; sections?: TrainingSection[] }
 }
 interface SchedulingEvent { id: string; eventType: string; eventAt: string; metadata: Record<string, any> | null }
 interface AutomationExec {
@@ -45,9 +54,12 @@ interface AutomationExec {
 interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
   formData: Record<string, string> | null; outcome: string | null; pipelineStatus: string | null
-  startedAt: string; finishedAt: string | null; source: string | null; campaign: string | null
+  startedAt: string; finishedAt: string | null; lastActivityAt: string | null
+  source: string | null; campaign: string | null
   rejectionReason: string | null; rejectionReasonAt: string | null
   flow: { id: string; name: string; slug: string } | null
+  lastStep: { id: string; title: string; stepOrder: number; stepType: string; questionType: string } | null
+  flowStepCount: number
   ad: { id: string; name: string; source: string } | null
   answers: Answer[]; submissions: Submission[]
   trainingEnrollments: TrainingEnrollment[]; schedulingEvents: SchedulingEvent[]
@@ -362,6 +374,22 @@ export default function CandidateDetailPage() {
   if (candidate.finishedAt) timeline.push({ label: `Flow ${candidate.outcome || 'completed'}`, time: candidate.finishedAt, type: candidate.outcome === 'passed' ? 'success' : candidate.outcome === 'failed' ? 'error' : 'info' })
   candidate.trainingEnrollments.forEach(e => {
     timeline.push({ label: `Training started: ${e.training.title}`, time: e.startedAt, type: 'info' })
+    // Per-section completion events — only enrollments saved after the
+    // sectionTimestamps shape was introduced will have these. Older
+    // enrollments fall through silently.
+    const stamps = e.progress?.sectionTimestamps || {}
+    const sections = e.training.sections || []
+    const sectionById = new Map(sections.map((s) => [s.id, s] as const))
+    for (const [sectionId, at] of Object.entries(stamps)) {
+      const section = sectionById.get(sectionId)
+      if (!section) continue
+      timeline.push({
+        label: `Training section completed: ${section.title}`,
+        detail: e.training.title,
+        time: at,
+        type: 'info',
+      })
+    }
     if (e.completedAt) timeline.push({ label: `Training completed: ${e.training.title}`, time: e.completedAt, type: 'success' })
   })
   candidate.schedulingEvents.forEach(e => {
@@ -552,6 +580,20 @@ export default function CandidateDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Current activity — at-a-glance "where is the candidate right now"
+          panel. Sits above the pipeline so recruiters scanning the page
+          see live progress before historical state. */}
+      <CurrentActivityCard
+        startedAt={candidate.startedAt}
+        finishedAt={candidate.finishedAt}
+        lastActivityAt={candidate.lastActivityAt}
+        outcome={candidate.outcome}
+        lastStep={candidate.lastStep}
+        flowStepCount={candidate.flowStepCount}
+        answersCount={candidate.answers.length}
+        trainingEnrollments={candidate.trainingEnrollments}
+      />
 
       {/* Pipeline progress */}
       <div className="bg-white rounded-[12px] border border-surface-border p-6 mb-6">

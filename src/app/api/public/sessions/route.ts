@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
         candidateEmail: candidateEmail || null,
         candidatePhone: candidatePhone || null,
         lastStepId: startStepId,
+        lastActivityAt: new Date(),
         // Source attribution (from Ad link)
         adId: adId || null,
         source: source || null,

@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { completeEnrollment } from '@/lib/training-access'
 import { fireTrainingCompletedAutomations, fireTrainingStartedAutomations } from '@/lib/automation'
+import { bumpSessionActivity } from '@/lib/session-activity'
+
+// Progress JSON shape stored on TrainingEnrollment.progress.
+// `sectionTimestamps` is keyed by sectionId → ISO completion time and lets
+// the recruiter timeline show "Training section completed: X" with a real
+// time, not the enrollment's startedAt. Older enrollments may not have it;
+// readers must treat it as optional.
+type EnrollmentProgress = {
+  completedSections: string[]
+  quizScores: { sectionId: string; score: number }[]
+  sectionTimestamps?: Record<string, string>
+}
 
 /**
  * PATCH — Update training progress (section completion, status changes)
@@ -19,10 +31,20 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 })
   }
 
-  const progress = (enrollment.progress as { completedSections: string[]; quizScores: { sectionId: string; score: number }[] }) || { completedSections: [], quizScores: [] }
+  const progress: EnrollmentProgress = (enrollment.progress as EnrollmentProgress) || { completedSections: [], quizScores: [] }
 
   if (completedSections) {
+    // Stamp a timestamp the first time each section appears as complete so
+    // the timeline can render real per-section events. Existing entries are
+    // preserved.
+    const previous = new Set(progress.completedSections)
+    const stamps = { ...(progress.sectionTimestamps || {}) }
+    const now = new Date().toISOString()
+    for (const sid of completedSections) {
+      if (!previous.has(sid) && !stamps[sid]) stamps[sid] = now
+    }
     progress.completedSections = completedSections
+    progress.sectionTimestamps = stamps
   }
 
   // Once an enrollment is completed, navigating back to a section or
@@ -45,6 +67,8 @@ export async function PATCH(request: NextRequest) {
       progress,
     },
   })
+
+  await bumpSessionActivity(enrollment.sessionId)
 
   return NextResponse.json({ success: true, progress: updated.progress, status: updated.status })
 }
@@ -76,6 +100,8 @@ export async function POST(request: NextRequest) {
   if (enrollment.sessionId) {
     await fireTrainingCompletedAutomations(enrollment.sessionId, enrollment.trainingId)
   }
+
+  await bumpSessionActivity(enrollment.sessionId)
 
   return NextResponse.json({ success: true, status: 'completed' })
 }
