@@ -4,12 +4,14 @@ import { prisma } from '@/lib/prisma'
 import { executeRule } from '@/lib/automation'
 
 // Manually fire all active `before_meeting` reminder rules for this candidate
-// right now, ignoring their scheduled fire time. Useful when the recruiter
-// wants to nudge a candidate ahead of the configured reminder cadence.
+// right now, ignoring their scheduled fire time. Used when the recruiter
+// wants to nudge a candidate ahead of the configured cadence — including
+// "the meeting started but they haven't joined" no-show nudges.
 //
 // GET returns the matched rules (so the UI can show a count); POST fires them.
-// Requires an upcoming meeting — without one, the {{meeting_time}} /
-// {{meeting_link}} merge tokens render empty and the email is meaningless.
+// Requires that *some* meeting record exists for the session (past or
+// future) — without one, the {{meeting_time}} / {{meeting_link}} merge
+// tokens render empty and the email is meaningless.
 
 interface MatchedRule { id: string; name: string; isActive: boolean }
 
@@ -18,24 +20,18 @@ async function loadContext(sessionId: string, workspaceId: string) {
     where: { id: sessionId, workspaceId },
     select: { id: true, flowId: true },
   })
-  if (!session) return { session: null, hasUpcoming: false, rules: [] as MatchedRule[] }
+  if (!session) return { session: null, hasMeeting: false, rules: [] as MatchedRule[] }
 
-  const now = new Date()
-  let hasUpcoming = !!(await prisma.interviewMeeting.findFirst({
-    where: { sessionId: session.id, scheduledStart: { gt: now } },
+  let hasMeeting = !!(await prisma.interviewMeeting.findFirst({
+    where: { sessionId: session.id },
     select: { id: true },
   }))
-  if (!hasUpcoming) {
+  if (!hasMeeting) {
     const evt = await prisma.schedulingEvent.findFirst({
       where: { sessionId: session.id, eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] } },
-      orderBy: { eventAt: 'desc' },
-      select: { metadata: true },
+      select: { id: true },
     })
-    const scheduledAt = (evt?.metadata as Record<string, unknown> | null)?.scheduledAt
-    if (typeof scheduledAt === 'string') {
-      const d = new Date(scheduledAt)
-      if (!isNaN(d.getTime()) && d > now) hasUpcoming = true
-    }
+    if (evt) hasMeeting = true
   }
 
   const rules = await prisma.automationRule.findMany({
@@ -49,26 +45,26 @@ async function loadContext(sessionId: string, workspaceId: string) {
     orderBy: { createdAt: 'asc' },
   })
 
-  return { session, hasUpcoming, rules }
+  return { session, hasMeeting, rules }
 }
 
 export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
-  const { session, hasUpcoming, rules } = await loadContext(params.id, ws.workspaceId)
+  const { session, hasMeeting, rules } = await loadContext(params.id, ws.workspaceId)
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ hasUpcoming, rules })
+  return NextResponse.json({ hasMeeting, rules })
 }
 
 export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
-  const { session, hasUpcoming, rules } = await loadContext(params.id, ws.workspaceId)
+  const { session, hasMeeting, rules } = await loadContext(params.id, ws.workspaceId)
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!hasUpcoming) {
-    return NextResponse.json({ error: 'No upcoming meeting — schedule one before sending a reminder.' }, { status: 400 })
+  if (!hasMeeting) {
+    return NextResponse.json({ error: 'No meeting found for this candidate — nothing to remind about.' }, { status: 400 })
   }
   if (rules.length === 0) {
     return NextResponse.json({ error: 'No active before-meeting reminder rules configured for this flow.' }, { status: 400 })
