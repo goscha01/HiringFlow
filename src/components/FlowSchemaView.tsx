@@ -415,72 +415,78 @@ export default function FlowSchemaView({
     })
   }, [computeLayout, steps])
 
-  // Generate video thumbnails with cover-crop
+  // Generate video thumbnails with cover-crop. Keyed by video.id so we don't
+  // regenerate for every steps-array reference change — only when a new
+  // (step.id, video.id) pair appears.
+  const loadedThumbVideoIdsRef = useRef<Map<string, string>>(new Map())
   useEffect(() => {
-    const thumbs: Record<string, HTMLImageElement> = {}
     const videoEls: HTMLVideoElement[] = []
     let mounted = true
 
     steps.forEach((step) => {
-      if (step.video?.url) {
-        const video = document.createElement('video')
-        video.crossOrigin = 'anonymous'
-        video.preload = 'metadata'
-        video.muted = true
-        video.playsInline = true
-        video.src = step.video.url
-        videoEls.push(video)
-        video.onloadeddata = () => { video.currentTime = 1 }
-        video.onseeked = () => {
-          const vw = video.videoWidth
-          const vh = video.videoHeight
-          const THUMB_W = NODE_W - 16
-          const THUMB_H_CAP = THUMB_H
-          const c = document.createElement('canvas')
-          c.width = THUMB_W; c.height = THUMB_H_CAP
-          const ctx = c.getContext('2d')
-          if (ctx) {
-            // Contain: fit video inside thumbnail, fill bg
-            const vidRatio = vw / vh
-            const thumbRatio = THUMB_W / THUMB_H_CAP
+      const videoUrl = step.video?.url
+      const videoId = step.video?.id
+      if (!videoUrl || !videoId) return
+      // Skip if this exact (step, video) pair has already been thumbnailed.
+      if (loadedThumbVideoIdsRef.current.get(step.id) === videoId) return
 
-            // Fill background
-            ctx.fillStyle = '#FFEDD5'
-            ctx.fillRect(0, 0, THUMB_W, THUMB_H_CAP)
-
-            let dw, dh, dx, dy
-            if (vidRatio > thumbRatio) {
-              // Video is wider — fit by width
-              dw = THUMB_W
-              dh = THUMB_W / vidRatio
-              dx = 0
-              dy = (THUMB_H_CAP - dh) / 2
-            } else {
-              // Video is taller (portrait) — fit by height
-              dh = THUMB_H_CAP
-              dw = THUMB_H_CAP * vidRatio
-              dx = (THUMB_W - dw) / 2
-              dy = 0
-            }
-            ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh)
-            const aspect = vw / vh
-            const img = new Image()
-            img.onload = () => {
-              if (mounted) {
-                thumbs[step.id] = img
-                setThumbnails({ ...thumbs })
-                setVideoAspects(prev => ({ ...prev, [step.id]: aspect }))
-              }
-            }
-            img.src = c.toDataURL()
-          }
+      const video = document.createElement('video')
+      video.crossOrigin = 'anonymous'
+      video.preload = 'metadata'
+      video.muted = true
+      video.playsInline = true
+      video.src = videoUrl
+      videoEls.push(video)
+      video.onloadeddata = () => { video.currentTime = 1 }
+      video.onseeked = () => {
+        const vw = video.videoWidth
+        const vh = video.videoHeight
+        const THUMB_W = NODE_W - 16
+        const THUMB_H_CAP = THUMB_H
+        const c = document.createElement('canvas')
+        c.width = THUMB_W; c.height = THUMB_H_CAP
+        const ctx = c.getContext('2d')
+        if (!ctx) return
+        const vidRatio = vw / vh
+        const thumbRatio = THUMB_W / THUMB_H_CAP
+        ctx.fillStyle = '#FFEDD5'
+        ctx.fillRect(0, 0, THUMB_W, THUMB_H_CAP)
+        let dw, dh, dx, dy
+        if (vidRatio > thumbRatio) {
+          dw = THUMB_W
+          dh = THUMB_W / vidRatio
+          dx = 0
+          dy = (THUMB_H_CAP - dh) / 2
+        } else {
+          dh = THUMB_H_CAP
+          dw = THUMB_H_CAP * vidRatio
+          dx = (THUMB_W - dw) / 2
+          dy = 0
         }
+        ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh)
+        const aspect = vw / vh
+        const img = new Image()
+        img.onload = () => {
+          if (!mounted) return
+          loadedThumbVideoIdsRef.current.set(step.id, videoId)
+          // Merge with prev — don't replace state so existing thumbs survive
+          // a fresh effect run.
+          setThumbnails((prev) => ({ ...prev, [step.id]: img }))
+          setVideoAspects((prev) => ({ ...prev, [step.id]: aspect }))
+        }
+        img.src = c.toDataURL()
       }
     })
 
+    // Drop entries for steps that no longer exist, so the cache doesn't leak.
+    const existingIds = new Set(steps.map((s) => s.id))
+    for (const id of Array.from(loadedThumbVideoIdsRef.current.keys())) {
+      if (!existingIds.has(id)) loadedThumbVideoIdsRef.current.delete(id)
+    }
+
     return () => {
       mounted = false
-      videoEls.forEach(v => { v.pause(); v.removeAttribute('src'); v.load() })
+      videoEls.forEach((v) => { v.pause(); v.removeAttribute('src'); v.load() })
     }
   }, [steps])
 
