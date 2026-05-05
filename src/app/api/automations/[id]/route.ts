@@ -113,11 +113,21 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       },
     })
     if (validatedSteps) {
-      await tx.automationStep.deleteMany({ where: { ruleId: params.id } })
-      await tx.automationStep.createMany({
-        data: validatedSteps.map((s, i) => ({
-          ruleId: params.id,
-          order: i,
+      // Upsert-by-order rather than wipe-and-recreate: preserves stepIds for
+      // existing positions so AutomationExecution rows linked to those steps
+      // keep their stepId (and therefore their full history). Only steps at
+      // tail orders that no longer exist in the input get deleted; the
+      // schema's onDelete: SetNull on AutomationExecution.step ensures any
+      // such delete doesn't cascade away execution rows either.
+      const existingSteps = await tx.automationStep.findMany({
+        where: { ruleId: params.id },
+        orderBy: { order: 'asc' },
+        select: { id: true, order: true },
+      })
+      const existingByOrder = new Map(existingSteps.map((s) => [s.order, s.id]))
+      for (let i = 0; i < validatedSteps.length; i++) {
+        const s = validatedSteps[i]
+        const stepData = {
           delayMinutes: s.delayMinutes ?? 0,
           timingMode: s.timingMode ?? 'trigger',
           channel: s.channel ?? 'email',
@@ -129,7 +139,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           nextStepUrl: s.nextStepUrl ?? null,
           trainingId: s.trainingId ?? null,
           schedulingConfigId: s.schedulingConfigId ?? null,
-        })),
+        }
+        const existingId = existingByOrder.get(i)
+        if (existingId) {
+          await tx.automationStep.update({ where: { id: existingId }, data: stepData })
+        } else {
+          await tx.automationStep.create({
+            data: { ruleId: params.id, order: i, ...stepData },
+          })
+        }
+      }
+      // Delete any tail steps the recruiter removed.
+      const ordersToKeep = validatedSteps.map((_, i) => i)
+      await tx.automationStep.deleteMany({
+        where: { ruleId: params.id, order: { notIn: ordersToKeep } },
       })
     }
   })

@@ -773,7 +773,11 @@ model AutomationExecution {
   // Nullable for back-compat with pre-migration executions that predate the
   // step model. New rows MUST set stepId — backfilled for legacy rows.
   stepId            String?         @map("step_id")
-  step              AutomationStep? @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  // SetNull (not Cascade) so editing a rule and replacing its steps doesn't
+  // wipe the execution history. Orphan rows keep their ruleId, sessionId,
+  // status, providerMessageId, sentAt — stepId becomes null, which is fine
+  // since the unique constraint allows nulls.
+  step              AutomationStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
   sessionId         String?         @map("session_id")
   status            String          @default("pending")
   errorMessage      String?         @map("error_message")

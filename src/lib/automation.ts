@@ -365,7 +365,7 @@ async function dispatchRulesForTrigger(sessionId: string, triggerType: string, s
  * to the trigger event, so step 0 at delay=0 fires immediately, step 1 at
  * delay=60 fires 1h after the trigger regardless of whether step 0 succeeded.
  */
-async function dispatchRule(ruleId: string, sessionId: string) {
+export async function dispatchRule(ruleId: string, sessionId: string) {
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
     select: {
