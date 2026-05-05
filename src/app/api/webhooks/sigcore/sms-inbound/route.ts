@@ -42,7 +42,12 @@ import { sendSms, normalizeToE164 } from '@/lib/sms'
 type Intent = 'confirm' | 'cancel' | 'unknown'
 
 const CONFIRM_KEYWORDS = new Set(['yes', 'y', 'confirm', 'confirmed', 'ok', 'okay'])
-const CANCEL_KEYWORDS = new Set(['no', 'n', 'cancel', 'cancelled', 'canceled', 'stop', 'unsubscribe'])
+// STOP / UNSUBSCRIBE are intentionally NOT here — those are carrier-level
+// opt-out keywords that Twilio handles before the message ever reaches
+// Sigcore (the candidate gets unsubscribed from this number entirely).
+// Treating them as "cancel my meeting" would also surprise candidates
+// who replied STOP just because they want to stop receiving SMS.
+const CANCEL_KEYWORDS = new Set(['no', 'n', 'cancel', 'cancelled', 'canceled'])
 
 function classifyIntent(body: string): Intent {
   const first = body.trim().toLowerCase().split(/\s+/)[0] || ''

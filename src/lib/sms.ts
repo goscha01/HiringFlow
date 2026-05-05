@@ -60,26 +60,6 @@ export function isE164(value: string): boolean {
   return E164.test(value)
 }
 
-/**
- * Tail line appended to before_meeting SMS reminders so the candidate has a
- * cheap two-tap way to confirm or cancel the interview. The reply is handled
- * by /api/webhooks/sigcore/sms-inbound — see that route for the full keyword
- * grammar (YES/Y/CONFIRM vs NO/N/CANCEL/STOP).
- */
-export const SMS_CONFIRM_CANCEL_HINT = 'Reply YES to confirm or NO to cancel.'
-
-/**
- * Append the confirm/cancel hint to an SMS body unless the recruiter has
- * already added it (case-insensitive substring on "reply yes" — recruiters
- * often write their own variant). Returns the same string when the hint is
- * already present, otherwise returns body + "\n\n" + hint.
- */
-export function appendConfirmCancelHint(body: string): string {
-  const trimmed = body.trimEnd()
-  if (/reply\s+yes/i.test(trimmed)) return body
-  return `${trimmed}\n\n${SMS_CONFIRM_CANCEL_HINT}`
-}
-
 export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
   // .trim() — env vars set via piped CLI tools sometimes acquire trailing
   // newlines; Sigcore strict-validates UUIDs and would 500 on `<id>\n`.

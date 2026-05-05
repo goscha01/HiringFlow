@@ -3,7 +3,6 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { renderTemplate } from '@/lib/email'
 import { resolveSchedulingUrl } from '@/lib/scheduling'
-import { appendConfirmCancelHint } from '@/lib/sms'
 
 /**
  * Preview an UNSAVED automation step. Used by the rule editor modal so
@@ -40,10 +39,6 @@ export async function POST(request: NextRequest) {
     schedulingConfigId?: string | null
     emailDestination?: 'applicant' | 'company' | 'specific'
     emailDestinationAddress?: string | null
-    // Caller passes these so the preview can mirror executeStep's
-    // reminder-tail auto-append. Unset → the hint is NOT shown.
-    triggerType?: string | null
-    timingMode?: string | null
   } | null
   if (!body) return NextResponse.json({ error: 'Bad JSON' }, { status: 400 })
 
@@ -121,18 +116,15 @@ export async function POST(request: NextRequest) {
 
   if (channel === 'sms') {
     const renderedBody = renderTemplate(body.smsBody as string, variables)
-    const isReminder = body.triggerType === 'before_meeting' || body.timingMode === 'before_meeting'
-    const finalBody = isReminder ? appendConfirmCancelHint(renderedBody) : renderedBody
     return NextResponse.json({
       channel,
-      smsBody: finalBody,
-      replyHintAppended: isReminder && finalBody !== renderedBody,
+      smsBody: renderedBody,
       recipient: '+15551230000',
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
       templateName: 'SMS body',
       variables,
-      length: finalBody.length,
-      segments: Math.max(1, Math.ceil(finalBody.length / 160)),
+      length: renderedBody.length,
+      segments: Math.max(1, Math.ceil(renderedBody.length / 160)),
     })
   }
 
