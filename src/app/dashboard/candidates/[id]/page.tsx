@@ -56,7 +56,23 @@ interface CandidateDetail {
   isRebook?: boolean
 }
 
-const REJECTION_PRESETS = ['No-show', 'Not qualified', 'Declined offer', 'Wrong location', 'Pay expectations']
+const REJECTION_PRESETS = ['No-show', 'Not qualified', 'Wrong schedule', 'Declined offer', 'Wrong location', 'Pay expectations']
+
+function normalizeCustomReasons(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set(REJECTION_PRESETS.map((p) => p.toLowerCase()))
+  const out: string[] = []
+  for (const v of raw) {
+    if (typeof v !== 'string') continue
+    const t = v.trim()
+    if (!t) continue
+    const k = t.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(t)
+  }
+  return out
+}
 
 export default function CandidateDetailPage() {
   const params = useParams()
@@ -67,6 +83,7 @@ export default function CandidateDetailPage() {
   const [tab, setTab] = useState<'answers' | 'submissions' | 'timeline'>('answers')
   const [deleting, setDeleting] = useState(false)
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
+  const [customReasons, setCustomReasons] = useState<string[]>([])
   const [stageRuleCounts, setStageRuleCounts] = useState<Record<string, number>>({})
   const [runningAutomations, setRunningAutomations] = useState(false)
   const [automationToast, setAutomationToast] = useState<string | null>(null)
@@ -87,8 +104,9 @@ export default function CandidateDetailPage() {
     fetch('/api/workspace/settings')
       .then((r) => r.json())
       .then((d) => {
-        const raw = (d?.settings as { funnelStages?: unknown } | null)?.funnelStages
-        setStages(normalizeStages(raw))
+        const settings = (d?.settings as { funnelStages?: unknown; customRejectionReasons?: unknown } | null) ?? null
+        setStages(normalizeStages(settings?.funnelStages))
+        setCustomReasons(normalizeCustomReasons(settings?.customRejectionReasons))
       })
       .catch(() => {})
   }, [])
@@ -158,6 +176,20 @@ export default function CandidateDetailPage() {
     setReasonDraft(candidate?.rejectionReason ?? '')
     setShowReasonEditor(true)
   }
+  const persistCustomReasons = async (next: string[]) => {
+    setCustomReasons(next)
+    try {
+      const getRes = await fetch('/api/workspace/settings', { credentials: 'same-origin' })
+      const current = getRes.ok ? (await getRes.json())?.settings : null
+      const merged = { ...(current && typeof current === 'object' ? current : {}), customRejectionReasons: next }
+      await fetch('/api/workspace/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ settings: merged }),
+      })
+    } catch { /* non-blocking; the candidate save already succeeded */ }
+  }
   const saveReason = async (next: string) => {
     const trimmed = next.trim()
     const res = await fetch(`/api/candidates/${id}`, {
@@ -169,7 +201,21 @@ export default function CandidateDetailPage() {
       const data = await res.json()
       setCandidate(prev => prev ? { ...prev, rejectionReason: data.rejectionReason ?? null, rejectionReasonAt: data.rejectionReasonAt ?? null } : null)
       setShowReasonEditor(false)
+      // If this is a brand-new reason (not a default and not already saved), append it
+      // to the workspace's reusable list so it shows up as a quick-pick next time.
+      if (trimmed) {
+        const lc = trimmed.toLowerCase()
+        const isDefault = REJECTION_PRESETS.some((p) => p.toLowerCase() === lc)
+        const isKnown = customReasons.some((p) => p.toLowerCase() === lc)
+        if (!isDefault && !isKnown) {
+          await persistCustomReasons([...customReasons, trimmed])
+        }
+      }
     }
+  }
+  const removeCustomReason = (reason: string) => {
+    const next = customReasons.filter((r) => r !== reason)
+    persistCustomReasons(next)
   }
   const clearReason = () => saveReason('')
 
@@ -399,12 +445,28 @@ export default function CandidateDetailPage() {
                   {p}
                 </button>
               ))}
+              {customReasons.map((p) => (
+                <span
+                  key={p}
+                  className={`group inline-flex items-center gap-1 text-xs pl-3 pr-1 py-1.5 rounded-full border font-medium ${reasonDraft === p ? 'border-red-500 bg-red-50 text-red-700' : 'border-surface-border text-grey-35 hover:border-grey-35'}`}
+                >
+                  <button onClick={() => setReasonDraft(p)}>{p}</button>
+                  <button
+                    onClick={() => removeCustomReason(p)}
+                    title="Remove from saved reasons"
+                    className="w-4 h-4 flex items-center justify-center rounded-full text-grey-50 hover:bg-red-100 hover:text-red-700 text-[11px] leading-none"
+                    aria-label={`Remove ${p}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
             </div>
             <input
               type="text"
               value={reasonDraft}
               onChange={(e) => setReasonDraft(e.target.value)}
-              placeholder="Or type a custom reason"
+              placeholder="Or type a custom reason — saved for next time"
               className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-red-500/40"
               autoFocus
             />
