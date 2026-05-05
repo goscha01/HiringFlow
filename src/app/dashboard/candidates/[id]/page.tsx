@@ -93,25 +93,27 @@ export default function CandidateDetailPage() {
       .catch(() => {})
   }, [])
 
-  // Active rule counts per stage. Computed from active workspace rules whose
-  // triggerType matches one of the stage's trigger events AND whose flowId is
-  // either null (any flow) or matches the candidate's flow. Lets us disable
-  // the "Run automations" button when nothing would actually fire.
+  // Active rule counts per stage. A rule matches a stage if its stageId is
+  // explicitly set to that stage OR (stageId is null AND its triggerType is
+  // one of the stage's trigger events). Mirrors the server-side matcher in
+  // /api/candidates/[id]/run-stage-automations so the count and the actual
+  // run agree.
   useEffect(() => {
     if (!candidate?.flow?.id) return
     fetch('/api/automations')
       .then((r) => r.json())
-      .then((rules: Array<{ id: string; isActive: boolean; triggerType: string; flowId: string | null }>) => {
+      .then((rules: Array<{ id: string; isActive: boolean; triggerType: string; flowId: string | null; stageId: string | null }>) => {
         const candidateFlowId = candidate.flow!.id
         const counts: Record<string, number> = {}
         for (const stage of stages) {
           const events = new Set((stage.triggers ?? []).map((t) => t.event))
-          if (events.size === 0) { counts[stage.id] = 0; continue }
-          counts[stage.id] = rules.filter((r) =>
-            r.isActive
-            && events.has(r.triggerType as never)
-            && (r.flowId === null || r.flowId === candidateFlowId),
-          ).length
+          counts[stage.id] = rules.filter((r) => {
+            if (!r.isActive) return false
+            if (r.flowId !== null && r.flowId !== candidateFlowId) return false
+            if (r.stageId === stage.id) return true
+            if (r.stageId === null && events.has(r.triggerType as never)) return true
+            return false
+          }).length
         }
         setStageRuleCounts(counts)
       })

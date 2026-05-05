@@ -35,17 +35,27 @@ async function findMatchingRules(opts: {
   const stage = stages.find((s) => s.id === opts.stageId)
   if (!stage) return { stageExists: false, events: [], rules: [] }
 
-  const triggers = stage.triggers ?? []
-  if (triggers.length === 0) return { stageExists: true, events: [], rules: [] }
+  const events = Array.from(new Set((stage.triggers ?? []).map((t) => t.event)))
 
-  const events = Array.from(new Set(triggers.map((t) => t.event)))
+  // A rule matches this stage when EITHER:
+  //  - it's explicitly pinned (stageId === opts.stageId), OR
+  //  - stageId is null AND its triggerType is one of the stage's events.
+  // Explicit pins win even if the stage has no triggers configured, so a
+  // recruiter can attach an automation manually without first having to
+  // hook the trigger into the stage.
+  const stageMatch = [
+    { stageId: opts.stageId },
+    ...(events.length > 0 ? [{ stageId: null, triggerType: { in: events } }] : []),
+  ]
 
   const rules = await prisma.automationRule.findMany({
     where: {
       workspaceId: opts.workspaceId,
       isActive: true,
-      triggerType: { in: events },
-      OR: [{ flowId: opts.flowId }, { flowId: null }],
+      AND: [
+        { OR: stageMatch },
+        { OR: [{ flowId: opts.flowId }, { flowId: null }] },
+      ],
     },
     select: { id: true, name: true, triggerType: true, isActive: true },
     orderBy: { createdAt: 'asc' },
