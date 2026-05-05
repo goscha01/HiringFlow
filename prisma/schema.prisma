@@ -674,6 +674,13 @@ model AutomationRule {
   createdById             String                @map("created_by_id")
   name                    String
   triggerType             String                @map("trigger_type")
+  // Explicit funnel-stage assignment for the journey UI. The runtime engine
+  // still dispatches by triggerType — stageId is just metadata that says
+  // "this rule belongs to stage X in the applicant journey", overriding the
+  // implicit triggerType→StageTrigger mapping. Nullable for back-compat:
+  // older rules fall back to the implicit mapping. Stages live in JSON on
+  // Workspace.settings, so this is intentionally a plain string (no FK).
+  stageId                 String?               @map("stage_id")
   flowId                  String?               @map("flow_id")
   flow                    Flow?                 @relation(fields: [flowId], references: [id])
   triggerAutomationId     String?               @map("trigger_automation_id")

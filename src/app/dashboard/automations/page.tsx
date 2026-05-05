@@ -37,6 +37,10 @@ interface StepShape {
 
 interface Rule {
   id: string; name: string; triggerType: string; flowId: string | null
+  // Explicit funnel-stage assignment for the journey UI. Overrides the
+  // implicit triggerType→stage mapping when set; null = fall back to
+  // implicit (or "Unassigned" if nothing claims the trigger).
+  stageId: string | null
   // Legacy mirror fields — still populated, but not authoritative.
   channel?: 'email' | 'sms'
   smsBody?: string | null
@@ -233,9 +237,15 @@ export default function AutomationsPage() {
   const [name, setName] = useState('')
   const [triggerType, setTriggerType] = useState('flow_completed')
   const [flowId, setFlowId] = useState('')
+  // Explicit stage assignment — '' means "auto" (fall back to triggerType→stage mapping).
+  const [stageIdField, setStageIdField] = useState('')
   const [minutesBefore, setMinutesBefore] = useState(60)
   const [waitForRecording, setWaitForRecording] = useState(false)
   const [steps, setSteps] = useState<StepShape[]>([newStep(0)])
+  // Sort direction for the rules table when "by journey order" is active.
+  // 'asc' walks earliest→latest stage; 'desc' is reverse. null = default
+  // ordering (createdAt desc as returned by the API).
+  const [journeySort, setJourneySort] = useState<'asc' | 'desc' | null>(null)
   // Index of the step the inline template creator is currently bound to.
   const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
   // When the editor opens (idx becomes non-null), pull it into view AND
@@ -448,6 +458,7 @@ export default function AutomationsPage() {
     setTriggerType(trigger)
     setName(`${TRIGGER_LABELS[trigger]} follow-up`)
     setFlowId('')
+    setStageIdField('')
     setMinutesBefore(60); setWaitForRecording(false)
 
     // Always run seed — it's idempotent on the server (inserts only the
@@ -478,6 +489,7 @@ export default function AutomationsPage() {
   const openEdit = (r: Rule) => {
     setEditing(r); setName(r.name); setTriggerType(r.triggerType)
     setFlowId(r.flowId || (r as { triggerAutomationId?: string }).triggerAutomationId || '')
+    setStageIdField(r.stageId ?? '')
     setMinutesBefore(r.minutesBefore || 60)
     setWaitForRecording(!!r.waitForRecording)
     // Hydrate steps. Older rules may have an empty steps[] (pre-backfill).
@@ -553,6 +565,7 @@ export default function AutomationsPage() {
     const body = {
       name, triggerType,
       flowId: (!SESSION_WIDE_TRIGGERS.has(triggerType)) ? (flowId || null) : null,
+      stageId: stageIdField || null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
       minutesBefore: triggerType === 'before_meeting' ? minutesBefore : null,
       waitForRecording: triggerType === 'meeting_ended' ? waitForRecording : false,
@@ -683,6 +696,34 @@ export default function AutomationsPage() {
     }
   }
 
+  // Effective stage lookups — explicit stageId wins, else first stage (in
+  // funnel order) whose triggers claim the rule's triggerType. Order is
+  // taken from the stage's funnel position; rules without any stage match
+  // get Number.MAX_SAFE_INTEGER so they sort to the end of journey order.
+  const stageById = useMemo(() => new Map(stages.map((s) => [s.id, s])), [stages])
+  const stageOrderByEvent = useMemo(() => {
+    const m = new Map<string, { stageId: string; order: number }>()
+    for (const s of stages) {
+      for (const t of s.triggers ?? []) {
+        const cur = m.get(t.event)
+        if (!cur || s.order < cur.order) m.set(t.event, { stageId: s.id, order: s.order })
+      }
+    }
+    return m
+  }, [stages])
+  const effectiveStageOf = (r: Rule): { id: string | null; order: number; label: string } => {
+    if (r.stageId) {
+      const s = stageById.get(r.stageId)
+      if (s) return { id: s.id, order: s.order, label: s.label }
+    }
+    const implicit = stageOrderByEvent.get(r.triggerType)
+    if (implicit) {
+      const s = stageById.get(implicit.stageId)
+      if (s) return { id: s.id, order: s.order, label: s.label }
+    }
+    return { id: null, order: Number.MAX_SAFE_INTEGER, label: '—' }
+  }
+
   if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
   return (
@@ -774,6 +815,33 @@ export default function AutomationsPage() {
             <thead>
               <tr className="border-b border-surface-border bg-surface">
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Name</th>
+                <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">
+                  <button
+                    onClick={() => setJourneySort(journeySort === 'asc' ? 'desc' : journeySort === 'desc' ? null : 'asc')}
+                    title="Sort by journey order. Click to cycle: asc → desc → off."
+                    className={`inline-flex items-center gap-1 hover:text-grey-15 ${journeySort ? 'text-brand-600' : ''}`}
+                  >
+                    Stage
+                    <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      {journeySort === 'asc' ? (
+                        <>
+                          <path d="M6 9V3" />
+                          <path d="M3 6l3-3 3 3" />
+                        </>
+                      ) : journeySort === 'desc' ? (
+                        <>
+                          <path d="M6 3v6" />
+                          <path d="M3 6l3 3 3-3" />
+                        </>
+                      ) : (
+                        <>
+                          <path d="M3 4l3-2 3 2" />
+                          <path d="M3 8l3 2 3-2" />
+                        </>
+                      )}
+                    </svg>
+                  </button>
+                </th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Trigger</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Flow</th>
                 <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Steps</th>
@@ -789,22 +857,42 @@ export default function AutomationsPage() {
                 .filter(r => !activeOnly || r.isActive)
                 .filter(r => {
                   if (!stageFilter) return true
-                  if (stageFilter === '__unassigned') {
-                    // Unassigned = triggerType doesn't appear on any stage's triggers.
-                    const claimed = new Set<string>()
-                    for (const s of stages) for (const t of s.triggers ?? []) claimed.add(t.event)
-                    return !claimed.has(r.triggerType)
-                  }
-                  const stage = stages.find((s) => s.id === stageFilter)
-                  if (!stage) return false
-                  const events = new Set((stage.triggers ?? []).map((t) => t.event))
-                  return events.has(r.triggerType as never)
+                  const eff = effectiveStageOf(r)
+                  if (stageFilter === '__unassigned') return eff.id === null
+                  return eff.id === stageFilter
+                })
+                .slice() // copy before sort to avoid mutating filtered array's source
+                .sort((a, b) => {
+                  if (!journeySort) return 0
+                  const oa = effectiveStageOf(a).order
+                  const ob = effectiveStageOf(b).order
+                  return journeySort === 'asc' ? oa - ob : ob - oa
                 })
                 .map((r) => {
                   const firstStep = r.steps?.[0]
+                  const eff = effectiveStageOf(r)
+                  const isExplicit = !!r.stageId
                   return (
                     <tr key={r.id} className="hover:bg-surface-light">
                       <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
+                      <td className="px-5 py-4">
+                        {eff.id ? (
+                          <span
+                            title={isExplicit ? 'Stage explicitly set on this rule' : 'Inferred from trigger — set explicitly in Edit if you want to override'}
+                            className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium ${
+                              isExplicit ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-grey-40'
+                            }`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: stageById.get(eff.id!)?.color ?? '#999' }} />
+                            {eff.label}
+                            {!isExplicit && <span className="opacity-60">(auto)</span>}
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-amber-50 text-amber-700 border border-dashed border-amber-200">
+                            Unassigned
+                          </span>
+                        )}
+                      </td>
                       <td className="px-5 py-4"><span className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.triggerType === 'training_completed' ? 'bg-green-50 text-green-700' : 'bg-brand-50 text-brand-600'}`}>{TRIGGER_LABELS[r.triggerType] || r.triggerType}</span></td>
                       <td className="px-5 py-4 text-sm text-grey-35">{r.flow?.name || 'Any flow'}</td>
                       <td className="px-5 py-4 text-xs text-grey-35">
@@ -942,6 +1030,19 @@ export default function AutomationsPage() {
                   </select>
                 </div>
               )}
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">
+                  Pipeline stage <span className="font-normal text-grey-40">(where this rule lives in the journey)</span>
+                </label>
+                <select value={stageIdField} onChange={(e) => setStageIdField(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                  <option value="">Auto — match the stage that owns this trigger</option>
+                  {stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+                <p className="text-xs text-grey-40 mt-1">
+                  Doesn&apos;t change when the rule fires — only how it&apos;s grouped on the
+                  pipeline view and the rules table. Leave on Auto to follow the stage&apos;s configured triggers.
+                </p>
+              </div>
               {triggerType === 'automation_completed' && (
                 <div>
                   <label className="block text-sm font-medium text-grey-20 mb-1.5">After which automation?</label>
@@ -1628,21 +1729,21 @@ function AutomationPipeline({
     triggerCount: s.triggers?.length ?? 0,
   })), [stages])
 
-  const allClaimedEvents = useMemo(() => {
-    const claimed = new Set<string>()
-    for (const s of stages) for (const t of s.triggers ?? []) claimed.add(t.event)
-    return claimed
-  }, [stages])
-
-  // Each rule gets counted once per matching stage (a single triggerType could
-  // be claimed by multiple stages — rare, but supported), and once in the
-  // unassigned bucket if nothing claims it.
+  // Count rules per stage. Explicit r.stageId wins (the rule lives at that
+  // stage even if its triggerType points elsewhere). Otherwise we fall back
+  // to the implicit triggerType→trigger-event match. Rules that resolve to
+  // no stage at all land in __unassigned so they remain visible.
   const counts = useMemo(() => {
     const m = new Map<string, { applicant: number; company: number }>()
     for (const s of stageEvents) m.set(s.id, { applicant: 0, company: 0 })
     m.set('__unassigned', { applicant: 0, company: 0 })
+    const stageIds = new Set(stageEvents.map((s) => s.id))
     for (const r of rules) {
       const dest = firstStepDest(r) === 'applicant' ? 'applicant' : 'company'
+      if (r.stageId && stageIds.has(r.stageId)) {
+        m.get(r.stageId)![dest] += 1
+        continue
+      }
       let matched = false
       for (const s of stageEvents) {
         if (s.events.has(r.triggerType as never)) {
@@ -1650,15 +1751,10 @@ function AutomationPipeline({
           matched = true
         }
       }
-      if (!matched && !allClaimedEvents.has(r.triggerType)) {
-        m.get('__unassigned')![dest] += 1
-      } else if (!matched) {
-        // triggerType is claimed by some stage but didn't match this rule —
-        // shouldn't happen given the loop above. Defensive no-op.
-      }
+      if (!matched) m.get('__unassigned')![dest] += 1
     }
     return m
-  }, [rules, stageEvents, allClaimedEvents])
+  }, [rules, stageEvents])
 
   const unassignedTotal = (counts.get('__unassigned')?.applicant ?? 0)
                        + (counts.get('__unassigned')?.company ?? 0)

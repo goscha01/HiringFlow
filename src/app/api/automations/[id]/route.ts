@@ -90,6 +90,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         ...(body.name !== undefined && { name: body.name }),
         ...(body.triggerType !== undefined && { triggerType: body.triggerType }),
         ...(body.flowId !== undefined && { flowId: body.flowId || null }),
+        ...(body.stageId !== undefined && {
+          stageId: typeof body.stageId === 'string' && body.stageId ? body.stageId : null,
+        }),
         ...(body.triggerAutomationId !== undefined && { triggerAutomationId: body.triggerAutomationId || null }),
         ...(body.minutesBefore !== undefined && {
           minutesBefore: Number.isInteger(body.minutesBefore) && body.minutesBefore > 0 ? body.minutesBefore : null,

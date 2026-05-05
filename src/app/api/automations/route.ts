@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
   const body = await request.json()
-  const { name, triggerType, flowId, triggerAutomationId, minutesBefore, waitForRecording, steps } = body
+  const { name, triggerType, flowId, stageId, triggerAutomationId, minutesBefore, waitForRecording, steps } = body
   if (!name || !triggerType) return NextResponse.json({ error: 'name and triggerType required' }, { status: 400 })
 
   // Steps are the canonical send config now. Reject if missing.
@@ -113,6 +113,7 @@ export async function POST(request: NextRequest) {
     data: {
       workspaceId: ws.workspaceId, createdById: ws.userId, name, triggerType,
       flowId: flowId || null,
+      stageId: typeof stageId === 'string' && stageId ? stageId : null,
       triggerAutomationId: triggerAutomationId || null,
       channel: firstStep.channel === 'both' ? 'email' : firstStep.channel ?? 'email',
       emailTemplateId: firstStep.emailTemplateId ?? null,
