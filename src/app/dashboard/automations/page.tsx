@@ -410,6 +410,7 @@ export default function AutomationsPage() {
     html?: string
     text?: string | null
     smsBody?: string
+    replyHintAppended?: boolean
     length?: number
     segments?: number
     recipient: string
@@ -459,6 +460,8 @@ export default function AutomationsPage() {
           schedulingConfigId: step.schedulingConfigId,
           emailDestination: step.emailDestination,
           emailDestinationAddress: step.emailDestinationAddress,
+          triggerType,
+          timingMode: step.timingMode,
         }),
       })
       if (!res.ok) {
@@ -1029,6 +1032,11 @@ export default function AutomationsPage() {
                   <div className="max-w-[320px] mx-auto bg-blue-500 text-white rounded-2xl rounded-bl-sm px-4 py-3 text-sm whitespace-pre-wrap break-words shadow">
                     {preview.smsBody}
                   </div>
+                  {preview.replyHintAppended && (
+                    <p className="mt-3 max-w-[320px] mx-auto text-[11px] text-grey-40 text-center">
+                      The last line is auto-appended on every before-meeting reminder so the candidate can confirm or cancel by reply.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="p-6 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: preview.html || '' }} />
@@ -1698,6 +1706,11 @@ function StepCard(props: {
                 {step.smsBody?.length ?? 0} chars · {Math.max(1, Math.ceil((step.smsBody?.length ?? 0) / 160))} seg
               </span>
             </div>
+            {(triggerType === 'before_meeting' || step.timingMode === 'before_meeting') && !/reply\s+yes/i.test(step.smsBody || '') && (
+              <p className="text-[11px] text-purple-700 bg-purple-50 border border-purple-100 rounded-[6px] px-2.5 py-1.5">
+                <span className="font-medium">Auto-appended on send:</span> &ldquo;Reply YES to confirm or NO to cancel.&rdquo; — replies route to the candidate&rsquo;s upcoming interview (confirms it or deletes the calendar event + moves to Rejected).
+              </p>
+            )}
           </div>
         )}
 

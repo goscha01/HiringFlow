@@ -3,6 +3,7 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { renderTemplate } from '@/lib/email'
 import { resolveSchedulingUrl } from '@/lib/scheduling'
+import { appendConfirmCancelHint } from '@/lib/sms'
 
 /**
  * Render what an automation step would send, using sample values so the
@@ -86,12 +87,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   if (channel === 'sms') {
-    const body = renderTemplate(step.smsBody as string, variables)
+    const rendered = renderTemplate(step.smsBody as string, variables)
+    // Mirror executeStep: any reminder SMS gets the confirm/cancel tail
+    // appended automatically. Preview must show it so the recruiter sees
+    // exactly what the candidate will receive.
+    const isReminder = rule.triggerType === 'before_meeting' || step.timingMode === 'before_meeting'
+    const body = isReminder ? appendConfirmCancelHint(rendered) : rendered
+    const hintAppended = isReminder && body !== rendered
     return NextResponse.json({
       channel,
       stepId: step.id,
       stepOrder: step.order,
       smsBody: body,
+      replyHintAppended: hintAppended,
       recipient: '+15551230000',
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
       templateName: 'SMS body',
