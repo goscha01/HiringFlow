@@ -736,7 +736,7 @@ export async function executeStep(
       schedulingConfig: true,
       rule: {
         include: {
-          workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true } },
+          workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true, timezone: true } },
         },
       },
     },
@@ -804,15 +804,21 @@ export async function executeStep(
     },
   }).catch(() => null)
 
+  // Render meeting time in the workspace's timezone — without this, the
+  // server's runtime tz (UTC on Vercel/Railway) leaks into the email and
+  // candidates see e.g. "4:00 PM" for a 12pm-EDT meeting.
+  const workspaceTz = rule.workspace.timezone || 'America/New_York'
+  const formatMeetingTime = (d: Date) => d.toLocaleString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: workspaceTz,
+    timeZoneName: 'short',
+  })
+
   if (interviewMeeting) {
     meetingLink = interviewMeeting.meetingUri || ''
     const d = interviewMeeting.scheduledStart
-    if (d) {
-      meetingTime = d.toLocaleString('en-US', {
-        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-        hour: 'numeric', minute: '2-digit', hour12: true,
-      })
-    }
+    if (d) meetingTime = formatMeetingTime(d)
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'https://www.hirefunnel.app'
     if (interviewMeeting.recordingState === 'ready' && interviewMeeting.driveRecordingFileId) {
       try {
@@ -853,12 +859,7 @@ export async function executeStep(
       const meta = latestMeeting.metadata as Record<string, unknown>
       if (typeof meta.scheduledAt === 'string') {
         const d = new Date(meta.scheduledAt)
-        if (!isNaN(d.getTime())) {
-          meetingTime = d.toLocaleString('en-US', {
-            weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-            hour: 'numeric', minute: '2-digit', hour12: true,
-          })
-        }
+        if (!isNaN(d.getTime())) meetingTime = formatMeetingTime(d)
       }
       if (typeof meta.meetingUrl === 'string') meetingLink = meta.meetingUrl
     }
