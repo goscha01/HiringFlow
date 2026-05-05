@@ -122,7 +122,54 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     isRebook = !!earlier
   }
 
-  return NextResponse.json({ ...session, automationExecutions, formFieldLabels, isRebook, flowStepCount })
+  // Effective "last activity" — derived from every event timestamp we know
+  // about, not just Session.lastActivityAt. The heartbeat field was added
+  // mid-flight, so existing candidates whose recent engagement was a meeting
+  // or an automation-driven training visit don't have it populated. Computing
+  // the max here means recruiters see "Last active 2h ago" the moment those
+  // events exist, without needing to backfill the column.
+  //
+  // Sources:
+  //   - Session.lastActivityAt (the new heartbeat)
+  //   - Most recent SessionAnswer / CandidateSubmission / SchedulingEvent
+  //   - Most recent InterviewMeeting actualStart/actualEnd (the candidate
+  //     was actually in the meeting)
+  //   - Most recent TrainingEnrollment startedAt/completedAt + currentLesson.at
+  //   - Most recent AutomationExecution sentAt (system activity, not
+  //     candidate activity, so weighted lower in label only)
+  const interviewMeetings = await prisma.interviewMeeting.findMany({
+    where: { sessionId: params.id },
+    select: { actualStart: true, actualEnd: true, scheduledStart: true },
+    orderBy: { scheduledStart: 'desc' },
+  })
+
+  const candidateActivityCandidates: Array<Date | null | undefined> = [
+    session.lastActivityAt,
+    session.finishedAt,
+    ...session.answers.map((a) => a.answeredAt),
+    ...session.submissions.map((s) => s.submittedAt),
+    ...session.schedulingEvents.map((e) => e.eventAt),
+    ...interviewMeetings.flatMap((m) => [m.actualStart, m.actualEnd]),
+    ...session.trainingEnrollments.flatMap((e) => [e.startedAt, e.completedAt]),
+    ...session.trainingEnrollments.flatMap((e) => {
+      const p = e.progress as { sectionTimestamps?: Record<string, string>; currentLesson?: { at: string } } | null
+      const stamps = Object.values(p?.sectionTimestamps || {}).map((s) => new Date(s))
+      const cl = p?.currentLesson?.at ? [new Date(p.currentLesson.at)] : []
+      return [...stamps, ...cl]
+    }),
+  ]
+  const effectiveLastActivityAt = candidateActivityCandidates
+    .filter((d): d is Date => d instanceof Date && !isNaN(d.getTime()))
+    .reduce<Date | null>((best, d) => (best == null || d.getTime() > best.getTime() ? d : best), null)
+
+  return NextResponse.json({
+    ...session,
+    automationExecutions,
+    formFieldLabels,
+    isRebook,
+    flowStepCount,
+    effectiveLastActivityAt: effectiveLastActivityAt?.toISOString() ?? null,
+  })
 }
 
 // Update pipeline status

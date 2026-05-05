@@ -56,7 +56,14 @@ interface AutomationExec {
 interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
   formData: Record<string, string> | null; outcome: string | null; pipelineStatus: string | null
-  startedAt: string; finishedAt: string | null; lastActivityAt: string | null
+  startedAt: string; finishedAt: string | null
+  // `lastActivityAt` is the raw heartbeat column. `effectiveLastActivityAt`
+  // is the server-computed max across that column + every event timestamp
+  // (meeting actualStart/End, scheduling events, training section stamps,
+  // answers, submissions). Always prefer the effective value for the UI —
+  // existing candidates predate the heartbeat column.
+  lastActivityAt: string | null
+  effectiveLastActivityAt: string | null
   source: string | null; campaign: string | null
   rejectionReason: string | null; rejectionReasonAt: string | null
   flow: { id: string; name: string; slug: string } | null
@@ -603,7 +610,7 @@ export default function CandidateDetailPage() {
       <CurrentActivityCard
         startedAt={candidate.startedAt}
         finishedAt={candidate.finishedAt}
-        lastActivityAt={candidate.lastActivityAt}
+        lastActivityAt={candidate.effectiveLastActivityAt ?? candidate.lastActivityAt}
         outcome={candidate.outcome}
         lastStep={candidate.lastStep}
         flowStepCount={candidate.flowStepCount}
