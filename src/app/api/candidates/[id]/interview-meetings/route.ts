@@ -54,6 +54,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       driveGeminiNotesFileId: true,
       attendanceSheetFileId: true,
       participants: true,
+      confirmedAt: true,
       createdAt: true,
     },
   })

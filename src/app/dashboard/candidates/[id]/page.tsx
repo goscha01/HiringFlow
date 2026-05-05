@@ -416,10 +416,11 @@ export default function CandidateDetailPage() {
       meeting_scheduled: 'Meeting scheduled',
       meeting_rescheduled: 'Meeting rescheduled',
       meeting_cancelled: 'Meeting cancelled',
+      meeting_confirmed: 'Candidate confirmed via SMS',
       meeting_no_show: 'Candidate no-show',
       nudge_sent: 'Manual "join now" nudge sent',
     }
-    const successTypes = new Set(['marked_scheduled', 'meeting_scheduled', 'meeting_rescheduled', 'nudge_sent'])
+    const successTypes = new Set(['marked_scheduled', 'meeting_scheduled', 'meeting_rescheduled', 'meeting_confirmed', 'nudge_sent'])
     const errorTypes = new Set(['meeting_cancelled', 'meeting_no_show'])
     const type = errorTypes.has(e.eventType) ? 'error' : successTypes.has(e.eventType) ? 'success' : 'info'
     const meta = e.metadata || {}

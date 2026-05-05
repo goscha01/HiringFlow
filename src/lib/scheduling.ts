@@ -51,6 +51,9 @@ export type SchedulingEventType =
   | 'meeting_scheduled'
   | 'meeting_rescheduled'
   | 'meeting_cancelled'
+  // Candidate replied YES/CONFIRM to a before_meeting SMS reminder. Audit
+  // entry; the InterviewMeeting.confirmedAt column is the canonical flag.
+  | 'meeting_confirmed'
   // Meet integration v2 lifecycle events — driven by Google Workspace Events.
   | 'meeting_started'
   | 'meeting_ended'

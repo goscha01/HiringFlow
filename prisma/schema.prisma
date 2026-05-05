@@ -192,6 +192,10 @@ model InterviewMeeting {
   // Drive file id of the attendance-extension spreadsheet matched to this
   // meeting (when present + enabled).
   attendanceSheetFileId       String?   @map("attendance_sheet_file_id")
+  // Set when the candidate replies YES/CONFIRM to a before_meeting SMS
+  // reminder (or any future channel that lands on this row). Null until
+  // confirmation. Surfaced on the candidate detail page as a green pill.
+  confirmedAt                 DateTime? @map("confirmed_at")
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 

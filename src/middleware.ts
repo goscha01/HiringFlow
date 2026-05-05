@@ -47,6 +47,8 @@ export default withAuth(
           if (path.startsWith('/api/automations/run')) return true
           // Google Calendar push webhook — channel-token verification inside the handler
           if (path.startsWith('/api/webhooks/google')) return true
+          // Sigcore inbound SMS webhook — shared-secret verification inside the handler
+          if (path.startsWith('/api/webhooks/sigcore')) return true
           // Vercel Cron jobs — CRON_SECRET verification inside the handler
           if (path.startsWith('/api/cron/')) return true
           // Meet integration v2 artifact proxy — signed artifact token or session auth inside the handler

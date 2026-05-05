@@ -240,6 +240,45 @@ export async function stopWatch(workspaceId: string) {
   })
 }
 
+/**
+ * Delete a calendar event by id. Used when a candidate cancels their
+ * interview via SMS reply — we delete the recruiter's calendar event so
+ * the slot frees up and the recruiter sees the cancellation in Google.
+ *
+ * Best-effort: 404 / 410 from Google (event already gone) is treated as
+ * success. Other errors propagate so the caller can log them.
+ */
+export async function deleteCalendarEvent(
+  workspaceId: string,
+  googleCalendarEventId: string,
+): Promise<{ deleted: boolean; alreadyGone?: boolean }> {
+  const authed = await getAuthedClientForWorkspace(workspaceId)
+  if (!authed) return { deleted: false }
+  if (!hasMeetScopes(authed.integration.grantedScopes)) {
+    // No calendar.events scope — older read-only consent. Surface explicitly
+    // rather than silently no-oping, so the caller knows the cancel was not
+    // mirrored to Google.
+    throw new Error('Workspace lacks calendar.events scope; reconnect required to delete events')
+  }
+  const calendar = google.calendar({ version: 'v3', auth: authed.client })
+  try {
+    await calendar.events.delete({
+      calendarId: authed.integration.calendarId,
+      eventId: googleCalendarEventId,
+      // Notify attendees so the candidate sees the cancellation in their
+      // own Google account too.
+      sendUpdates: 'all',
+    })
+    return { deleted: true }
+  } catch (err: unknown) {
+    const e = err as { code?: number; status?: number; message?: string }
+    if (e.code === 404 || e.code === 410 || e.status === 404 || e.status === 410) {
+      return { deleted: false, alreadyGone: true }
+    }
+    throw err
+  }
+}
+
 export async function pullChangedEvents(workspaceId: string) {
   const authed = await getAuthedClientForWorkspace(workspaceId)
   if (!authed) return { events: [], newSyncToken: null }

@@ -1,6 +1,6 @@
 import { prisma } from './prisma'
 import { sendEmail, renderTemplate } from './email'
-import { sendSms, normalizeToE164, SmsConfigError, SmsValidationError, SmsSendError } from './sms'
+import { sendSms, normalizeToE164, appendConfirmCancelHint, SmsConfigError, SmsValidationError, SmsSendError } from './sms'
 import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { applyStageTrigger } from './funnel-stage-runtime'
@@ -907,11 +907,18 @@ export async function executeStep(
       })
       return
     }
-    const body = renderTemplate(step.smsBody, variables)
+    let body = renderTemplate(step.smsBody, variables)
     // Note: if the recruiter set "Includes link to" but the body doesn't
     // contain the matching {{xxx_link}} token, the link silently won't
     // appear. The rule editor surfaces this as an inline warning so the
     // recruiter can add the token where they want it placed.
+
+    // Auto-append "Reply YES to confirm or NO to cancel." on reminder
+    // SMS only — i.e. either a rule-level before_meeting trigger, or a
+    // step-level before_meeting timing mode. Other SMS (post-meeting
+    // follow-ups, no-show outreach) don't ask for a reply.
+    const isReminder = rule.triggerType === 'before_meeting' || step.timingMode === 'before_meeting'
+    if (isReminder) body = appendConfirmCancelHint(body)
     try {
       const sent = await sendSms({
         candidateId: sessionId,

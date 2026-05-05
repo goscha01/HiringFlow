@@ -20,6 +20,8 @@ const EVENT_LABELS: Record<StageTriggerEvent, string> = {
   training_started:   'Training started',
   training_completed: 'Training completed',
   meeting_scheduled:  'Interview scheduled',
+  meeting_confirmed:  'Interview confirmed by candidate (SMS)',
+  meeting_cancelled:  'Interview cancelled by candidate (SMS)',
   meeting_started:    'Interview started',
   meeting_ended:      'Interview ended',
   meeting_no_show:    'Interview no-show',

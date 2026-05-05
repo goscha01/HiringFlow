@@ -25,6 +25,7 @@ interface InterviewMeeting {
   driveRecordingFileId: string | null
   driveTranscriptFileId: string | null
   participants: Array<{ email?: string; displayName?: string; joinTime?: string; leaveTime?: string }> | null
+  confirmedAt: string | null
   createdAt: string
 }
 
@@ -145,6 +146,14 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                           className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium"
                         >
                           Rebook
+                        </span>
+                      )}
+                      {m.confirmedAt && (
+                        <span
+                          title={`Candidate confirmed via SMS on ${new Date(m.confirmedAt).toLocaleString()}`}
+                          className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium"
+                        >
+                          Confirmed
                         </span>
                       )}
                     </div>
