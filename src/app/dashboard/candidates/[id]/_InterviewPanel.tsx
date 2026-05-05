@@ -43,6 +43,7 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
   const [markingNoShow, setMarkingNoShow] = useState<string | null>(null)
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [uploadResult, setUploadResult] = useState<Record<string, { ok: boolean; text: string }>>({})
+  const [removingRecording, setRemovingRecording] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/candidates/${candidateId}/interview-meetings`)
@@ -72,6 +73,21 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
       setUploadResult((p) => ({ ...p, [meetingId]: { ok: false, text: err instanceof Error ? err.message : 'Upload failed' } }))
     } finally {
       setUploadingFor(null)
+    }
+  }, [load])
+
+  const removeRecording = useCallback(async (meetingId: string) => {
+    if (!confirm('Remove this recording from the candidate profile? The video file will remain in your Google Drive — delete it from there if you also want it gone there.')) return
+    setRemovingRecording(meetingId)
+    try {
+      const res = await fetch(`/api/interview-meetings/${meetingId}/remove-recording`, { method: 'POST' })
+      if (res.ok) {
+        await load()
+      } else {
+        alert('Could not remove recording. Please retry.')
+      }
+    } finally {
+      setRemovingRecording(null)
     }
   }, [load])
 
@@ -162,9 +178,19 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                       className="w-full rounded-[6px] border border-surface-border"
                       src={`/api/interview-meetings/${m.id}/recording`}
                     />
-                    <a href={`/api/interview-meetings/${m.id}/recording`} className="text-xs text-primary hover:underline">
-                      Download recording
-                    </a>
+                    <div className="flex items-center gap-3 mt-1">
+                      <a href={`/api/interview-meetings/${m.id}/recording`} className="text-xs text-primary hover:underline">
+                        Download recording
+                      </a>
+                      <span className="text-grey-40 text-xs">·</span>
+                      <button
+                        onClick={() => removeRecording(m.id)}
+                        disabled={removingRecording === m.id}
+                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                      >
+                        {removingRecording === m.id ? 'Removing…' : 'Remove recording'}
+                      </button>
+                    </div>
                   </div>
                 )}
                 {m.transcriptState === 'ready' && m.driveTranscriptFileId && (
