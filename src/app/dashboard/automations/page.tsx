@@ -60,6 +60,19 @@ interface Rule {
   steps: StepShape[]
 }
 
+interface ExecutionRow {
+  id: string
+  status: string
+  channel: string
+  sentAt: string | null
+  scheduledFor: string | null
+  createdAt: string
+  errorMessage: string | null
+  sessionId: string | null
+  session: { id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null } | null
+  step: { id: string; order: number } | null
+}
+
 type DestinationFilter = 'all' | 'applicant' | 'company'
 
 const TRIGGERS = [
@@ -246,6 +259,14 @@ export default function AutomationsPage() {
   // 'asc' walks earliest→latest stage; 'desc' is reverse. null = default
   // ordering (createdAt desc as returned by the API).
   const [journeySort, setJourneySort] = useState<'asc' | 'desc' | null>(null)
+  // When non-null, the executions modal is open for this rule. Loading state
+  // is part of the same object so the modal can show "Loading…" inline.
+  const [executionsModal, setExecutionsModal] = useState<null | {
+    rule: Rule
+    loading: boolean
+    items: ExecutionRow[]
+    error?: string
+  }>(null)
   // Index of the step the inline template creator is currently bound to.
   const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
   // When the editor opens (idx becomes non-null), pull it into view AND
@@ -696,6 +717,23 @@ export default function AutomationsPage() {
     }
   }
 
+  const openExecutionsModal = async (rule: Rule) => {
+    setExecutionsModal({ rule, loading: true, items: [] })
+    try {
+      const res = await fetch(`/api/automations/${rule.id}/executions?limit=500`)
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Failed to load executions')
+      setExecutionsModal({ rule, loading: false, items: data ?? [] })
+    } catch (err) {
+      setExecutionsModal({
+        rule,
+        loading: false,
+        items: [],
+        error: err instanceof Error ? err.message : 'Failed to load executions',
+      })
+    }
+  }
+
   // Effective stage lookups — explicit stageId wins, else first stage (in
   // funnel order) whose triggers claim the rule's triggerType. Order is
   // taken from the stage's funnel position; rules without any stage match
@@ -918,7 +956,19 @@ export default function AutomationsPage() {
                           <span className="truncate max-w-[200px] text-xs text-grey-40 font-mono inline-block">{(firstStep.smsBody || '').slice(0, 60)}{(firstStep.smsBody || '').length > 60 ? '…' : ''}</span>
                         ) : firstStep?.emailTemplate?.name || r.emailTemplate?.name || <span className="text-grey-50 italic">No template</span>}
                       </td>
-                      <td className="px-5 py-4 text-sm font-medium text-grey-15">{r._count.executions}</td>
+                      <td className="px-5 py-4 text-sm font-medium text-grey-15">
+                        {r._count.executions > 0 ? (
+                          <button
+                            onClick={() => openExecutionsModal(r)}
+                            title="See which candidates this automation has run for"
+                            className="text-brand-600 hover:text-brand-700 hover:underline"
+                          >
+                            {r._count.executions}
+                          </button>
+                        ) : (
+                          <span className="text-grey-50">0</span>
+                        )}
+                      </td>
                       <td className="px-5 py-4">
                         <button onClick={() => toggle(r)} className={`text-xs px-2.5 py-1 rounded-full font-medium ${r.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-grey-40'}`}>
                           {r.isActive ? 'Active' : 'Paused'}
@@ -1200,6 +1250,104 @@ export default function AutomationsPage() {
             <div className="flex gap-3">
               <button onClick={() => setShowCompanyEmailWarning(false)} className="btn-secondary flex-1">Cancel</button>
               <Link href="/dashboard/settings?tab=email" className="btn-primary flex-1 text-center">Go to Settings</Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {executionsModal && (
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setExecutionsModal(null) }}
+        >
+          <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[720px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 pt-5 pb-3 border-b border-surface-divider flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-grey-15 truncate">Executions — {executionsModal.rule.name}</h2>
+                <p className="text-xs text-grey-40 mt-0.5">
+                  Every candidate this automation has run for, newest first.
+                </p>
+              </div>
+              <button
+                onClick={() => setExecutionsModal(null)}
+                aria-label="Close"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-grey-50 hover:text-ink hover:bg-surface-light text-lg leading-none"
+              >×</button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {executionsModal.loading ? (
+                <div className="py-10 text-center text-sm text-grey-40">Loading…</div>
+              ) : executionsModal.error ? (
+                <div className="m-6 px-3 py-2 rounded-[8px] bg-red-50 text-red-700 text-sm">{executionsModal.error}</div>
+              ) : executionsModal.items.length === 0 ? (
+                <div className="py-10 text-center text-sm text-grey-40">No executions yet.</div>
+              ) : (
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-surface-divider bg-surface-light text-xs text-grey-40 uppercase">
+                      <th className="px-4 py-2 text-left font-medium">Candidate</th>
+                      <th className="px-4 py-2 text-left font-medium">Status</th>
+                      <th className="px-4 py-2 text-left font-medium">Channel</th>
+                      <th className="px-4 py-2 text-left font-medium">Sent / scheduled</th>
+                      <th className="px-4 py-2 text-right font-medium">Step</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-divider">
+                    {executionsModal.items.map((e) => {
+                      const name = e.session?.candidateName
+                        || e.session?.candidateEmail
+                        || e.session?.candidatePhone
+                        || (e.sessionId ? `Session ${e.sessionId.slice(0, 6)}…` : 'Unknown')
+                      const stamp = e.sentAt ?? e.scheduledFor ?? e.createdAt
+                      return (
+                        <tr key={e.id} className="hover:bg-surface-light text-sm">
+                          <td className="px-4 py-2.5 text-grey-15 min-w-0">
+                            {e.sessionId ? (
+                              <Link href={`/dashboard/candidates/${e.sessionId}`} className="hover:underline text-grey-15 hover:text-brand-600">
+                                <span className="font-medium block truncate max-w-[260px]">{name}</span>
+                                {e.session?.candidateEmail && (
+                                  <span className="block text-[11px] text-grey-40 truncate max-w-[260px]">{e.session.candidateEmail}</span>
+                                )}
+                              </Link>
+                            ) : (
+                              <span className="text-grey-40 italic">Session deleted</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span
+                              className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                                e.status === 'sent' ? 'bg-green-100 text-green-700'
+                                  : e.status === 'failed' ? 'bg-red-100 text-red-700'
+                                  : e.status === 'cancelled' ? 'bg-gray-100 text-grey-40'
+                                  : e.status === 'queued' ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-blue-50 text-blue-700'
+                              }`}
+                              title={e.errorMessage ?? undefined}
+                            >
+                              {e.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-grey-35 uppercase">{e.channel}</td>
+                          <td className="px-4 py-2.5 text-xs text-grey-40">
+                            {stamp ? new Date(stamp).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-grey-40 text-right">
+                            {e.step ? `#${e.step.order + 1}` : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="px-6 py-3 border-t border-surface-divider flex items-center justify-between text-xs text-grey-40">
+              <span>
+                {executionsModal.loading
+                  ? ''
+                  : `${executionsModal.items.length} execution${executionsModal.items.length === 1 ? '' : 's'} shown`}
+              </span>
+              <button onClick={() => setExecutionsModal(null)} className="text-sm px-3 py-1.5 rounded-[8px] text-grey-40 hover:text-grey-15">Close</button>
             </div>
           </div>
         </div>
