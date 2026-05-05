@@ -1367,8 +1367,23 @@ function StepCard(props: {
                 meet_link:  'Join interview',
               }
               const ctaLabel = labelMap[step.nextStepType] || 'Continue'
+              const emailHasToken = !wantsEmail || (tpl && (tpl.bodyHtml || '').includes(expectedToken))
+              const smsHasToken = !wantsSms || (step.smsBody || '').includes(expectedToken)
               const emailNeedsInsert = wantsEmail && tpl && !(tpl.bodyHtml || '').includes(expectedToken)
               const smsNeedsInsert = wantsSms && !(step.smsBody || '').includes(expectedToken)
+              // Already present everywhere it's needed — show a positive indicator
+              // so the recruiter knows the link is in place (and explains why
+              // there's no Insert button to click).
+              if (!emailNeedsInsert && !smsNeedsInsert && (emailHasToken || smsHasToken)) {
+                return (
+                  <span
+                    className="text-[11px] px-2.5 py-1 rounded-[6px] bg-green-50 text-green-700 border border-green-200 font-medium whitespace-nowrap"
+                    title={`${expectedToken} is already in the ${wantsEmail && wantsSms ? 'template & SMS body' : wantsEmail ? 'template' : 'SMS body'}`}
+                  >
+                    ✓ Link in {wantsEmail && wantsSms ? 'template & SMS' : wantsEmail ? 'template' : 'SMS'}
+                  </span>
+                )
+              }
               if (!emailNeedsInsert && !smsNeedsInsert) return null
               return (
                 <button
