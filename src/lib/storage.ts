@@ -69,7 +69,9 @@ export function getVideoUrl(storageKey: string): string {
   if (storageKey.startsWith('http')) {
     // Add cache-busting for Vercel Blob URLs to avoid ERR_CACHE_OPERATION_NOT_SUPPORTED
     const url = new URL(storageKey)
-    url.searchParams.set('v', '1')
+    // Bumped to bust browser caches that may be holding a stale failed CORS
+    // response for the older v=1 URLs.
+    url.searchParams.set('v', '2')
     return url.toString()
   }
   return `/api/uploads/${storageKey}`
@@ -78,7 +80,9 @@ export function getVideoUrl(storageKey: string): string {
 export function getCandidateVideoUrl(storageKey: string): string {
   if (storageKey.startsWith('http')) {
     const url = new URL(storageKey)
-    url.searchParams.set('v', '1')
+    // Bumped to bust browser caches that may be holding a stale failed CORS
+    // response for the older v=1 URLs.
+    url.searchParams.set('v', '2')
     return url.toString()
   }
   return `/api/uploads/${storageKey}`
