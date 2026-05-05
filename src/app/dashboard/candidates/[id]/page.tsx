@@ -70,6 +70,14 @@ export default function CandidateDetailPage() {
   const [stageRuleCounts, setStageRuleCounts] = useState<Record<string, number>>({})
   const [runningAutomations, setRunningAutomations] = useState(false)
   const [automationToast, setAutomationToast] = useState<string | null>(null)
+  // Set when the user clicks "Run automations". Holds the rules that *would*
+  // fire so we can show them in a confirm modal before actually dispatching.
+  // null when the modal is closed; the array can be empty if loading or none match.
+  const [previewState, setPreviewState] = useState<null | {
+    loading: boolean
+    rules: Array<{ id: string; name: string; triggerType: string }>
+    error?: string
+  }>(null)
 
   useEffect(() => {
     fetch(`/api/candidates/${id}`).then(r => r.json()).then(d => { setCandidate(d); setLoading(false) })
@@ -199,12 +207,27 @@ export default function CandidateDetailPage() {
   const activeStageRuleCount = stageRuleCounts[activeStage.id] ?? 0
   const activeStageHasTriggers = (activeStage.triggers?.length ?? 0) > 0
 
-  const runStageAutomations = async () => {
+  // Open the preview modal — fetch the exact rules that would fire so the
+  // user can see by name what's about to run before confirming.
+  const openPreview = async () => {
     if (runningAutomations || activeStageRuleCount === 0) return
-    const ok = confirm(
-      `Fire ${activeStageRuleCount} automation${activeStageRuleCount === 1 ? '' : 's'} for "${activeStage.label}" now? This will send any configured emails/SMS to the candidate immediately.`,
-    )
-    if (!ok) return
+    setPreviewState({ loading: true, rules: [] })
+    try {
+      const res = await fetch(`/api/candidates/${id}/run-stage-automations?stageId=${encodeURIComponent(activeStage.id)}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Failed to load matching automations')
+      setPreviewState({ loading: false, rules: data.rules ?? [] })
+    } catch (err) {
+      setPreviewState({
+        loading: false,
+        rules: [],
+        error: err instanceof Error ? err.message : 'Failed to load matching automations',
+      })
+    }
+  }
+
+  const runStageAutomations = async () => {
+    if (runningAutomations) return
     setRunningAutomations(true)
     setAutomationToast(null)
     try {
@@ -223,12 +246,26 @@ export default function CandidateDetailPage() {
           : `Fired ${fired} automation${fired === 1 ? '' : 's'}.`,
       )
       fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
+      setPreviewState(null)
     } catch (err) {
       setAutomationToast(err instanceof Error ? err.message : 'Failed to fire automations')
     } finally {
       setRunningAutomations(false)
       setTimeout(() => setAutomationToast(null), 6000)
     }
+  }
+
+  const triggerLabels: Record<string, string> = {
+    flow_passed:        'Flow passed',
+    flow_completed:     'Flow completed',
+    training_started:   'Training started',
+    training_completed: 'Training completed',
+    meeting_scheduled:  'Interview scheduled',
+    meeting_started:    'Interview started',
+    meeting_ended:      'Interview ended',
+    meeting_no_show:    'Interview no-show',
+    before_meeting:     'Before meeting',
+    automation_completed: 'After automation',
   }
 
   // Most recent scheduling event with a meeting URL (schedulingEvents is
@@ -451,14 +488,14 @@ export default function CandidateDetailPage() {
             Current: <span className="font-medium text-grey-15">{activeStage.label}</span>
           </div>
           <button
-            onClick={runStageAutomations}
+            onClick={openPreview}
             disabled={!activeStageHasTriggers || activeStageRuleCount === 0 || runningAutomations}
             title={
               !activeStageHasTriggers
                 ? 'This stage has no triggers configured. Add triggers in Stages settings.'
                 : activeStageRuleCount === 0
                 ? 'No active automations match this stage’s triggers.'
-                : 'Fire matching automations for this candidate now'
+                : 'Preview which automations will fire, then confirm'
             }
             className="text-xs px-3 py-1.5 rounded-[6px] bg-brand-500 text-white hover:bg-brand-600 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -661,6 +698,70 @@ export default function CandidateDetailPage() {
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowLogMeeting(false)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={logMeeting} disabled={savingMeeting || !meetingAt} className="btn-primary flex-1 disabled:opacity-50">{savingMeeting ? 'Saving…' : 'Log meeting'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewState && (
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !runningAutomations) setPreviewState(null) }}
+        >
+          <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[520px]" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-3">
+              <h2 className="text-lg font-semibold text-grey-15">Run automations for &quot;{activeStage.label}&quot;</h2>
+              <p className="text-sm text-grey-40 mt-1">
+                These rules will run immediately for this candidate. Configured delays are
+                ignored — manual run sends now.
+              </p>
+            </div>
+            <div className="px-6 pb-2 max-h-[50vh] overflow-y-auto">
+              {previewState.loading ? (
+                <div className="py-6 text-center text-sm text-grey-40">Loading…</div>
+              ) : previewState.error ? (
+                <div className="py-3 px-3 rounded-[8px] bg-red-50 text-red-700 text-sm">{previewState.error}</div>
+              ) : previewState.rules.length === 0 ? (
+                <div className="py-6 text-center text-sm text-grey-40">No matching active rules.</div>
+              ) : (
+                <ul className="divide-y divide-surface-divider rounded-[8px] border border-surface-border">
+                  {previewState.rules.map((r) => (
+                    <li key={r.id} className="px-4 py-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-grey-15 truncate">{r.name}</div>
+                        <div className="text-xs text-grey-40 mt-0.5">
+                          Trigger: {triggerLabels[r.triggerType] ?? r.triggerType}
+                        </div>
+                      </div>
+                      <Link
+                        href={`/dashboard/automations/${r.id}`}
+                        target="_blank"
+                        className="text-xs text-brand-600 hover:underline shrink-0 mt-0.5"
+                      >
+                        View
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="px-6 py-4 flex justify-end gap-2 border-t border-surface-divider mt-2">
+              <button
+                onClick={() => setPreviewState(null)}
+                disabled={runningAutomations}
+                className="text-sm px-4 py-2 rounded-[8px] text-grey-40 hover:text-grey-15 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={runStageAutomations}
+                disabled={runningAutomations || previewState.loading || previewState.rules.length === 0}
+                className="text-sm px-4 py-2 rounded-[8px] bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50"
+              >
+                {runningAutomations
+                  ? 'Firing…'
+                  : `Fire ${previewState.rules.length} now`}
+              </button>
             </div>
           </div>
         </div>
