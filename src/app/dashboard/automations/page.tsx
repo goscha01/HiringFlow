@@ -1,9 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
 import { Button, PageHeader } from '@/components/design'
+import {
+  DEFAULT_FUNNEL_STAGES,
+  type FunnelStage,
+  normalizeStages,
+} from '@/lib/funnel-stages'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string; bodyHtml?: string; bodyText?: string | null }
@@ -50,20 +55,6 @@ interface Rule {
   schedulingConfig: SchedulingItem | null; _count: { executions: number }
   steps: StepShape[]
 }
-
-const PIPELINE_ORDER: Array<{ value: string; label: string; group: 'flow' | 'training' | 'meeting' }> = [
-  { value: 'flow_completed',     label: 'Flow Completed',   group: 'flow' },
-  { value: 'flow_passed',        label: 'Flow Passed',      group: 'flow' },
-  { value: 'training_started',   label: 'Training Started', group: 'training' },
-  { value: 'training_completed', label: 'Training Done',    group: 'training' },
-  { value: 'meeting_scheduled',  label: 'Meeting Scheduled',group: 'meeting' },
-  { value: 'before_meeting',     label: 'Before Meeting',   group: 'meeting' },
-  { value: 'meeting_started',    label: 'Meeting Started',  group: 'meeting' },
-  { value: 'meeting_ended',      label: 'Meeting Ended',    group: 'meeting' },
-  { value: 'meeting_no_show',    label: 'No-show',          group: 'meeting' },
-  { value: 'recording_ready',    label: 'Recording Ready',  group: 'meeting' },
-  { value: 'transcript_ready',   label: 'Transcript Ready', group: 'meeting' },
-]
 
 type DestinationFilter = 'all' | 'applicant' | 'company'
 
@@ -229,8 +220,14 @@ export default function AutomationsPage() {
   const [schedulingConfigs, setSchedulingConfigs] = useState<SchedulingItem[]>([])
   const [loading, setLoading] = useState(true)
   const [destinationFilter, setDestinationFilter] = useState<DestinationFilter>('all')
-  const [triggerFilter, setTriggerFilter] = useState<string | null>(null)
+  // Pipeline filter — null = no filter; a stage id picks rules that fire for
+  // any of that stage's trigger events; the literal string '__unassigned'
+  // picks rules whose triggerType isn't claimed by any stage. The pipeline
+  // UI is stage-driven now (mirrors the kanban) — triggerType is a separate
+  // implementation concept that lives on stages.
+  const [stageFilter, setStageFilter] = useState<string | null>(null)
   const [activeOnly, setActiveOnly] = useState(false)
+  const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
   const [name, setName] = useState('')
@@ -274,6 +271,8 @@ export default function AutomationsPage() {
     ]).then(([r, f, t, tr, sc, ws]) => {
       setRules(r); setFlows(f); setTemplates(t); setTrainings(tr); setSchedulingConfigs(sc)
       setCompanyEmail(ws?.senderEmail || null)
+      const rawStages = (ws?.settings as { funnelStages?: unknown } | null)?.funnelStages
+      setStages(normalizeStages(rawStages))
       setLoading(false)
     })
   }, [])
@@ -723,8 +722,9 @@ export default function AutomationsPage() {
 
       {rules.length > 0 && <AutomationPipeline
         rules={rules}
-        activeTrigger={triggerFilter}
-        onPickTrigger={(t) => setTriggerFilter(triggerFilter === t ? null : t)}
+        stages={stages}
+        activeStageId={stageFilter}
+        onPickStage={(id) => setStageFilter(stageFilter === id ? null : id)}
       />}
 
       {rules.length > 0 && (
@@ -744,10 +744,13 @@ export default function AutomationsPage() {
             className={`text-xs px-3 py-1.5 rounded-full border font-medium ${activeOnly ? 'border-green-500 bg-green-50 text-green-700' : 'border-surface-border text-grey-35'}`}>
             Active only
           </button>
-          {triggerFilter && (
-            <button onClick={() => setTriggerFilter(null)}
+          {stageFilter && (
+            <button onClick={() => setStageFilter(null)}
               className="text-xs px-3 py-1.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 font-medium">
-              {TRIGGER_LABELS[triggerFilter] || triggerFilter} ×
+              {stageFilter === '__unassigned'
+                ? 'Unassigned'
+                : (stages.find((s) => s.id === stageFilter)?.label ?? stageFilter)
+              } ×
             </button>
           )}
         </div>
@@ -784,7 +787,19 @@ export default function AutomationsPage() {
               {rules
                 .filter(r => destinationFilter === 'all' || (destinationFilter === 'applicant' ? firstStepDest(r) === 'applicant' : firstStepDest(r) !== 'applicant'))
                 .filter(r => !activeOnly || r.isActive)
-                .filter(r => !triggerFilter || r.triggerType === triggerFilter)
+                .filter(r => {
+                  if (!stageFilter) return true
+                  if (stageFilter === '__unassigned') {
+                    // Unassigned = triggerType doesn't appear on any stage's triggers.
+                    const claimed = new Set<string>()
+                    for (const s of stages) for (const t of s.triggers ?? []) claimed.add(t.event)
+                    return !claimed.has(r.triggerType)
+                  }
+                  const stage = stages.find((s) => s.id === stageFilter)
+                  if (!stage) return false
+                  const events = new Set((stage.triggers ?? []).map((t) => t.event))
+                  return events.has(r.triggerType as never)
+                })
                 .map((r) => {
                   const firstStep = r.steps?.[0]
                   return (
@@ -1582,37 +1597,77 @@ function StepCard(props: {
 }
 
 /**
- * Two-row pipeline view — applicant journey on top, company notifications
- * below.
+ * Pipeline view, stage-driven. Pills mirror the workspace's funnel stages
+ * (the kanban is the source of truth) and counts are derived by mapping
+ * rule.triggerType against each stage's StageTrigger events. An extra
+ * "Unassigned" pill collects rules whose triggerType isn't claimed by any
+ * stage — without it those rules would silently disappear from this view.
+ *
+ * Two rows: Applicant journey (rules whose first step targets the applicant)
+ * and Company notifications (everything else). Both rows share the same
+ * stage skeleton so the structure stays consistent.
  */
 function AutomationPipeline({
   rules,
-  activeTrigger,
-  onPickTrigger,
+  stages,
+  activeStageId,
+  onPickStage,
 }: {
   rules: Rule[]
-  activeTrigger: string | null
-  onPickTrigger: (trigger: string) => void
+  stages: FunnelStage[]
+  activeStageId: string | null
+  onPickStage: (stageIdOrUnassigned: string) => void
 }) {
-  const countsByTriggerAndDest = (() => {
+  // Pre-compute event-set per stage and the union of all claimed events so we
+  // can decide which rules land in the "Unassigned" bucket.
+  const stageEvents = useMemo(() => stages.map((s) => ({
+    id: s.id,
+    label: s.label,
+    color: s.color,
+    events: new Set((s.triggers ?? []).map((t) => t.event)),
+    triggerCount: s.triggers?.length ?? 0,
+  })), [stages])
+
+  const allClaimedEvents = useMemo(() => {
+    const claimed = new Set<string>()
+    for (const s of stages) for (const t of s.triggers ?? []) claimed.add(t.event)
+    return claimed
+  }, [stages])
+
+  // Each rule gets counted once per matching stage (a single triggerType could
+  // be claimed by multiple stages — rare, but supported), and once in the
+  // unassigned bucket if nothing claims it.
+  const counts = useMemo(() => {
     const m = new Map<string, { applicant: number; company: number }>()
-    for (const t of PIPELINE_ORDER) m.set(t.value, { applicant: 0, company: 0 })
+    for (const s of stageEvents) m.set(s.id, { applicant: 0, company: 0 })
+    m.set('__unassigned', { applicant: 0, company: 0 })
     for (const r of rules) {
-      const bucket = m.get(r.triggerType)
-      if (!bucket) continue
-      const dest = firstStepDest(r)
-      const bucketKey = dest === 'applicant' ? 'applicant' : 'company'
-      bucket[bucketKey] += 1
+      const dest = firstStepDest(r) === 'applicant' ? 'applicant' : 'company'
+      let matched = false
+      for (const s of stageEvents) {
+        if (s.events.has(r.triggerType as never)) {
+          m.get(s.id)![dest] += 1
+          matched = true
+        }
+      }
+      if (!matched && !allClaimedEvents.has(r.triggerType)) {
+        m.get('__unassigned')![dest] += 1
+      } else if (!matched) {
+        // triggerType is claimed by some stage but didn't match this rule —
+        // shouldn't happen given the loop above. Defensive no-op.
+      }
     }
     return m
-  })()
+  }, [rules, stageEvents, allClaimedEvents])
 
-  const groupColor = (g: string) => g === 'flow' ? 'bg-blue-50 text-blue-700 border-blue-100'
-    : g === 'training' ? 'bg-amber-50 text-amber-700 border-amber-100'
-    : 'bg-purple-50 text-purple-700 border-purple-100'
+  const unassignedTotal = (counts.get('__unassigned')?.applicant ?? 0)
+                       + (counts.get('__unassigned')?.company ?? 0)
+  const showUnassigned = unassignedTotal > 0
 
   const row = (dest: 'applicant' | 'company', title: string, subtitle: string) => {
-    const total = PIPELINE_ORDER.reduce((sum, t) => sum + (countsByTriggerAndDest.get(t.value)?.[dest] || 0), 0)
+    let total = 0
+    for (const s of stageEvents) total += counts.get(s.id)?.[dest] ?? 0
+    total += counts.get('__unassigned')?.[dest] ?? 0
     return (
       <div className="bg-white rounded-[12px] border border-surface-border p-4">
         <div className="flex items-center justify-between mb-3">
@@ -1623,30 +1678,33 @@ function AutomationPipeline({
           <span className="text-xs text-grey-40">{total} rule{total === 1 ? '' : 's'}</span>
         </div>
         <div className="flex items-center gap-1 overflow-x-auto pb-1">
-          {PIPELINE_ORDER.map((stage, i) => {
-            const count = countsByTriggerAndDest.get(stage.value)?.[dest] || 0
-            const isActive = activeTrigger === stage.value
+          {stageEvents.map((s, i) => {
+            const count = counts.get(s.id)?.[dest] ?? 0
+            const isActive = activeStageId === s.id
             const empty = count === 0
+            const noTriggers = s.triggerCount === 0
             return (
-              <div key={stage.value} className="flex items-center shrink-0">
+              <div key={s.id} className="flex items-center shrink-0">
                 <button
-                  onClick={() => onPickTrigger(stage.value)}
-                  className={`px-3 py-2 rounded-[8px] border text-xs font-medium whitespace-nowrap transition-all ${
+                  onClick={() => onPickStage(s.id)}
+                  title={noTriggers ? 'No triggers configured for this stage. Edit in Stages settings.' : `Filter to rules attached to ${s.label}`}
+                  className={`px-3 py-2 rounded-[8px] border text-xs font-medium whitespace-nowrap transition-all inline-flex items-center gap-2 ${
                     isActive
                       ? 'border-brand-500 bg-brand-50 text-brand-700 ring-2 ring-brand-200'
                       : empty
                         ? 'border-dashed border-surface-border text-grey-40 bg-white hover:border-grey-25'
-                        : `border-transparent ${groupColor(stage.group)} hover:ring-1 hover:ring-grey-25`
+                        : 'border-surface-border bg-white text-grey-15 hover:ring-1 hover:ring-grey-25'
                   }`}
                 >
-                  <span>{stage.label}</span>
-                  <span className={`ml-2 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold ${
-                    empty ? 'bg-gray-100 text-grey-40' : 'bg-white/70 text-grey-15'
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.color }} />
+                  <span>{s.label}</span>
+                  <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold ${
+                    empty ? 'bg-gray-100 text-grey-40' : 'bg-brand-100 text-brand-700'
                   }`}>
                     {count}
                   </span>
                 </button>
-                {i < PIPELINE_ORDER.length - 1 && (
+                {i < stageEvents.length - 1 && (
                   <svg className="w-3 h-3 text-grey-40 shrink-0" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
                     <path d="M4 2l4 4-4 4V2z" />
                   </svg>
@@ -1654,6 +1712,29 @@ function AutomationPipeline({
               </div>
             )
           })}
+          {showUnassigned && (() => {
+            const count = counts.get('__unassigned')?.[dest] ?? 0
+            if (count === 0) return null
+            const isActive = activeStageId === '__unassigned'
+            return (
+              <div className="flex items-center shrink-0 ml-2 pl-2 border-l border-surface-divider">
+                <button
+                  onClick={() => onPickStage('__unassigned')}
+                  title="Rules whose trigger isn't attached to any stage. Add the trigger to a stage in Stages settings to surface them on the pipeline."
+                  className={`px-3 py-2 rounded-[8px] border text-xs font-medium whitespace-nowrap transition-all inline-flex items-center gap-2 ${
+                    isActive
+                      ? 'border-amber-500 bg-amber-50 text-amber-700 ring-2 ring-amber-200'
+                      : 'border-dashed border-amber-300 text-amber-700 bg-amber-50 hover:ring-1 hover:ring-amber-300'
+                  }`}
+                >
+                  <span>Unassigned</span>
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                    {count}
+                  </span>
+                </button>
+              </div>
+            )
+          })()}
         </div>
       </div>
     )
