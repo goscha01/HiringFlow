@@ -462,14 +462,43 @@ export default function CandidateDetailPage() {
                 </span>
               ))}
             </div>
-            <input
-              type="text"
-              value={reasonDraft}
-              onChange={(e) => setReasonDraft(e.target.value)}
-              placeholder="Or type a custom reason — saved for next time"
-              className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-red-500/40"
-              autoFocus
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={reasonDraft}
+                onChange={(e) => setReasonDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const t = reasonDraft.trim()
+                    if (!t) return
+                    const lc = t.toLowerCase()
+                    const known = REJECTION_PRESETS.some((p) => p.toLowerCase() === lc) || customReasons.some((p) => p.toLowerCase() === lc)
+                    if (!known) persistCustomReasons([...customReasons, t])
+                  }
+                }}
+                placeholder="Type a new reason and press + to save it"
+                className="flex-1 px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+                autoFocus
+              />
+              {(() => {
+                const t = reasonDraft.trim()
+                const lc = t.toLowerCase()
+                const isKnown = !t || REJECTION_PRESETS.some((p) => p.toLowerCase() === lc) || customReasons.some((p) => p.toLowerCase() === lc)
+                return (
+                  <button
+                    onClick={() => { if (!isKnown) persistCustomReasons([...customReasons, t]) }}
+                    disabled={isKnown}
+                    title={isKnown ? 'Already in the list' : 'Save as a reusable preset'}
+                    className="px-3 rounded-[8px] border border-surface-border text-grey-35 hover:border-grey-35 disabled:opacity-40 disabled:hover:border-surface-border text-lg leading-none"
+                    aria-label="Add reason to presets"
+                  >
+                    +
+                  </button>
+                )
+              })()}
+            </div>
+            <p className="mt-2 text-[11px] text-grey-40">Saved presets appear as quick-picks for every candidate.</p>
             <div className="flex justify-between mt-5 gap-2">
               <button
                 onClick={clearReason}
