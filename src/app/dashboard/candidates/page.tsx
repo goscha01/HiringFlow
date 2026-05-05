@@ -145,12 +145,20 @@ export default function CandidatesPage() {
       }
       raf = requestAnimationFrame(tick)
     }
+    // Safety net: if the dragged card unmounts mid-drag (e.g. after drop the
+    // card moves columns and React swaps DOM nodes), its onDragEnd never
+    // fires. A window-level dragend reliably clears the state.
+    const onDragEnd = () => { setDragging(null); setHoverCol(null); setSelectedCard(null) }
     window.addEventListener('dragover', onMove, true)
     window.addEventListener('drag', onMove, true)
+    window.addEventListener('dragend', onDragEnd, true)
+    window.addEventListener('drop', onDragEnd, true)
     raf = requestAnimationFrame(tick)
     return () => {
       window.removeEventListener('dragover', onMove, true)
       window.removeEventListener('drag', onMove, true)
+      window.removeEventListener('dragend', onDragEnd, true)
+      window.removeEventListener('drop', onDragEnd, true)
       cancelAnimationFrame(raf)
       el.style.scrollSnapType = prevSnap
     }
@@ -370,14 +378,17 @@ export default function CandidatesPage() {
                   onDrop={(e) => {
                     e.preventDefault()
                     const id = e.dataTransfer.getData('text/candidate-id')
+                    // Clear drag state here too — when the card is moved to a
+                    // different column the source DOM node unmounts and its
+                    // onDragEnd may not fire, leaving `dragging` stuck.
+                    setHoverCol(null)
+                    setDragging(null)
+                    setSelectedCard(null)
                     if (!id) return
                     const current = candidates.find((c) => c.id === id)
                     if (!current) return
-                    if (resolveStage(current.pipelineStatus, stages).id === stage.id) {
-                      setHoverCol(null); return
-                    }
+                    if (resolveStage(current.pipelineStatus, stages).id === stage.id) return
                     updateStatus(id, stage.id)
-                    setHoverCol(null)
                   }}
                   className={`shrink-0 w-[300px] h-full snap-start rounded-[14px] border transition-all flex flex-col ${
                     isHover ? 'border-[color:var(--brand-primary)] bg-brand-50/40' : 'border-surface-border bg-white'
