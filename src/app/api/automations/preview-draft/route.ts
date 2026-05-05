@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
   // caller's workspace so you can't preview templates you don't own.
   const workspace = await prisma.workspace.findUnique({
     where: { id: ws.workspaceId },
-    select: { senderEmail: true, senderName: true },
+    select: { senderEmail: true, senderName: true, timezone: true },
   })
   const template = channel === 'email' && body.emailTemplateId
     ? await prisma.emailTemplate.findFirst({
@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
     ? `https://hirefunnel.app/t/${training.slug}?token=SAMPLE_TOKEN`
     : ''
 
+  const workspaceTz = workspace?.timezone || 'America/New_York'
   const sampleMeetingTime = (() => {
     const d = new Date()
     d.setDate(d.getDate() + 1)
@@ -94,6 +95,8 @@ export async function POST(request: NextRequest) {
     return d.toLocaleString('en-US', {
       weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit', hour12: true,
+      timeZone: workspaceTz,
+      timeZoneName: 'short',
     })
   })()
 

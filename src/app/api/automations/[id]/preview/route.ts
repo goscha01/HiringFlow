@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const rule = await prisma.automationRule.findFirst({
     where: { id: params.id, workspaceId: ws.workspaceId },
     include: {
-      workspace: { select: { senderEmail: true, senderName: true } },
+      workspace: { select: { senderEmail: true, senderName: true, timezone: true } },
       steps: {
         orderBy: { order: 'asc' },
         include: {
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     ? `https://hirefunnel.app/t/${step.training.slug}?token=SAMPLE_TOKEN`
     : (step.nextStepUrl || '')
 
+  const workspaceTz = rule.workspace.timezone || 'America/New_York'
   const sampleMeetingTime = (() => {
     const d = new Date()
     d.setDate(d.getDate() + 1)
@@ -65,6 +66,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return d.toLocaleString('en-US', {
       weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit', hour12: true,
+      timeZone: workspaceTz,
+      timeZoneName: 'short',
     })
   })()
 
