@@ -108,34 +108,38 @@ export default function CandidatesPage() {
   }, [])
 
   // Auto-scroll the board horizontally while a card is being dragged near
-  // either edge — without this, native HTML5 drag won't pan the container
-  // and cards can't be moved into off-screen stages.
+  // (or past) either edge — without this, native HTML5 drag won't pan the
+  // container and cards can't be moved into off-screen stages. Listening on
+  // document so we keep getting positions when the cursor goes beyond the
+  // kanban's visible edges.
   useEffect(() => {
     if (!dragging) return
     const el = kanbanRef.current
     if (!el) return
     let pointerX: number | null = null
     let raf = 0
-    const EDGE = 90
-    const MAX_SPEED = 20
+    const EDGE = 120
+    const MAX_SPEED = 28
     const onDragOver = (ev: DragEvent) => { pointerX = ev.clientX }
     const tick = () => {
       if (pointerX !== null) {
         const rect = el.getBoundingClientRect()
         const distLeft = pointerX - rect.left
         const distRight = rect.right - pointerX
-        if (distLeft >= 0 && distLeft < EDGE) {
-          el.scrollLeft -= MAX_SPEED * (1 - distLeft / EDGE)
-        } else if (distRight >= 0 && distRight < EDGE) {
-          el.scrollLeft += MAX_SPEED * (1 - distRight / EDGE)
+        if (distLeft < EDGE) {
+          const factor = Math.min(1, Math.max(0, 1 - distLeft / EDGE))
+          el.scrollLeft -= MAX_SPEED * factor
+        } else if (distRight < EDGE) {
+          const factor = Math.min(1, Math.max(0, 1 - distRight / EDGE))
+          el.scrollLeft += MAX_SPEED * factor
         }
       }
       raf = requestAnimationFrame(tick)
     }
-    el.addEventListener('dragover', onDragOver)
+    document.addEventListener('dragover', onDragOver)
     raf = requestAnimationFrame(tick)
     return () => {
-      el.removeEventListener('dragover', onDragOver)
+      document.removeEventListener('dragover', onDragOver)
       cancelAnimationFrame(raf)
     }
   }, [dragging])
