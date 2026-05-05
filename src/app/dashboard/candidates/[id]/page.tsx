@@ -87,6 +87,8 @@ export default function CandidateDetailPage() {
   const [stageRuleCounts, setStageRuleCounts] = useState<Record<string, number>>({})
   const [runningAutomations, setRunningAutomations] = useState(false)
   const [automationToast, setAutomationToast] = useState<string | null>(null)
+  const [sendingReminder, setSendingReminder] = useState(false)
+  const [reminderToast, setReminderToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   // Set when the user clicks "Run automations". Holds the rules that *would*
   // fire so we can show them in a confirm modal before actually dispatching.
   // null when the modal is closed; the array can be empty if loading or none match.
@@ -224,6 +226,35 @@ export default function CandidateDetailPage() {
   const [meetingUrl, setMeetingUrl] = useState('')
   const [meetingNotes, setMeetingNotes] = useState('')
   const [savingMeeting, setSavingMeeting] = useState(false)
+
+  const sendMeetingReminder = async () => {
+    if (sendingReminder) return
+    if (!confirm('Send the meeting reminder email/SMS to this candidate right now? All active before-meeting reminder rules will fire immediately, ignoring their scheduled times.')) return
+    setSendingReminder(true)
+    setReminderToast(null)
+    try {
+      const res = await fetch(`/api/candidates/${id}/send-meeting-reminder`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setReminderToast({ kind: 'err', text: data?.error || 'Failed to send reminder' })
+        return
+      }
+      const fired: number = data.fired ?? 0
+      const failed = (data.results || []).filter((r: { ok: boolean }) => !r.ok).length
+      setReminderToast({
+        kind: failed > 0 ? 'err' : 'ok',
+        text: failed > 0
+          ? `Sent ${fired}, ${failed} failed — see timeline for details.`
+          : `Sent ${fired} reminder${fired === 1 ? '' : 's'}.`,
+      })
+      fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
+    } catch (err) {
+      setReminderToast({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to send reminder' })
+    } finally {
+      setSendingReminder(false)
+      setTimeout(() => setReminderToast(null), 6000)
+    }
+  }
 
   const logMeeting = async () => {
     if (!meetingAt) return
@@ -528,6 +559,14 @@ export default function CandidateDetailPage() {
           <h3 className="text-sm font-semibold text-grey-15">Pipeline</h3>
           <div className="flex gap-2">
             <button onClick={() => setShowLogMeeting(true)} className="text-xs px-3 py-1.5 rounded-[6px] bg-purple-100 text-purple-700 hover:bg-purple-200 font-medium">Log meeting</button>
+            <button
+              onClick={sendMeetingReminder}
+              disabled={sendingReminder}
+              title="Fire all active before-meeting reminder rules for this candidate now"
+              className="text-xs px-3 py-1.5 rounded-[6px] bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium disabled:opacity-50"
+            >
+              {sendingReminder ? 'Sending…' : 'Send reminder'}
+            </button>
             {candidate.outcome !== 'passed' && (
               <button onClick={() => updateOutcome('passed')} className="text-xs px-3 py-1.5 rounded-[6px] bg-green-100 text-green-700 hover:bg-green-200 font-medium">Pass</button>
             )}
@@ -598,6 +637,15 @@ export default function CandidateDetailPage() {
         {automationToast && (
           <div className="mt-2 text-xs px-3 py-2 rounded-[6px] bg-brand-50 text-brand-700 border border-brand-100">
             {automationToast}
+          </div>
+        )}
+        {reminderToast && (
+          <div className={`mt-2 text-xs px-3 py-2 rounded-[6px] border ${
+            reminderToast.kind === 'ok'
+              ? 'bg-blue-50 text-blue-700 border-blue-100'
+              : 'bg-red-50 text-red-700 border-red-100'
+          }`}>
+            {reminderToast.text}
           </div>
         )}
       </div>
