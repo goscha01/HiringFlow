@@ -919,7 +919,7 @@ export default function CandidateDetailPage() {
                         </div>
                       </div>
                       <Link
-                        href={`/dashboard/automations/${r.id}`}
+                        href={`/dashboard/automations?rule=${r.id}`}
                         target="_blank"
                         className="text-xs text-brand-600 hover:underline shrink-0 mt-0.5"
                       >

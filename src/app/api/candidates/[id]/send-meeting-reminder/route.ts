@@ -3,17 +3,22 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { executeRule } from '@/lib/automation'
 
-// Manually fire all active `before_meeting` reminder rules for this candidate
-// right now, ignoring their scheduled fire time. Used when the recruiter
-// wants to nudge a candidate ahead of the configured cadence — including
-// "the meeting started but they haven't joined" no-show nudges.
+// Manually fire the candidate's meeting-related reminder/follow-up rules
+// right now, ignoring their scheduled fire time. Two trigger types are
+// included so a single button covers both phases:
+//   - before_meeting   → "your interview is at X" reminder
+//   - meeting_no_show  → "you missed it, want to rebook?" follow-up
+// In practice a workspace only has the relevant kind active for a given
+// candidate state, so firing both doesn't double up.
 //
 // GET returns the matched rules (so the UI can show a count); POST fires them.
 // Requires that *some* meeting record exists for the session (past or
 // future) — without one, the {{meeting_time}} / {{meeting_link}} merge
 // tokens render empty and the email is meaningless.
 
-interface MatchedRule { id: string; name: string; isActive: boolean }
+const MANUAL_TRIGGERS = ['before_meeting', 'meeting_no_show'] as const
+
+interface MatchedRule { id: string; name: string; triggerType: string; isActive: boolean }
 
 async function loadContext(sessionId: string, workspaceId: string) {
   const session = await prisma.session.findFirst({
@@ -37,11 +42,11 @@ async function loadContext(sessionId: string, workspaceId: string) {
   const rules = await prisma.automationRule.findMany({
     where: {
       workspaceId,
-      triggerType: 'before_meeting',
+      triggerType: { in: [...MANUAL_TRIGGERS] },
       isActive: true,
       OR: [{ flowId: session.flowId }, { flowId: null }],
     },
-    select: { id: true, name: true, isActive: true },
+    select: { id: true, name: true, triggerType: true, isActive: true },
     orderBy: { createdAt: 'asc' },
   })
 
@@ -67,7 +72,7 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ error: 'No meeting found for this candidate — nothing to remind about.' }, { status: 400 })
   }
   if (rules.length === 0) {
-    return NextResponse.json({ error: 'No active before-meeting reminder rules configured for this flow.' }, { status: 400 })
+    return NextResponse.json({ error: 'No active before-meeting or no-show follow-up rules configured for this flow.' }, { status: 400 })
   }
 
   const results: Array<{ ruleId: string; name: string; ok: boolean; error?: string }> = []
