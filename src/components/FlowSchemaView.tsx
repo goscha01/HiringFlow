@@ -132,7 +132,7 @@ export default function FlowSchemaView({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [positions, setPositions] = useState<Record<string, NodePos>>({})
-  const [thumbnails, setThumbnails] = useState<Record<string, HTMLImageElement>>({})
+  const [thumbnails, setThumbnails] = useState<Record<string, HTMLCanvasElement>>({})
   const [screenImages, setScreenImages] = useState<Record<string, HTMLImageElement>>({}) // stepId -> loaded image for screen steps
   const [videoAspects, setVideoAspects] = useState<Record<string, number>>({}) // stepId -> width/height ratio
   const [pan, setPan] = useState({ x: 40, y: 40 })
@@ -455,6 +455,11 @@ export default function FlowSchemaView({
   // Generate video thumbnails with cover-crop. Keyed by video.id so we don't
   // regenerate for every steps-array reference change — only when a new
   // (step.id, video.id) pair appears.
+  // We deliberately do NOT set crossOrigin on the video element: doing so
+  // requires the video host (S3) to send Access-Control-Allow-Origin, and
+  // browsers cache CORS-failure responses aggressively. Without crossOrigin
+  // the canvas becomes "tainted", which prevents reading pixel data — but
+  // we only DISPLAY the canvas, never read it, so taint is fine.
   const loadedThumbVideoIdsRef = useRef<Map<string, string>>(new Map())
   useEffect(() => {
     const videoEls: HTMLVideoElement[] = []
@@ -464,11 +469,9 @@ export default function FlowSchemaView({
       const videoUrl = step.video?.url
       const videoId = step.video?.id
       if (!videoUrl || !videoId) return
-      // Skip if this exact (step, video) pair has already been thumbnailed.
       if (loadedThumbVideoIdsRef.current.get(step.id) === videoId) return
 
       const video = document.createElement('video')
-      video.crossOrigin = 'anonymous'
       video.preload = 'metadata'
       video.muted = true
       video.playsInline = true
@@ -476,8 +479,10 @@ export default function FlowSchemaView({
       videoEls.push(video)
       video.onloadeddata = () => { video.currentTime = 1 }
       video.onseeked = () => {
+        if (!mounted) return
         const vw = video.videoWidth
         const vh = video.videoHeight
+        if (!vw || !vh) return
         const THUMB_W = NODE_W - 16
         const THUMB_H_CAP = THUMB_H
         const c = document.createElement('canvas')
@@ -500,18 +505,15 @@ export default function FlowSchemaView({
           dx = (THUMB_W - dw) / 2
           dy = 0
         }
-        ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh)
-        const aspect = vw / vh
-        const img = new Image()
-        img.onload = () => {
-          if (!mounted) return
-          loadedThumbVideoIdsRef.current.set(step.id, videoId)
-          // Merge with prev — don't replace state so existing thumbs survive
-          // a fresh effect run.
-          setThumbnails((prev) => ({ ...prev, [step.id]: img }))
-          setVideoAspects((prev) => ({ ...prev, [step.id]: aspect }))
+        try {
+          ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh)
+        } catch {
+          return
         }
-        img.src = c.toDataURL()
+        const aspect = vw / vh
+        loadedThumbVideoIdsRef.current.set(step.id, videoId)
+        setThumbnails((prev) => ({ ...prev, [step.id]: c }))
+        setVideoAspects((prev) => ({ ...prev, [step.id]: aspect }))
       }
     })
 
@@ -532,8 +534,9 @@ export default function FlowSchemaView({
     steps.forEach((step) => {
       const imgUrl = (step as any).formConfig?.imageUrl
       if (imgUrl && step.stepType === 'info' && !screenImages[step.id]) {
+        // No crossOrigin: same reasoning as the thumbnail effect — we only
+        // display, never read pixels, so a tainted main canvas is fine.
         const img = new Image()
-        img.crossOrigin = 'anonymous'
         img.onload = () => setScreenImages(prev => ({ ...prev, [step.id]: img }))
         img.src = imgUrl
       }
@@ -2120,7 +2123,7 @@ function drawNode(
   step: Step,
   pos: NodePos,
   isSelected: boolean,
-  thumb?: HTMLImageElement,
+  thumb?: HTMLImageElement | HTMLCanvasElement,
   stepIndex?: number,
   aspect?: number,
   screenImg?: HTMLImageElement
