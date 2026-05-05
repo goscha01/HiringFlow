@@ -243,7 +243,7 @@ export default function CandidateDetailPage() {
 
   const sendMeetingReminder = async () => {
     if (sendingReminder) return
-    if (!confirm('Send the meeting reminder email/SMS to this candidate right now? All active before-meeting reminder rules will fire immediately, ignoring their scheduled times.')) return
+    if (!confirm('Send the "we\'re waiting for you" nudge to this candidate now? Email goes out immediately, plus SMS if a phone number is on file.')) return
     setSendingReminder(true)
     setReminderToast(null)
     try {
@@ -253,14 +253,21 @@ export default function CandidateDetailPage() {
         setReminderToast({ kind: 'err', text: data?.error || 'Failed to send reminder' })
         return
       }
-      const fired: number = data.fired ?? 0
-      const failed = (data.results || []).filter((r: { ok: boolean }) => !r.ok).length
-      setReminderToast({
-        kind: failed > 0 ? 'err' : 'ok',
-        text: failed > 0
-          ? `Sent ${fired}, ${failed} failed — see timeline for details.`
-          : `Sent ${fired} reminder${fired === 1 ? '' : 's'}.`,
-      })
+      const emailOk = data?.email?.success
+      const smsOk = data?.sms?.success
+      const channels: string[] = []
+      if (emailOk) channels.push('email')
+      if (smsOk) channels.push('SMS')
+      const failures: string[] = []
+      if (data?.email && !emailOk) failures.push(`email (${data.email.error || 'failed'})`)
+      if (data?.sms && !smsOk) failures.push(`SMS (${data.sms.error || 'failed'})`)
+      if (channels.length > 0 && failures.length === 0) {
+        setReminderToast({ kind: 'ok', text: `Sent ${channels.join(' and ')} nudge.` })
+      } else if (channels.length > 0 && failures.length > 0) {
+        setReminderToast({ kind: 'err', text: `Sent ${channels.join(' and ')}, but ${failures.join(', ')} failed.` })
+      } else {
+        setReminderToast({ kind: 'err', text: failures.length ? `Failed: ${failures.join(', ')}` : 'Nothing was sent.' })
+      }
       fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
     } catch (err) {
       setReminderToast({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to send reminder' })
@@ -403,8 +410,9 @@ export default function CandidateDetailPage() {
       meeting_rescheduled: 'Meeting rescheduled',
       meeting_cancelled: 'Meeting cancelled',
       meeting_no_show: 'Candidate no-show',
+      nudge_sent: 'Manual "join now" nudge sent',
     }
-    const successTypes = new Set(['marked_scheduled', 'meeting_scheduled', 'meeting_rescheduled'])
+    const successTypes = new Set(['marked_scheduled', 'meeting_scheduled', 'meeting_rescheduled', 'nudge_sent'])
     const errorTypes = new Set(['meeting_cancelled', 'meeting_no_show'])
     const type = errorTypes.has(e.eventType) ? 'error' : successTypes.has(e.eventType) ? 'success' : 'info'
     const meta = e.metadata || {}
@@ -412,6 +420,12 @@ export default function CandidateDetailPage() {
     if (meta.scheduledAt) bits.push(`When: ${new Date(meta.scheduledAt).toLocaleString()}`)
     if (meta.meetingUrl) bits.push(`Link: ${meta.meetingUrl}`)
     if (meta.notes) bits.push(`Notes: ${meta.notes}`)
+    if (e.eventType === 'nudge_sent') {
+      const channels: string[] = []
+      if (meta.emailOk) channels.push('email')
+      if (meta.smsOk) channels.push('SMS')
+      if (channels.length > 0) bits.push(`Channels: ${channels.join(' + ')}`)
+    }
     timeline.push({ label: labels[e.eventType] || e.eventType, time: e.eventAt, type, detail: bits.join(' · ') || undefined })
   })
   ;(candidate.automationExecutions || []).forEach(e => {

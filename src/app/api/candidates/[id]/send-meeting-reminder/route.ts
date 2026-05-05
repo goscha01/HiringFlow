@@ -1,93 +1,156 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { executeRule } from '@/lib/automation'
+import { sendEmail, renderTemplate } from '@/lib/email'
+import { sendSms, normalizeToE164 } from '@/lib/sms'
+import {
+  MANUAL_MEETING_NUDGE_TEMPLATE_NAME,
+  DEFAULT_EMAIL_TEMPLATES,
+} from '@/lib/email-templates-seed'
 
-// Manually fire the candidate's meeting-related reminder/follow-up rules
-// right now, ignoring their scheduled fire time. Two trigger types are
-// included so a single button covers both phases:
-//   - before_meeting   → "your interview is at X" reminder
-//   - meeting_no_show  → "you missed it, want to rebook?" follow-up
-// In practice a workspace only has the relevant kind active for a given
-// candidate state, so firing both doesn't double up.
+// Manual "join now" nudge sent from the candidate page when the candidate
+// is late or hasn't joined the live meeting. Distinct from before_meeting
+// reminders (sent ahead of time) and meeting_no_show follow-ups (sent
+// after, "pick a new time"). Uses a dedicated, editable email template
+// scoped to the workspace so recruiters can tweak the copy.
 //
-// GET returns the matched rules (so the UI can show a count); POST fires them.
-// Requires that *some* meeting record exists for the session (past or
-// future) — without one, the {{meeting_time}} / {{meeting_link}} merge
-// tokens render empty and the email is meaningless.
+// SMS is sent in addition to email when the candidate has a phone number,
+// because the candidate is presumably away from email at this moment. The
+// SMS body is hardcoded for now — making it editable would mean adding a
+// new "manual nudge" rule type, which felt heavy for a single button.
 
-const MANUAL_TRIGGERS = ['before_meeting', 'meeting_no_show'] as const
+const DEFAULT_SMS_BODY = "Hi {{candidate_name}}, we're on the call waiting for you. Join: {{meeting_link}}"
 
-interface MatchedRule { id: string; name: string; triggerType: string; isActive: boolean }
-
-async function loadContext(sessionId: string, workspaceId: string) {
-  const session = await prisma.session.findFirst({
-    where: { id: sessionId, workspaceId },
-    select: { id: true, flowId: true },
+async function getOrCreateNudgeTemplate(workspaceId: string, userId: string) {
+  const existing = await prisma.emailTemplate.findFirst({
+    where: { workspaceId, name: MANUAL_MEETING_NUDGE_TEMPLATE_NAME },
   })
-  if (!session) return { session: null, hasMeeting: false, rules: [] as MatchedRule[] }
-
-  let hasMeeting = !!(await prisma.interviewMeeting.findFirst({
-    where: { sessionId: session.id },
-    select: { id: true },
-  }))
-  if (!hasMeeting) {
-    const evt = await prisma.schedulingEvent.findFirst({
-      where: { sessionId: session.id, eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] } },
-      select: { id: true },
-    })
-    if (evt) hasMeeting = true
-  }
-
-  const rules = await prisma.automationRule.findMany({
-    where: {
+  if (existing) return existing
+  const seed = DEFAULT_EMAIL_TEMPLATES.find((t) => t.name === MANUAL_MEETING_NUDGE_TEMPLATE_NAME)
+  if (!seed) throw new Error('Manual nudge template seed missing')
+  return prisma.emailTemplate.create({
+    data: {
       workspaceId,
-      triggerType: { in: [...MANUAL_TRIGGERS] },
-      isActive: true,
-      OR: [{ flowId: session.flowId }, { flowId: null }],
+      createdById: userId,
+      name: seed.name,
+      subject: seed.subject,
+      bodyHtml: seed.bodyHtml,
     },
-    select: { id: true, name: true, triggerType: true, isActive: true },
-    orderBy: { createdAt: 'asc' },
   })
-
-  return { session, hasMeeting, rules }
 }
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
-  const ws = await getWorkspaceSession()
-  if (!ws) return unauthorized()
-
-  const { session, hasMeeting, rules } = await loadContext(params.id, ws.workspaceId)
-  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ hasMeeting, rules })
+async function findMeetingContext(sessionId: string) {
+  const im = await prisma.interviewMeeting.findFirst({
+    where: { sessionId },
+    orderBy: { createdAt: 'desc' },
+    select: { meetingUri: true, scheduledStart: true },
+  })
+  if (im?.meetingUri) {
+    return { meetingUrl: im.meetingUri, scheduledAt: im.scheduledStart }
+  }
+  const evt = await prisma.schedulingEvent.findFirst({
+    where: { sessionId, eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] } },
+    orderBy: { eventAt: 'desc' },
+    select: { metadata: true },
+  })
+  const meta = (evt?.metadata as Record<string, unknown> | null) || null
+  const url = typeof meta?.meetingUrl === 'string' ? meta.meetingUrl : null
+  const scheduledAtRaw = typeof meta?.scheduledAt === 'string' ? meta.scheduledAt : null
+  const scheduledAt = scheduledAtRaw ? new Date(scheduledAtRaw) : null
+  if (!url) return null
+  return { meetingUrl: url, scheduledAt }
 }
 
 export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
-  const { session, hasMeeting, rules } = await loadContext(params.id, ws.workspaceId)
+  const session = await prisma.session.findFirst({
+    where: { id: params.id, workspaceId: ws.workspaceId },
+    include: { flow: true, workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true, timezone: true } } },
+  })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (!hasMeeting) {
-    return NextResponse.json({ error: 'No meeting found for this candidate — nothing to remind about.' }, { status: 400 })
-  }
-  if (rules.length === 0) {
-    return NextResponse.json({ error: 'No active before-meeting or no-show follow-up rules configured for this flow.' }, { status: 400 })
+  if (!session.candidateEmail) {
+    return NextResponse.json({ error: 'Candidate has no email on file.' }, { status: 400 })
   }
 
-  const results: Array<{ ruleId: string; name: string; ok: boolean; error?: string }> = []
-  for (const rule of rules) {
-    try {
-      await executeRule(rule.id, session.id)
-      results.push({ ruleId: rule.id, name: rule.name, ok: true })
-    } catch (err) {
-      results.push({
-        ruleId: rule.id,
-        name: rule.name,
-        ok: false,
-        error: err instanceof Error ? err.message : 'Execution failed',
+  const meetingCtx = await findMeetingContext(session.id)
+  if (!meetingCtx) {
+    return NextResponse.json({ error: 'No meeting found for this candidate — nothing to remind about.' }, { status: 400 })
+  }
+
+  const template = await getOrCreateNudgeTemplate(ws.workspaceId, ws.userId)
+
+  // Render meeting time in the workspace's timezone — same logic as the
+  // automation executor, so the candidate sees a consistent format.
+  const tz = session.workspace?.timezone || 'America/New_York'
+  const meetingTime = meetingCtx.scheduledAt
+    ? meetingCtx.scheduledAt.toLocaleString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+        timeZone: tz, timeZoneName: 'short',
       })
+    : ''
+
+  const variables: Record<string, string> = {
+    candidate_name: session.candidateName || 'there',
+    flow_name: session.flow?.name || '',
+    meeting_link: meetingCtx.meetingUrl,
+    meeting_time: meetingTime,
+  }
+
+  // Pick the workspace's verified sender if it has one; otherwise fall
+  // back to the platform default (handled inside sendEmail).
+  let from: { email: string; name?: string } | null = null
+  const wsRow = session.workspace
+  if (wsRow?.senderEmail && wsRow?.senderName) {
+    const domainOk = !!(wsRow.senderDomainValidatedAt && wsRow.senderDomain && wsRow.senderEmail.toLowerCase().endsWith('@' + wsRow.senderDomain.toLowerCase()))
+    const singleOk = !!wsRow.senderVerifiedAt
+    if (domainOk || singleOk) from = { email: wsRow.senderEmail, name: wsRow.senderName || undefined }
+  }
+
+  const subject = renderTemplate(template.subject, variables)
+  const html = renderTemplate(template.bodyHtml, variables)
+  const text: string | undefined = template.bodyText ? renderTemplate(template.bodyText, variables) : undefined
+  const emailResult = await sendEmail({ to: session.candidateEmail, subject, html, text, from })
+
+  let smsResult: { success: boolean; error?: string } | null = null
+  if (session.candidatePhone) {
+    const normalized = normalizeToE164(session.candidatePhone)
+    if (normalized) {
+      try {
+        await sendSms({
+          candidateId: session.id,
+          workspaceId: ws.workspaceId,
+          to: normalized,
+          body: renderTemplate(DEFAULT_SMS_BODY, variables),
+        })
+        smsResult = { success: true }
+      } catch (err) {
+        smsResult = { success: false, error: err instanceof Error ? err.message : 'SMS send failed' }
+      }
     }
   }
-  return NextResponse.json({ fired: results.filter((r) => r.ok).length, results })
+
+  // Log to the timeline so the recruiter can see when nudges went out.
+  await prisma.schedulingEvent.create({
+    data: {
+      sessionId: session.id,
+      eventType: 'nudge_sent',
+      metadata: {
+        meetingUrl: meetingCtx.meetingUrl,
+        scheduledAt: meetingCtx.scheduledAt?.toISOString() || null,
+        emailOk: emailResult.success,
+        smsOk: smsResult?.success ?? null,
+        templateName: MANUAL_MEETING_NUDGE_TEMPLATE_NAME,
+        sentBy: ws.userId,
+      },
+    },
+  }).catch((err) => console.error('[send-meeting-reminder] failed to log SchedulingEvent:', err))
+
+  return NextResponse.json({
+    email: emailResult,
+    sms: smsResult,
+    templateName: MANUAL_MEETING_NUDGE_TEMPLATE_NAME,
+  })
 }
