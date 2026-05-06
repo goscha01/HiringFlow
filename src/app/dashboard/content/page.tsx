@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { SubNav } from '../_components/SubNav'
 import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
 import { Badge, Button, PageHeader } from '@/components/design'
@@ -15,6 +15,176 @@ interface AdTemplate { id: string; name: string; source: string; headline: strin
 
 const EMAIL_VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_time}}', '{{meeting_link}}', '{{source}}', '{{ad_name}}']
 const SOURCES = ['general', 'indeed', 'facebook', 'craigslist', 'google', 'linkedin', 'instagram', 'tiktok', 'other']
+
+// Recruiters compose in plain text with optional lightweight markdown markers
+// (`**bold**`, `*italic*`, `[text](url)`, `- ` bullets, `1.` numbered) inserted
+// via the small toolbar above the textarea. We expand markdown → HTML on save
+// and reverse it on edit so the field is round-trippable. Heavier styling on
+// seeded defaults (e.g. orange button-styled `<a>`) flattens to a plain link
+// on edit — recruiters can re-pick the default if they want the button back.
+
+// Apply inline markdown (links, bold, italic, auto-link URLs) to a chunk of
+// already-HTML-escaped text. Operates outside existing <a> blocks so we don't
+// nest auto-linked URLs inside markdown links.
+function applyInlineMarkdown(text: string): string {
+  // 1. Markdown links [text](url) → <a href="url">text</a>. Done first so
+  //    the URL inside isn't re-linked by the bare-URL pass below.
+  let out = text.replace(/\[([^\]\n]+)\]\(([^)\n\s]+)\)/g, (_m, t, u) => `<a href="${u}">${t}</a>`)
+
+  // 2. Bare URLs and {{*_link}} tokens — only outside existing <a>...</a>
+  //    blocks so we don't double-wrap. Split keeps the delimiters.
+  const segments = out.split(/(<a\s[^>]*>[\s\S]*?<\/a>)/g)
+  for (let i = 0; i < segments.length; i += 2) {
+    segments[i] = segments[i].replace(
+      /(https?:\/\/[^\s<]+|\{\{[a-z_]*link\}\})/g,
+      '<a href="$1">$1</a>'
+    )
+  }
+  out = segments.join('')
+
+  // 3. **bold** → <strong>bold</strong>  (must run before single-* italic)
+  out = out.replace(/\*\*([^*\n][^*\n]*?)\*\*/g, '<strong>$1</strong>')
+
+  // 4. *italic* → <em>italic</em>  (negative lookarounds avoid eating ** edges)
+  out = out.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
+
+  return out
+}
+
+function plainTextToHtml(text: string): string {
+  if (!text.trim()) return ''
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  const blocks = escaped.split(/\n\s*\n+/).map(b => b.replace(/\s+$/, '').replace(/^\s+/, '')).filter(Boolean)
+
+  return blocks.map(block => {
+    const lines = block.split('\n')
+    if (lines.length > 0 && lines.every(l => /^-\s+/.test(l))) {
+      const items = lines.map(l => `<li>${applyInlineMarkdown(l.replace(/^-\s+/, ''))}</li>`).join('')
+      return `<ul>${items}</ul>`
+    }
+    if (lines.length > 0 && lines.every(l => /^\d+\.\s+/.test(l))) {
+      const items = lines.map(l => `<li>${applyInlineMarkdown(l.replace(/^\d+\.\s+/, ''))}</li>`).join('')
+      return `<ol>${items}</ol>`
+    }
+    const withBreaks = block.replace(/\n/g, '<br/>')
+    return `<p>${applyInlineMarkdown(withBreaks)}</p>`
+  }).join('\n')
+}
+
+function htmlToPlainText(html: string): string {
+  return html
+    // <a href="X">text</a> → [text](X) so the link round-trips. When the
+    // visible text is the same as the URL (auto-linked), collapse to bare URL.
+    .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, text) => {
+      const clean = String(text).replace(/<[^>]+>/g, '').trim()
+      return clean && clean !== href ? `[${clean}](${href})` : href
+    })
+    // Lists: numbered first so we can renumber, then bullet
+    .replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_m, inner) => {
+      let i = 0
+      return inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m2: string, c: string) =>
+        `${++i}. ${c.replace(/<[^>]+>/g, '').trim()}\n`
+      )
+    })
+    .replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_m, inner) =>
+      inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m2: string, c: string) =>
+        `- ${c.replace(/<[^>]+>/g, '').trim()}\n`
+      )
+    )
+    .replace(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/gi, '**$1**')
+    .replace(/<(?:em|i)>([\s\S]*?)<\/(?:em|i)>/gi, '*$1*')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<\/?p[^>]*>/gi, '')
+    .replace(/<\/?(span|div)[^>]*>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// Small markdown toolbar bound to a textarea ref. Buttons wrap the current
+// selection (or insert a placeholder at the caret) with markdown markers and
+// restore focus + selection so typing can continue.
+function MarkdownToolbar({ textareaRef, value, onChange }: {
+  textareaRef: React.RefObject<HTMLTextAreaElement>
+  value: string
+  onChange: (next: string) => void
+}) {
+  const wrap = (before: string, after: string, placeholder: string) => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const sel = value.slice(start, end) || placeholder
+    const next = value.slice(0, start) + before + sel + after + value.slice(end)
+    onChange(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      const a = start + before.length
+      const b = a + sel.length
+      ta.setSelectionRange(a, b)
+    })
+  }
+
+  const insertLink = () => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const url = window.prompt('Link URL (https://… or {{meeting_link}}):')
+    if (!url) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const label = value.slice(start, end) || url
+    const insert = `[${label}](${url})`
+    const next = value.slice(0, start) + insert + value.slice(end)
+    onChange(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      const cursor = start + insert.length
+      ta.setSelectionRange(cursor, cursor)
+    })
+  }
+
+  const prefixLines = (linePrefix: (i: number) => string) => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    // Expand the selection to whole lines so the prefix is applied per row.
+    const blockStart = value.lastIndexOf('\n', start - 1) + 1
+    const tailIdx = value.indexOf('\n', end)
+    const blockEnd = tailIdx === -1 ? value.length : tailIdx
+    const block = value.slice(blockStart, blockEnd)
+    const prefixed = block.split('\n').map((l, i) => linePrefix(i) + l).join('\n')
+    const next = value.slice(0, blockStart) + prefixed + value.slice(blockEnd)
+    onChange(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(blockStart, blockStart + prefixed.length)
+    })
+  }
+
+  const btn = 'px-2 py-1 text-xs text-grey-15 hover:bg-white rounded transition-colors'
+  return (
+    <div className="flex items-center gap-0.5 px-2 py-1.5 border border-surface-border border-b-0 rounded-t-[8px] bg-surface">
+      <button type="button" onClick={() => wrap('**', '**', 'bold text')} title="Bold (**text**)" className={`${btn} font-bold`}>B</button>
+      <button type="button" onClick={() => wrap('*', '*', 'italic text')} title="Italic (*text*)" className={`${btn} italic`}>I</button>
+      <button type="button" onClick={insertLink} title="Insert link [text](url)" className={btn}>Link</button>
+      <span className="w-px h-4 bg-surface-border mx-1" aria-hidden />
+      <button type="button" onClick={() => prefixLines(() => '- ')} title="Bulleted list" className={btn}>• List</button>
+      <button type="button" onClick={() => prefixLines((i) => `${i + 1}. `)} title="Numbered list" className={btn}>1. List</button>
+    </div>
+  )
+}
 
 const EMAIL_DEFAULTS = DEFAULT_EMAIL_TEMPLATES.map(t => ({ ...t, category: 'email' as const }))
 
@@ -37,10 +207,10 @@ export default function ContentPage() {
   const [editingEmail, setEditingEmail] = useState<EmailTemplate | null>(null)
   const [emailName, setEmailName] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
-  const [emailBodyHtml, setEmailBodyHtml] = useState('')
-  const [emailBodyText, setEmailBodyText] = useState('')
+  const [emailBody, setEmailBody] = useState('')
   const [emailSaving, setEmailSaving] = useState(false)
   const [previewEmail, setPreviewEmail] = useState<EmailTemplate | null>(null)
+  const emailBodyRef = useRef<HTMLTextAreaElement>(null)
 
   // Ad modal
   const [showAdModal, setShowAdModal] = useState(false)
@@ -66,16 +236,24 @@ export default function ContentPage() {
   const refreshEmails = async () => { const r = await fetch('/api/email-templates'); if (r.ok) setEmailTemplates(await r.json()) }
   const refreshAds = async () => { const r = await fetch('/api/ad-templates'); if (r.ok) setAdTemplates(await r.json()) }
 
-  // Email CRUD
+  // Email CRUD — recruiter composes in plain text; HTML is generated on save.
+  // When a starter is picked, prefer its bodyText if provided (e.g. the
+  // manual-meeting-nudge template), otherwise convert the seeded bodyHtml
+  // back to text so the recruiter sees something readable to edit.
   const openCreateEmail = (starter?: typeof EMAIL_DEFAULTS[0]) => {
     setEditingEmail(null); setEmailName(starter?.name || ''); setEmailSubject(starter?.subject || '')
-    setEmailBodyHtml(starter?.bodyHtml || '<p>Hi {{candidate_name}},</p>\n<p></p>'); setEmailBodyText(''); setShowEmailModal(true)
+    const seedText = starter?.bodyText || (starter?.bodyHtml ? htmlToPlainText(starter.bodyHtml) : 'Hi {{candidate_name}},\n\n')
+    setEmailBody(seedText); setShowEmailModal(true)
   }
-  const openEditEmail = (t: EmailTemplate) => { setEditingEmail(t); setEmailName(t.name); setEmailSubject(t.subject); setEmailBodyHtml(t.bodyHtml); setEmailBodyText(t.bodyText || ''); setShowEmailModal(true) }
+  const openEditEmail = (t: EmailTemplate) => {
+    setEditingEmail(t); setEmailName(t.name); setEmailSubject(t.subject)
+    setEmailBody(t.bodyText || htmlToPlainText(t.bodyHtml || ''))
+    setShowEmailModal(true)
+  }
   const saveEmail = async () => {
-    if (!emailName.trim() || !emailSubject.trim() || !emailBodyHtml.trim()) return
+    if (!emailName.trim() || !emailSubject.trim() || !emailBody.trim()) return
     setEmailSaving(true)
-    const body = { name: emailName, subject: emailSubject, bodyHtml: emailBodyHtml, bodyText: emailBodyText || null }
+    const body = { name: emailName, subject: emailSubject, bodyHtml: plainTextToHtml(emailBody), bodyText: emailBody }
     if (editingEmail) { await fetch(`/api/email-templates/${editingEmail.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
     else { await fetch('/api/email-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
     setEmailSaving(false); setShowEmailModal(false); refreshEmails()
@@ -273,11 +451,22 @@ export default function ContentPage() {
             <div className="space-y-4">
               <div><label className="block text-sm font-medium text-grey-20 mb-1.5">Name</label><input type="text" value={emailName} onChange={e => setEmailName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
               <div><label className="block text-sm font-medium text-grey-20 mb-1.5">Subject</label><input type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="e.g. Your training is ready!" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
-              <div><label className="text-sm font-medium text-grey-20 block mb-1.5">Body (HTML)</label><textarea value={emailBodyHtml} onChange={e => setEmailBodyHtml(e.target.value)} rows={8} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
-              <div><label className="block text-sm font-medium text-grey-20 mb-1.5">Plain Text (optional)</label><textarea value={emailBodyText} onChange={e => setEmailBodyText(e.target.value)} rows={3} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Body</label>
+                <MarkdownToolbar textareaRef={emailBodyRef} value={emailBody} onChange={setEmailBody} />
+                <textarea
+                  ref={emailBodyRef}
+                  value={emailBody}
+                  onChange={e => setEmailBody(e.target.value)}
+                  rows={10}
+                  placeholder={'Hi {{candidate_name}},\n\nThanks for completing the application…'}
+                  className="w-full px-4 py-3 border border-surface-border rounded-b-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <p className="mt-1.5 text-xs text-grey-40">Plain text by default — use the toolbar for <span className="font-bold">bold</span>, <span className="italic">italic</span>, links, or lists. Blank line = new paragraph. URLs and <code className="font-mono">{'{{...}}'}</code> tokens become clickable automatically.</p>
+              </div>
               <div className="bg-surface rounded-[8px] p-3"><label className="text-xs font-medium text-grey-40 uppercase mb-2 block">Variables — click to copy</label><div className="flex flex-wrap gap-2">{EMAIL_VARIABLES.map(v => <button key={v} onClick={() => navigator.clipboard.writeText(v)} className="text-xs px-2.5 py-1 bg-white border border-surface-border rounded-[8px] text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div></div>
             </div>
-            <div className="flex gap-3 mt-6"><button onClick={() => setShowEmailModal(false)} className="btn-secondary flex-1">Cancel</button><button onClick={saveEmail} disabled={emailSaving || !emailName.trim() || !emailSubject.trim() || !emailBodyHtml.trim()} className="btn-primary flex-1 disabled:opacity-50">{emailSaving ? 'Saving...' : editingEmail ? 'Save' : 'Create'}</button></div>
+            <div className="flex gap-3 mt-6"><button onClick={() => setShowEmailModal(false)} className="btn-secondary flex-1">Cancel</button><button onClick={saveEmail} disabled={emailSaving || !emailName.trim() || !emailSubject.trim() || !emailBody.trim()} className="btn-primary flex-1 disabled:opacity-50">{emailSaving ? 'Saving...' : editingEmail ? 'Save' : 'Create'}</button></div>
           </div>
         </div>
       )}
