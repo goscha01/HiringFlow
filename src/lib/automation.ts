@@ -867,7 +867,7 @@ export async function executeStep(
   stepId: string,
   sessionId: string,
   channel: 'email' | 'sms',
-  options?: { ignoreActive?: boolean },
+  options?: { ignoreActive?: boolean; ignoreSentGuard?: boolean },
 ) {
   console.log(`[Automation] executeStep start stepId=${stepId} sessionId=${sessionId} channel=${channel}`)
   const step = await prisma.automationStep.findUnique({
@@ -896,7 +896,11 @@ export async function executeStep(
   const existing = await prisma.automationExecution.findUnique({
     where: { stepId_sessionId_channel: { stepId, sessionId, channel } },
   })
-  if (existing && existing.status === 'sent') {
+  // Recruiter-initiated "Run automations" passes ignoreSentGuard so the
+  // recruiter can intentionally re-send. Auto-fire paths (lifecycle events,
+  // QStash callbacks, chained rules) leave it false so a re-fire of the same
+  // event doesn't double-send by accident.
+  if (existing && existing.status === 'sent' && !options?.ignoreSentGuard) {
     console.log(`[Automation] Step ${stepId} already sent on ${channel} for session ${sessionId}`)
     return
   }
@@ -1203,9 +1207,11 @@ export async function executeStep(
  * old-shape messages with { ruleId, sessionId }.
  *
  * Runs every step inline (ignoring delay) on every channel. The `ignoreActive`
- * flag propagates to executeStep so paused rules can be tested.
+ * flag propagates to executeStep so paused rules can be tested. The
+ * `ignoreSentGuard` flag bypasses the per-(step,session,channel) "already
+ * sent" check so a recruiter-initiated manual run can intentionally re-send.
  */
-export async function executeRule(ruleId: string, sessionId: string, options?: { ignoreActive?: boolean }) {
+export async function executeRule(ruleId: string, sessionId: string, options?: { ignoreActive?: boolean; ignoreSentGuard?: boolean }) {
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
     select: { id: true, isActive: true, steps: { orderBy: { order: 'asc' } } },

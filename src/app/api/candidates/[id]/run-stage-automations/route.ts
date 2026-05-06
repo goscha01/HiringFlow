@@ -113,7 +113,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const results: Array<{ ruleId: string; name: string; ok: boolean; error?: string }> = []
   for (const rule of rules) {
     try {
-      await executeRule(rule.id, session.id)
+      // Manual run = recruiter intent to send now. Bypass the per-step
+      // "already sent" guard so a re-trigger actually re-sends instead of
+      // silently no-opping when the rule already fired automatically.
+      await executeRule(rule.id, session.id, { ignoreSentGuard: true })
       results.push({ ruleId: rule.id, name: rule.name, ok: true })
     } catch (err) {
       results.push({
