@@ -11,7 +11,7 @@
 import type { calendar_v3 } from 'googleapis'
 import { prisma } from './prisma'
 import { logSchedulingEvent, updatePipelineStatus } from './scheduling'
-import { fireMeetingScheduledAutomations, cancelBeforeMeetingReminders, rescheduleBeforeMeetingReminders } from './automation'
+import { fireMeetingScheduledAutomations, fireMeetingRescheduledAutomations, cancelBeforeMeetingReminders, rescheduleBeforeMeetingReminders } from './automation'
 import { meetIntegrationEnabled } from './meet/feature-flag'
 import { getSpaceByMeetingCode, parseMeetingCodeFromUrl, updateSpaceSettings } from './meet/google-meet'
 import { subscribeSpace, deleteSubscription } from './meet/workspace-events'
@@ -112,9 +112,15 @@ export async function processCalendarEvent(
     })
     // Calendar's "regenerate Meet link" produces a new Meet space; re-bind
     // our InterviewMeeting + subscription + recording config to it. No-op if
-    // the meeting code didn't change.
+    // the meeting code didn't change. Order matters — run this BEFORE
+    // fireMeetingRescheduledAutomations so token rendering sees the new
+    // InterviewMeeting.scheduledStart and meetingUri.
     await reconcileExternalMeetReschedule(workspaceId, event, start, end, meetingUrl).catch((err) => {
       console.error('[GCal] reconcileExternalMeetReschedule failed (non-fatal):', (err as Error).message)
+    })
+    // Notify the candidate that their interview moved.
+    await fireMeetingRescheduledAutomations(sessionId).catch((err) => {
+      console.error('[GCal] fireMeetingRescheduledAutomations failed:', err)
     })
   }
 

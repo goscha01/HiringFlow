@@ -135,6 +135,30 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
 }
 
 /**
+ * Fire `meeting_rescheduled` rules — typically a "Your interview was moved
+ * to {{meeting_time}}" SMS or email so the candidate isn't relying on the
+ * Google Calendar update notification (which often lands in spam or gets
+ * missed). Mirrors fireMeetingScheduledAutomations but does NOT change
+ * pipeline status — the candidate is already past the schedule milestone.
+ *
+ * Token rendering picks up the latest InterviewMeeting.scheduledStart, so
+ * the body sees the *new* meeting time even though the row itself was
+ * already updated by reconcileExternalMeetReschedule.
+ */
+export async function fireMeetingRescheduledAutomations(sessionId: string) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { flow: true, ad: true },
+    })
+    if (!session) return
+    await dispatchRulesForTrigger(sessionId, 'meeting_rescheduled', session)
+  } catch (error) {
+    console.error('[Automation] Error firing meeting_rescheduled automations for session', sessionId, ':', error)
+  }
+}
+
+/**
  * Called when a calendar event is rescheduled. Cancels any pending
  * meeting-relative reminders (they were keyed off the old time) and
  * queues fresh ones for the new scheduledStart.
