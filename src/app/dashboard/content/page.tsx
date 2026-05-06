@@ -240,7 +240,10 @@ export default function ContentPage() {
   // When a starter is picked, prefer its bodyText if provided (e.g. the
   // manual-meeting-nudge template), otherwise convert the seeded bodyHtml
   // back to text so the recruiter sees something readable to edit.
-  const openCreateEmail = (starter?: typeof EMAIL_DEFAULTS[0]) => {
+  // Note: explicitly typed as DefaultEmailTemplate (not typeof EMAIL_DEFAULTS[0])
+  // because TS infers the array's element type from the strictest common
+  // shape across the spread, which drops the optional bodyText field.
+  const openCreateEmail = (starter?: DefaultEmailTemplate & { category?: 'email' }) => {
     setEditingEmail(null); setEmailName(starter?.name || ''); setEmailSubject(starter?.subject || '')
     const seedText = starter?.bodyText || (starter?.bodyHtml ? htmlToPlainText(starter.bodyHtml) : 'Hi {{candidate_name}},\n\n')
     setEmailBody(seedText); setShowEmailModal(true)
