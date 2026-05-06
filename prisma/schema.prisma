@@ -298,6 +298,13 @@ model Flow {
   startMessage    String           @default("Welcome! Please complete the following steps.") @map("start_message")
   endMessage      String           @default("Thank you for your participation!") @map("end_message")
   branding        Json?
+  // Per-flow timeouts (days/hours) consumed by the cron stalled detector.
+  // Null → use the platform DEFAULT_TIMEOUTS in src/lib/candidate-status.ts.
+  // Roles with longer hiring loops (e.g. specialty trades) can extend these
+  // without affecting other flows in the same workspace.
+  videoInterviewTimeoutDays Int?    @map("video_interview_timeout_days")
+  trainingTimeoutDays       Int?    @map("training_timeout_days")
+  noShowTimeoutHours        Int?    @map("no_show_timeout_hours")
   createdAt       DateTime         @default(now()) @map("created_at")
   steps           FlowStep[]
   sessions        Session[]
@@ -389,6 +396,25 @@ model Session {
   lastActivityAt       DateTime?             @map("last_activity_at")
   outcome              String? // 'completed' | 'passed' | 'failed' | 'abandoned'
   pipelineStatus       String?               @map("pipeline_status")
+  // Status axis — orthogonal to pipelineStatus (which is the funnel STAGE id).
+  // Lets a candidate sit at `stage='video_interview_sent'` with `status='stalled'`
+  // so the board can hide them without losing the historical "where they got
+  // to" signal. Enum: 'active' | 'waiting' | 'stalled' | 'nurture' | 'lost' |
+  // 'hired'. Source of truth lives in src/lib/candidate-status.ts. Default is
+  // 'active' so newly-created sessions show up in the active pool by default.
+  status               String                @default("active")
+  // Structured drop-off / loss reason. Distinct from `rejectionReason` (which
+  // stays as a recruiter-editable free-form note) — the enum is what
+  // analytics groups by. Enum: see CandidateDispositionReason in
+  // src/lib/candidate-status.ts. Nullable because most active candidates
+  // don't have a reason.
+  dispositionReason    String?               @map("disposition_reason")
+  // Lifecycle stamps for the status transitions. Set by manual lifecycle
+  // actions and by the cron stalled detector / no-show handler. Cleared on
+  // reactivate. Used by analytics for time-in-state aggregations.
+  stalledAt            DateTime?             @map("stalled_at")
+  lostAt               DateTime?             @map("lost_at")
+  hiredAt              DateTime?             @map("hired_at")
   // Free-form reason captured when a candidate lands in a Rejected-style
   // stage. Auto-set to 'No-show' by the no-show detection; otherwise editable
   // from the candidate page (predefined options + custom string).
@@ -410,6 +436,10 @@ model Session {
   notes                CandidateNote[]
   backgroundChecks     BackgroundCheck[]
 
+  // Composite index for the board's default "active candidates" filter and
+  // for the cron stalled detector's per-workspace sweep — both query by
+  // workspaceId + status repeatedly.
+  @@index([workspaceId, status])
   @@map("sessions")
 }
 

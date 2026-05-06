@@ -15,6 +15,27 @@
 import { prisma } from './prisma'
 import { findStageForEvent, normalizeStages, type StageTriggerEvent, type FunnelStage } from './funnel-stages'
 
+// Events that mean the candidate is actively progressing — receiving any of
+// these should pull a previously-stalled candidate back into the active pool.
+// We only flip `status` when it was `stalled` so a manually-set `nurture`,
+// `lost`, or `hired` candidate is NOT silently reactivated by a late-firing
+// event (e.g. an old training_completed webhook arriving after a recruiter
+// already declared the candidate hired_elsewhere).
+//
+// `meeting_no_show` and `meeting_cancelled` are deliberately excluded — those
+// are not progress.
+const FORWARD_PROGRESS_EVENTS = new Set<StageTriggerEvent>([
+  'flow_passed',
+  'flow_completed',
+  'training_started',
+  'training_completed',
+  'meeting_scheduled',
+  'meeting_confirmed',
+  'meeting_started',
+  'meeting_ended',
+  'background_check_passed',
+])
+
 export async function applyStageTrigger(opts: {
   sessionId: string
   workspaceId: string
@@ -32,9 +53,23 @@ export async function applyStageTrigger(opts: {
   const stages = normalizeStages((ws?.settings as { funnelStages?: unknown } | null)?.funnelStages)
   const stage = findStageForEvent(stages, opts.event, { flowId: opts.flowId, trainingId: opts.trainingId })
 
+  // Best-effort: if this event represents forward progress, reactivate a
+  // stalled candidate. Runs whether or not a stage trigger matched (so even
+  // workspaces that haven't wired triggers benefit). Scoped to status='stalled'
+  // so we never overwrite a recruiter's deliberate 'nurture' / 'lost' / 'hired'.
+  const reactivatePatch: Record<string, unknown> | null = FORWARD_PROGRESS_EVENTS.has(opts.event)
+    ? { status: 'active', stalledAt: null, dispositionReason: null }
+    : null
+
   // No matching stage configured — fall back to the legacy hardcoded marker so
   // unconfigured workspaces keep working.
   if (!stage) {
+    if (reactivatePatch) {
+      await prisma.session.updateMany({
+        where: { id: opts.sessionId, status: 'stalled' },
+        data: reactivatePatch,
+      }).catch(() => {})
+    }
     if (!opts.legacyStatus) return null
     await prisma.session.update({
       where: { id: opts.sessionId },
@@ -61,6 +96,13 @@ export async function applyStageTrigger(opts: {
     where: { id: opts.sessionId },
     data: { pipelineStatus: stage.id },
   }).catch(() => {})
+
+  if (reactivatePatch) {
+    await prisma.session.updateMany({
+      where: { id: opts.sessionId, status: 'stalled' },
+      data: reactivatePatch,
+    }).catch(() => {})
+  }
 
   return stage.id
 }

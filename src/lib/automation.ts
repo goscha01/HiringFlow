@@ -369,13 +369,21 @@ export async function fireMeetingLifecycleAutomations(
       }).catch(() => {})
 
       if (trigger === 'meeting_no_show') {
+        // No-show is a true terminal negative. Stamp BOTH the legacy
+        // free-form rejectionReason (for the existing red pill / manual
+        // edit) AND the new structured status axis so analytics can group
+        // by the disposition enum without parsing free-form strings.
+        const now = new Date()
         await prisma.session.update({
           where: { id: sessionId },
           data: {
             rejectionReason: 'No-show',
-            rejectionReasonAt: new Date(),
+            rejectionReasonAt: now,
+            status: 'lost',
+            dispositionReason: 'interview_no_show',
+            lostAt: now,
           },
-        }).catch((err) => console.error('[Automation] failed to stamp rejection reason', err))
+        }).catch((err) => console.error('[Automation] failed to stamp rejection / lost fields', err))
       }
     }
 

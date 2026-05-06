@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
+import {
+  isCandidateStatus,
+  isDispositionReason,
+  statusTransitionPatch,
+  type CandidateDispositionReason,
+} from '@/lib/candidate-status'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
@@ -172,7 +178,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   })
 }
 
-// Update pipeline status
+// Update pipeline status. Accepts the legacy fields (pipelineStatus / outcome
+// / rejectionReason) and the new status-axis fields (status / dispositionReason).
+//
+// Manual lifecycle actions are expressed as a `status` transition:
+//   markAsStalled(reason) → PATCH { status: 'stalled', dispositionReason: reason }
+//   markAsLost(reason)    → PATCH { status: 'lost',    dispositionReason: reason }
+//   markAsNurture(reason) → PATCH { status: 'nurture', dispositionReason: reason? }
+//   markAsHired()         → PATCH { status: 'hired' }
+//   reactivate()          → PATCH { status: 'active' }
+//
+// statusTransitionPatch() handles the `*At` stamps and clears `dispositionReason`
+// on reactivate, so callers don't need to remember the bookkeeping rules.
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
@@ -182,7 +199,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { pipelineStatus, outcome, rejectionReason } = await request.json()
+  const body = (await request.json()) as {
+    pipelineStatus?: string
+    outcome?: string
+    rejectionReason?: string | null
+    status?: string
+    dispositionReason?: string | null
+  }
+  const { pipelineStatus, outcome, rejectionReason, status, dispositionReason } = body
 
   const data: Record<string, unknown> = {}
   if (pipelineStatus !== undefined) data.pipelineStatus = pipelineStatus
@@ -192,6 +216,40 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const trimmed = typeof rejectionReason === 'string' ? rejectionReason.trim() : null
     data.rejectionReason = trimmed && trimmed.length > 0 ? trimmed : null
     data.rejectionReasonAt = trimmed && trimmed.length > 0 ? new Date() : null
+  }
+
+  if (status !== undefined) {
+    if (!isCandidateStatus(status)) {
+      return NextResponse.json({ error: `Invalid status: ${status}` }, { status: 400 })
+    }
+    // Validate disposition reason if provided. `null` is allowed to clear.
+    let dispArg: CandidateDispositionReason | null | undefined
+    if (dispositionReason !== undefined) {
+      if (dispositionReason === null || dispositionReason === '') {
+        dispArg = null
+      } else if (isDispositionReason(dispositionReason)) {
+        dispArg = dispositionReason
+      } else {
+        return NextResponse.json(
+          { error: `Invalid dispositionReason: ${dispositionReason}` },
+          { status: 400 },
+        )
+      }
+    }
+    Object.assign(data, statusTransitionPatch(status, { dispositionReason: dispArg }))
+  } else if (dispositionReason !== undefined) {
+    // dispositionReason can be edited without changing the status
+    // (e.g. recruiter recategorising a stalled candidate's reason).
+    if (dispositionReason === null || dispositionReason === '') {
+      data.dispositionReason = null
+    } else if (isDispositionReason(dispositionReason)) {
+      data.dispositionReason = dispositionReason
+    } else {
+      return NextResponse.json(
+        { error: `Invalid dispositionReason: ${dispositionReason}` },
+        { status: 400 },
+      )
+    }
   }
 
   const updated = await prisma.session.update({
@@ -214,6 +272,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     outcome: updated.outcome,
     rejectionReason: updated.rejectionReason,
     rejectionReasonAt: updated.rejectionReasonAt,
+    status: updated.status,
+    dispositionReason: updated.dispositionReason,
+    stalledAt: updated.stalledAt,
+    lostAt: updated.lostAt,
+    hiredAt: updated.hiredAt,
   })
 }
 
