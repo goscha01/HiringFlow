@@ -74,7 +74,7 @@ export async function fireTrainingCompletedAutomations(sessionId: string, traini
       trainingId,
       legacyStatus: 'training_completed',
     }).catch(() => updatePipelineStatus(sessionId, 'training_completed').catch(() => {}))
-    await dispatchRulesForTrigger(sessionId, 'training_completed', session)
+    await dispatchRulesForTrigger(sessionId, 'training_completed', session, { trainingId })
   } catch (error) {
     console.error('[Automation] Error firing training_completed automations for session', sessionId, ':', error)
   }
@@ -84,7 +84,7 @@ export async function fireTrainingStartedAutomations(sessionId: string, training
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
-      select: { id: true, workspaceId: true },
+      include: { flow: true, ad: true },
     })
     if (!session) return
     await applyStageTrigger({
@@ -94,6 +94,7 @@ export async function fireTrainingStartedAutomations(sessionId: string, training
       trainingId,
       legacyStatus: 'training_in_progress',
     })
+    await dispatchRulesForTrigger(sessionId, 'training_started', session, { trainingId })
   } catch (error) {
     console.error('[Automation] Error firing training_started for session', sessionId, ':', error)
   }
@@ -474,13 +475,30 @@ export async function cancelPendingStepsForSession(
   return queued.length
 }
 
-async function dispatchRulesForTrigger(sessionId: string, triggerType: string, session: SessionCtx) {
+async function dispatchRulesForTrigger(
+  sessionId: string,
+  triggerType: string,
+  session: SessionCtx,
+  ctx: { trainingId?: string | null } = {},
+) {
+  // Rules can be scoped by flowId AND by trainingId (each nullable on the
+  // rule for "any"). For training-* triggers, we must filter on trainingId
+  // too — otherwise a rule wired to "Onboarding training" fires when ANY
+  // training in the workspace completes, sending duplicate emails and
+  // (worse, when nextStepType=scheduling) regressing pipelineStatus back
+  // to invited_to_schedule for candidates who already advanced past it.
+  const ands: Array<Record<string, unknown>> = [
+    { OR: [{ flowId: session.flowId }, { flowId: null }] },
+  ]
+  if (ctx.trainingId) {
+    ands.push({ OR: [{ trainingId: ctx.trainingId }, { trainingId: null }] })
+  }
   const rules = await prisma.automationRule.findMany({
     where: {
       isActive: true,
       triggerType,
       workspaceId: session.workspaceId,
-      OR: [{ flowId: session.flowId }, { flowId: null }],
+      AND: ands,
     },
     select: { id: true },
   })
