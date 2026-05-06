@@ -100,27 +100,46 @@ export async function GET(request: NextRequest) {
   }
 
   // -- Rule 2: training sent, never started -----------------------------
-  // Two sub-cases: (a) explicit TrainingAccessToken (automation-issued) that
-  // the candidate never redeemed, (b) a TrainingEnrollment auto-created at
-  // 'not_started' status that never advanced. We treat both as "training
-  // sent". `trainingTimeoutDays` is per-flow.
+  // The "sent but ignored" signal lives on TrainingAccessToken — when the
+  // automation sends a training invite, a token row is created. Clicking
+  // the link upserts a TrainingEnrollment with status='in_progress' (see
+  // src/lib/training-access.ts). So:
+  //   token.usedAt IS NULL  ↔  candidate never opened the training
+  //   no enrollment exists  ↔  same signal, alternate evidence
+  //
+  // We flag a candidate when:
+  //   - they have at least one unused token older than `trainingTimeoutDays`, AND
+  //   - they have no enrollment that has progressed past 'not_started'
+  // The "every" guard excludes candidates who did start a different
+  // training but were also sent a second one they ignored.
   for (const flow of flows) {
     const days = flow.trainingTimeoutDays ?? DEFAULT_TIMEOUTS.trainingTimeoutDays
     const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-    // Find candidates whose ONLY training enrollment is still 'not_started'
-    // and was created more than `days` ago. We use `every` so a candidate
-    // who has any started enrollment is excluded.
     const stalledCandidates = await prisma.session.findMany({
       where: {
         flowId: flow.id,
         status: 'active',
-        trainingEnrollments: {
-          some: {
-            status: 'not_started',
-            startedAt: { lt: cutoff },
+        OR: [
+          // (a) Unused access token older than the cutoff, no progressed
+          // enrollment. Catches the common "automation sent training
+          // invite, candidate never clicked" case (e.g. Toya West).
+          {
+            trainingAccessTokens: {
+              some: { usedAt: null, createdAt: { lt: cutoff } },
+            },
+            trainingEnrollments: {
+              none: { status: { not: 'not_started' } },
+            },
           },
-          every: { status: 'not_started' },
-        },
+          // (b) Belt-and-suspenders: enrollment manually created at
+          // 'not_started' (some legacy paths do this) and never advanced.
+          {
+            trainingEnrollments: {
+              some: { status: 'not_started', startedAt: { lt: cutoff } },
+              every: { status: 'not_started' },
+            },
+          },
+        ],
       },
       select: { id: true },
     })
