@@ -545,7 +545,6 @@ export default function CandidatesPage() {
                         Drop here
                       </div>
                     ) : items.map((c) => {
-                      const cardStage = resolveStage(c.pipelineStatus, stages)
                       const isSelected = selectedCard === c.id
                       return (
                         <div
@@ -585,20 +584,20 @@ export default function CandidatesPage() {
                             </button>
                           </div>
                           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                            <Badge tone={cardStage.tone}>{cardStage.label}</Badge>
-                            {/* Status pill — only render when status diverges
-                                from 'active' (the implicit happy path), so the
-                                board doesn't get cluttered with "Active" tags
-                                on every card. Days-since-stalled appears next
-                                to the badge for stalled cards so recruiters can
-                                tell "stalled 2 days" from "stalled 3 weeks"
-                                without opening the candidate. */}
-                            {c.status && c.status !== 'active' && (() => {
-                              const meta = STATUS_DISPLAY[c.status]
-                              const stamp = c.status === 'stalled' ? c.stalledAt
-                                : c.status === 'lost' ? c.lostAt
-                                : c.status === 'hired' ? c.hiredAt
-                                : null
+                            {/* Status badge replaces the stage badge here —
+                                the kanban column already labels the stage,
+                                so showing it on every card is redundant.
+                                Days-since indicator: stalled/lost/hired use
+                                their lifecycle stamp; active/waiting/nurture
+                                fall back to the application date so the
+                                badge is uniformly "<status> · <days>d". */}
+                            {(() => {
+                              const status = (c.status ?? 'active') as CandidateStatus
+                              const meta = STATUS_DISPLAY[status]
+                              const stamp = status === 'stalled' ? c.stalledAt
+                                : status === 'lost' ? c.lostAt
+                                : status === 'hired' ? c.hiredAt
+                                : c.startedAt
                               const days = daysSince(stamp)
                               return (
                                 <Badge tone={meta.tone}>
