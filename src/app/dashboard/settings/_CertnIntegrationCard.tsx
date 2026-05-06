@@ -192,7 +192,7 @@ export function CertnIntegrationCard() {
           </div>
 
           <div>
-            <div className="text-[11px] uppercase tracking-wide text-grey-40 mb-1.5">Webhook URL — paste this into Certn → Integrations → Webhooks</div>
+            <div className="text-[11px] uppercase tracking-wide text-grey-40 mb-1.5">Webhook URL — paste this into Certn → Teams → General → Webhook URL</div>
             <div className="flex gap-2">
               <code className="flex-1 px-3 py-2 bg-surface rounded-[8px] text-xs text-grey-15 font-mono break-all">{status!.webhookUrl}</code>
               <button onClick={copyWebhookUrl} className="px-3 py-2 text-xs font-medium border border-surface-border rounded-[8px] hover:bg-surface">
@@ -229,19 +229,19 @@ export function CertnIntegrationCard() {
               <div className="font-medium text-brand-700 mb-1">How to get your API key</div>
               <ol className="list-decimal list-inside space-y-0.5">
                 <li>
-                  Sign in to your{' '}
+                  Sign in to{' '}
                   <a
                     href={REGION_OPTIONS.find((r) => r.value === region)?.portal || 'https://client.certn.co/ca/login'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-brand-600 hover:text-brand-700 underline font-medium"
                   >
-                    Certn Client Portal ({region})
+                    Certn ({region})
                   </a>
                 </li>
-                <li>Open <span className="font-medium">Settings → Integrations → API Keys</span></li>
-                <li>Click <span className="font-medium">Create new key</span> and copy it (shown once)</li>
-                <li>Paste the key below</li>
+                <li>Open <span className="font-medium">Teams → API Keys</span> in the left sidebar</li>
+                <li>Click <span className="font-medium">Add API Key</span> and copy the token</li>
+                <li>Paste the token below</li>
               </ol>
             </div>
             <input
@@ -318,16 +318,38 @@ export function CertnIntegrationCard() {
             <label className="block text-xs font-medium text-grey-20 mb-1.5">
               Webhook signing secret {configured && status?.integration?.hasWebhookSecret ? <span className="text-grey-50 font-normal">(leave blank to keep current)</span> : null}
             </label>
+            <div className="bg-brand-50 border border-brand-200 rounded-[8px] p-3 mb-2 text-[11px] text-grey-20 leading-relaxed">
+              <div className="font-medium text-brand-700 mb-1">How to register the webhook in Certn</div>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>In Certn, open <span className="font-medium">Teams → General</span></li>
+                <li>
+                  Paste this into the <span className="font-medium">Webhook URL</span> field:
+                  <div className="mt-1 flex gap-2 items-stretch not-italic">
+                    <code className="flex-1 px-2 py-1 bg-white rounded-[6px] text-[11px] text-grey-15 font-mono break-all border border-surface-border">{status?.webhookUrl || 'Loading…'}</code>
+                    <button
+                      type="button"
+                      onClick={copyWebhookUrl}
+                      disabled={!status?.webhookUrl}
+                      className="px-2.5 py-1 text-[11px] font-medium border border-surface-border rounded-[6px] hover:bg-white whitespace-nowrap disabled:opacity-50"
+                    >
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </li>
+                <li>Next to <span className="font-medium">Webhook Secret</span>, click <span className="font-medium">Generate New</span>, then <span className="font-medium">Show Secret</span></li>
+                <li>Copy the secret and paste it below</li>
+              </ol>
+            </div>
             <input
               type="password"
               value={webhookSecret}
               onChange={(e) => setWebhookSecret(e.target.value)}
-              placeholder="Paste the secret Certn shows after webhook registration"
+              placeholder="Paste the Webhook Secret from Certn"
               autoComplete="off"
               className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <p className="text-[11px] text-grey-50 mt-1">
-              After saving the API key, copy the webhook URL we generate, register it in Certn → Integrations → Webhooks, and paste the secret Certn returns here. Without this, webhook payloads are not HMAC-verified.
+              Without this, webhook payloads are accepted but not HMAC-verified.
             </p>
           </div>
 
