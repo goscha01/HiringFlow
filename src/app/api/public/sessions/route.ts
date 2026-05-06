@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
+import { validateEmail, validatePhone } from '@/lib/contact-validation'
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,6 +11,25 @@ export async function POST(request: NextRequest) {
 
     if (!flowSlug) {
       return NextResponse.json({ error: 'Flow slug is required' }, { status: 400 })
+    }
+
+    // Validate + normalize candidate email/phone server-side. The client
+    // already does this for inline UX, but a hostile or buggy client
+    // could still post a malformed value (e.g. "@gmail.comd") — and once
+    // it's persisted, every email/SMS sent to that candidate bounces and
+    // strands them. Empty/null is allowed here; required-field gating
+    // is owned by the start screen config.
+    let normalizedEmail: string | null = null
+    let normalizedPhone: string | null = null
+    if (typeof candidateEmail === 'string' && candidateEmail.trim()) {
+      const r = validateEmail(candidateEmail)
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
+      normalizedEmail = r.value
+    }
+    if (typeof candidatePhone === 'string' && candidatePhone.trim()) {
+      const r = validatePhone(candidatePhone)
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
+      normalizedPhone = r.value
     }
 
     let flow
@@ -59,8 +79,8 @@ export async function POST(request: NextRequest) {
         flowId: flow.id,
         workspaceId: flow.workspaceId,
         candidateName: candidateName || null,
-        candidateEmail: candidateEmail || null,
-        candidatePhone: candidatePhone || null,
+        candidateEmail: normalizedEmail,
+        candidatePhone: normalizedPhone,
         lastStepId: startStepId,
         lastActivityAt: new Date(),
         // Source attribution (from Ad link)

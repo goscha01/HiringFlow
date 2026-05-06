@@ -9,6 +9,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Button, Eyebrow } from '@/components/design'
+import { validateEmail, validatePhone } from '@/lib/contact-validation'
 
 interface StartScreenConfig {
   showNameField?: boolean
@@ -40,6 +41,10 @@ export default function FlowStartPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  // Inline validation errors. Set on blur so we don't yell at someone
+  // mid-typing; cleared as soon as they edit again.
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [phoneError, setPhoneError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -55,6 +60,23 @@ export default function FlowStartPage() {
 
   const handleStart = async () => {
     if (!flow) return
+    // Re-validate at submit time. Email/phone fields are optional unless
+    // the workspace's startScreenConfig marks them required, but if
+    // *any* value is provided it must be well-formed — sending email or
+    // SMS to a malformed address bounces and silently strands the
+    // candidate (the Daphney "@gmail.comd" / "@yahoo,com" pattern).
+    let normalizedEmail: string | null = null
+    let normalizedPhone: string | null = null
+    if (email.trim() || (showEmail && cfg.emailRequired)) {
+      const r = validateEmail(email)
+      if (!r.ok) { setEmailError(r.error); return }
+      normalizedEmail = r.value
+    }
+    if (phone.trim()) {
+      const r = validatePhone(phone)
+      if (!r.ok) { setPhoneError(r.error); return }
+      normalizedPhone = r.value
+    }
     setStarting(true)
     const res = await fetch('/api/public/sessions', {
       method: 'POST',
@@ -62,8 +84,8 @@ export default function FlowStartPage() {
       body: JSON.stringify({
         flowSlug: slug,
         candidateName: name || null,
-        candidateEmail: email || null,
-        candidatePhone: phone || null,
+        candidateEmail: normalizedEmail,
+        candidatePhone: normalizedPhone,
         preview: isPreview || undefined,
       }),
     })
@@ -71,7 +93,8 @@ export default function FlowStartPage() {
       const data = await res.json()
       router.replace(`/f/${slug}/s/${data.id}`)
     } else {
-      setError('Failed to start session')
+      const body = await res.json().catch(() => null)
+      setError(body?.error || 'Failed to start session')
       setStarting(false)
     }
   }
@@ -115,7 +138,11 @@ export default function FlowStartPage() {
   const btnText = cfg.buttonText || 'Start application'
   const bgImage = flow.branding?.startScreenImage
   const hasFields = showName || showEmail || showPhone
-  const canStart = (!showName || !cfg.nameRequired || name.trim()) && (!showEmail || !cfg.emailRequired || email.trim())
+  const canStart =
+    (!showName || !cfg.nameRequired || name.trim())
+    && (!showEmail || !cfg.emailRequired || email.trim())
+    && !emailError
+    && !phoneError
 
   return (
     <div
@@ -191,11 +218,20 @@ export default function FlowStartPage() {
                 </label>
                 <input
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); if (emailError) setEmailError(null) }}
+                  onBlur={() => {
+                    if (!email.trim()) { setEmailError(null); return }
+                    const r = validateEmail(email)
+                    setEmailError(r.ok ? null : r.error)
+                  }}
                   placeholder="your@email.com"
-                  className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px]"
+                  aria-invalid={!!emailError}
+                  className={`w-full px-3 py-2.5 border rounded-[10px] focus:outline-none focus:ring-2 text-ink text-[14px] ${emailError ? 'border-[color:var(--danger-fg)] focus:ring-[color:var(--danger-fg)]/30 focus:border-[color:var(--danger-fg)]' : 'border-surface-border focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)]'}`}
                 />
+                {emailError && <p className="mt-1 text-[12px]" style={{ color: 'var(--danger-fg)' }}>{emailError}</p>}
               </div>
             )}
             {showPhone && (
@@ -203,11 +239,20 @@ export default function FlowStartPage() {
                 <label className="eyebrow block mb-1.5">Phone</label>
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(null) }}
+                  onBlur={() => {
+                    if (!phone.trim()) { setPhoneError(null); return }
+                    const r = validatePhone(phone)
+                    setPhoneError(r.ok ? null : r.error)
+                  }}
                   placeholder="+1 (555) 123-4567"
-                  className="w-full px-3 py-2.5 border border-surface-border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)] text-ink text-[14px]"
+                  aria-invalid={!!phoneError}
+                  className={`w-full px-3 py-2.5 border rounded-[10px] focus:outline-none focus:ring-2 text-ink text-[14px] ${phoneError ? 'border-[color:var(--danger-fg)] focus:ring-[color:var(--danger-fg)]/30 focus:border-[color:var(--danger-fg)]' : 'border-surface-border focus:ring-brand-500/40 focus:border-[color:var(--brand-primary)]'}`}
                 />
+                {phoneError && <p className="mt-1 text-[12px]" style={{ color: 'var(--danger-fg)' }}>{phoneError}</p>}
               </div>
             )}
           </div>

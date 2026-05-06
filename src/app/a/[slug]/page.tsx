@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { validateEmail, validatePhone } from '@/lib/contact-validation'
 
 interface AdData {
   adId: string
@@ -29,6 +30,8 @@ export default function AdEntryPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [phoneError, setPhoneError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
   useEffect(() => {
@@ -46,6 +49,18 @@ export default function AdEntryPage() {
 
   const handleStart = async () => {
     if (!ad) return
+    let normalizedEmail: string | null = null
+    let normalizedPhone: string | null = null
+    if (email.trim()) {
+      const r = validateEmail(email)
+      if (!r.ok) { setEmailError(r.error); return }
+      normalizedEmail = r.value
+    }
+    if (phone.trim()) {
+      const r = validatePhone(phone)
+      if (!r.ok) { setPhoneError(r.error); return }
+      normalizedPhone = r.value
+    }
     setStarting(true)
 
     const res = await fetch('/api/public/sessions', {
@@ -54,8 +69,8 @@ export default function AdEntryPage() {
       body: JSON.stringify({
         flowSlug: ad.flow.slug,
         candidateName: name || null,
-        candidateEmail: email || null,
-        candidatePhone: phone || null,
+        candidateEmail: normalizedEmail,
+        candidatePhone: normalizedPhone,
         // Attribution from Ad
         adId: ad.adId,
         source: ad.source,
@@ -113,19 +128,49 @@ export default function AdEntryPage() {
             {showEmail && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" className="w-full px-4 py-3 border border-gray-300 rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); if (emailError) setEmailError(null) }}
+                  onBlur={() => {
+                    if (!email.trim()) { setEmailError(null); return }
+                    const r = validateEmail(email)
+                    setEmailError(r.ok ? null : r.error)
+                  }}
+                  placeholder="your@email.com"
+                  aria-invalid={!!emailError}
+                  className={`w-full px-4 py-3 border rounded-[8px] focus:outline-none focus:ring-2 ${emailError ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-brand-500'}`}
+                />
+                {emailError && <p className="mt-1 text-xs text-red-600">{emailError}</p>}
               </div>
             )}
             {showPhone && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" className="w-full px-4 py-3 border border-gray-300 rounded-[8px] focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(null) }}
+                  onBlur={() => {
+                    if (!phone.trim()) { setPhoneError(null); return }
+                    const r = validatePhone(phone)
+                    setPhoneError(r.ok ? null : r.error)
+                  }}
+                  placeholder="+1 (555) 123-4567"
+                  aria-invalid={!!phoneError}
+                  className={`w-full px-4 py-3 border rounded-[8px] focus:outline-none focus:ring-2 ${phoneError ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-brand-500'}`}
+                />
+                {phoneError && <p className="mt-1 text-xs text-red-600">{phoneError}</p>}
               </div>
             )}
           </div>
         )}
 
-        <button onClick={handleStart} disabled={starting} className="w-full bg-brand-500 text-white py-4 px-6 rounded-[8px] hover:bg-brand-600 disabled:opacity-50 transition-colors font-semibold text-lg">
+        <button onClick={handleStart} disabled={starting || !!emailError || !!phoneError} className="w-full bg-brand-500 text-white py-4 px-6 rounded-[8px] hover:bg-brand-600 disabled:opacity-50 transition-colors font-semibold text-lg">
           {starting ? 'Starting...' : btnText}
         </button>
       </div>

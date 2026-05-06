@@ -17,6 +17,8 @@
  * No fromNumber, businessId, or phoneNumberId is required from the caller.
  */
 
+import { normalizeToE164 as sharedNormalizeToE164 } from './contact-validation'
+
 const E164 = /^\+[1-9]\d{6,14}$/
 
 export class SmsConfigError extends Error {}
@@ -47,13 +49,7 @@ export interface SmsSendResult {
 }
 
 export function normalizeToE164(input: string): string | null {
-  if (!input) return null
-  const trimmed = input.trim()
-  if (E164.test(trimmed)) return trimmed
-  const digits = trimmed.replace(/\D/g, '')
-  if (digits.length === 10) return `+1${digits}`
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
-  return null
+  return sharedNormalizeToE164(input)
 }
 
 export function isE164(value: string): boolean {
