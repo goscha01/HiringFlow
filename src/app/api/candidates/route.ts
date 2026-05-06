@@ -9,11 +9,22 @@ export async function GET(request: NextRequest) {
   const status = request.nextUrl.searchParams.get('status')
   const flowId = request.nextUrl.searchParams.get('flowId')
   const search = request.nextUrl.searchParams.get('search')
+  // `candidateStatus` is the new orthogonal axis (active/stalled/lost/...)
+  // Accepts a comma-separated list, e.g. ?candidateStatus=active,waiting for
+  // the kanban's default "active pool" view. `status` is the legacy alias
+  // that still maps to pipelineStatus (funnel stage id) — left intact so
+  // existing query params keep working.
+  const candidateStatusParam = request.nextUrl.searchParams.get('candidateStatus')
 
   const where: Record<string, unknown> = { workspaceId: ws.workspaceId }
 
   if (status && status !== 'all') {
     where.pipelineStatus = status
+  }
+  if (candidateStatusParam && candidateStatusParam !== 'all') {
+    const values = candidateStatusParam.split(',').map((s) => s.trim()).filter(Boolean)
+    if (values.length === 1) where.status = values[0]
+    else if (values.length > 1) where.status = { in: values }
   }
   if (flowId) {
     where.flowId = flowId
@@ -110,6 +121,14 @@ export async function GET(request: NextRequest) {
     outcome: s.outcome,
     pipelineStatus: s.pipelineStatus,
     rejectionReason: s.rejectionReason,
+    // Status axis fields (added 2026-05-06). Always serialized so the
+    // kanban can filter and render the status badge / disposition pill
+    // without a separate fetch per card.
+    status: s.status,
+    dispositionReason: s.dispositionReason,
+    stalledAt: s.stalledAt,
+    lostAt: s.lostAt,
+    hiredAt: s.hiredAt,
     startedAt: s.startedAt,
     finishedAt: s.finishedAt,
     source: s.source,

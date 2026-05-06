@@ -66,6 +66,35 @@ export function isDispositionReason(v: unknown): v is CandidateDispositionReason
   return typeof v === 'string' && (CANDIDATE_DISPOSITION_REASONS as readonly string[]).includes(v)
 }
 
+// Display metadata for the status enum. `tone` matches the Badge component's
+// BadgeTone vocabulary so the kanban / detail page can pass it through.
+export type CandidateStatusTone = 'neutral' | 'brand' | 'success' | 'warn' | 'info' | 'danger'
+export const STATUS_DISPLAY: Record<CandidateStatus, { label: string; tone: CandidateStatusTone }> = {
+  active:  { label: 'Active',   tone: 'brand'   },
+  waiting: { label: 'Waiting',  tone: 'info'    },
+  stalled: { label: 'Stalled',  tone: 'warn'    },
+  nurture: { label: 'Nurture',  tone: 'neutral' },
+  lost:    { label: 'Lost',     tone: 'danger'  },
+  hired:   { label: 'Hired',    tone: 'success' },
+}
+
+// Human-readable labels for the disposition enum. Used on candidate cards
+// and the detail page's Reason field.
+export const DISPOSITION_DISPLAY: Record<CandidateDispositionReason, string> = {
+  no_response_after_video_invite: 'No response after video invite',
+  video_interview_not_completed:  'Video interview not completed',
+  training_not_started:           'Training not started',
+  training_not_completed:         'Training not completed',
+  interview_no_show:              'Interview no-show',
+  candidate_declined:             'Candidate declined',
+  failed_screening:               'Failed screening',
+  failed_training:                'Failed training',
+  not_qualified:                  'Not qualified',
+  not_selected:                   'Not selected',
+  hired_elsewhere:                'Hired elsewhere',
+  manual_other:                   'Other',
+}
+
 /**
  * Default timeouts for the cron-driven stalled detector. Stored on `Flow` so
  * different roles can run different SLAs; these are the fallback when a flow

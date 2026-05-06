@@ -16,6 +16,12 @@
 
 import { useEffect, useState } from 'react'
 import { Button, Badge, Card, Eyebrow, PageHeader, Stat, type BadgeTone } from '@/components/design'
+import {
+  STATUS_DISPLAY,
+  DISPOSITION_DISPLAY,
+  type CandidateStatus,
+  type CandidateDispositionReason,
+} from '@/lib/candidate-status'
 
 interface FunnelData {
   started: number; completed: number; passed: number
@@ -31,7 +37,18 @@ interface AdRow {
   started: number; completed: number; passed: number
   trainingCompleted: number; invitedToSchedule: number; scheduled: number
 }
-interface AnalyticsData { funnel: FunnelData; sources: SourceRow[]; ads: AdRow[] }
+interface StatusBlock {
+  byStatus: Record<CandidateStatus, number>
+  lostByReason: Record<string, number>
+  stalledByReason: Record<string, number>
+  reactivated: number
+}
+interface AnalyticsData {
+  funnel: FunnelData
+  sources: SourceRow[]
+  ads: AdRow[]
+  status?: StatusBlock
+}
 
 const RANGES = [
   { value: '7d', label: 'Last 7 days' },
@@ -125,6 +142,35 @@ export default function AnalyticsPage() {
       />
 
       <div className="px-8 py-6 space-y-5">
+        {/* Status cards (orthogonal to the funnel — counts of where
+            candidates currently sit on the active/stalled/lost/hired
+            axis). Sits above the funnel stats so recruiters see the
+            "right now" picture before the historical funnel cliff. */}
+        {data.status && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+            <Stat
+              label="Active candidates"
+              value={fmt((data.status.byStatus.active ?? 0) + (data.status.byStatus.waiting ?? 0))}
+              sub={`${fmt(data.status.byStatus.waiting ?? 0)} waiting`}
+            />
+            <Stat
+              label="Stalled candidates"
+              value={fmt(data.status.byStatus.stalled ?? 0)}
+              sub={data.status.reactivated > 0 ? `${fmt(data.status.reactivated)} reactivated` : 'Auto-detected daily'}
+            />
+            <Stat
+              label="Lost candidates"
+              value={fmt(data.status.byStatus.lost ?? 0)}
+              sub="Final negative outcomes"
+            />
+            <Stat
+              label="Hired candidates"
+              value={fmt(data.status.byStatus.hired ?? 0)}
+              sub="Confirmed hires"
+            />
+          </div>
+        )}
+
         {/* Top stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <Stat
@@ -223,6 +269,27 @@ export default function AnalyticsPage() {
           </Card>
         </div>
 
+        {/* Drop-off vs lost split — paired side-by-side cards showing where
+            candidates fall out of the funnel (stalled = recoverable signal)
+            and the structured reasons for true terminal loss. The funnel
+            cliff above shows the count; these cards explain WHY. */}
+        {data.status && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <ReasonBreakdown
+              eyebrow="Drop-off"
+              title="Stalled reasons"
+              reasons={data.status.stalledByReason}
+              tone="warn"
+            />
+            <ReasonBreakdown
+              eyebrow="Lost"
+              title="Lost reasons"
+              reasons={data.status.lostByReason}
+              tone="danger"
+            />
+          </div>
+        )}
+
         {/* Sources breakdown table */}
         <Card padding={0}>
           <div className="px-5 py-4 border-b border-surface-divider flex items-center justify-between">
@@ -319,6 +386,62 @@ export default function AnalyticsPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+/**
+ * Reason breakdown card — compact horizontal-bar summary of disposition
+ * reasons. Used for both Stalled and Lost so the analytics page can show
+ * "why are these candidates stuck / lost" side-by-side. Sorted by count
+ * descending; bars normalized to the largest reason in this card so each
+ * card scales independently (lost might have 50, stalled might have 3 —
+ * we don't want lost reasons to crush the stalled visualization).
+ */
+function ReasonBreakdown({
+  eyebrow,
+  title,
+  reasons,
+  tone,
+}: {
+  eyebrow: string
+  title: string
+  reasons: Record<string, number>
+  tone: 'warn' | 'danger'
+}) {
+  const entries = Object.entries(reasons)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+  const total = entries.reduce((s, [, v]) => s + v, 0)
+  const max = entries[0]?.[1] ?? 0
+  const barColor = tone === 'danger' ? 'var(--danger-fg)' : '#D97706'
+
+  return (
+    <Card padding={20}>
+      <Eyebrow size="xs" className="mb-1">{eyebrow}</Eyebrow>
+      <div className="text-[15px] font-semibold text-ink mb-1">{title}</div>
+      <div className="text-[12px] text-grey-35 mb-4">{fmt(total)} candidate{total === 1 ? '' : 's'}</div>
+      {entries.length === 0 ? (
+        <div className="text-[13px] text-grey-35 py-4 text-center">No data in this range</div>
+      ) : (
+        <div className="space-y-2">
+          {entries.map(([reason, count]) => {
+            const label = (reason in DISPOSITION_DISPLAY)
+              ? DISPOSITION_DISPLAY[reason as CandidateDispositionReason]
+              : reason
+            const pctOfMax = max > 0 ? Math.max(2, Math.round((count / max) * 100)) : 0
+            return (
+              <div key={reason} className="flex items-center gap-2.5 text-[12px]">
+                <div className="w-[170px] truncate text-ink" title={label}>{label}</div>
+                <div className="flex-1 h-1.5 rounded-[3px] overflow-hidden" style={{ background: 'var(--weak-track)' }}>
+                  <div className="h-full rounded-[3px]" style={{ width: `${pctOfMax}%`, background: barColor }} />
+                </div>
+                <div className="w-10 text-right font-mono text-grey-35">{fmt(count)}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
   )
 }
 

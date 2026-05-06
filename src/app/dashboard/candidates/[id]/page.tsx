@@ -9,6 +9,14 @@ import {
   normalizeStages,
   resolveStage,
 } from '@/lib/funnel-stages'
+import {
+  STATUS_DISPLAY,
+  DISPOSITION_DISPLAY,
+  CANDIDATE_DISPOSITION_REASONS,
+  type CandidateStatus,
+  type CandidateDispositionReason,
+} from '@/lib/candidate-status'
+import { Badge } from '@/components/design'
 import { InterviewPanel } from './_InterviewPanel'
 import { NotesPanel } from './_NotesPanel'
 import { CurrentActivityCard } from './_CurrentActivityCard'
@@ -65,6 +73,11 @@ interface CandidateDetail {
   // existing candidates predate the heartbeat column.
   lastActivityAt: string | null
   effectiveLastActivityAt: string | null
+  // Status axis (added 2026-05-06). status is always set (default 'active').
+  // dispositionReason / *At fields are nullable.
+  status: CandidateStatus | null
+  dispositionReason: CandidateDispositionReason | null
+  stalledAt: string | null; lostAt: string | null; hiredAt: string | null
   source: string | null; campaign: string | null
   rejectionReason: string | null; rejectionReasonAt: string | null
   flow: { id: string; name: string; slug: string } | null
@@ -169,6 +182,73 @@ export default function CandidateDetailPage() {
       body: JSON.stringify({ pipelineStatus }),
     })
     setCandidate(prev => prev ? { ...prev, pipelineStatus } : null)
+  }
+
+  // Lifecycle action — covers Reactivate / Move to Lost / Move to Nurture /
+  // Mark as Hired / Change Reason. Backend's statusTransitionPatch handles
+  // the *At stamps and clearing on reactivate; we just optimistic-merge the
+  // returned row so the panel reflects the new state immediately.
+  const [statusBusy, setStatusBusy] = useState(false)
+  const updateLifecycle = async (next: CandidateStatus, reason?: CandidateDispositionReason | null) => {
+    if (statusBusy) return
+    setStatusBusy(true)
+    try {
+      const body: Record<string, unknown> = { status: next }
+      if (reason !== undefined) body.dispositionReason = reason
+      const res = await fetch(`/api/candidates/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        alert(j?.error || 'Failed to update status')
+        return
+      }
+      const data = await res.json()
+      setCandidate((prev) => prev ? {
+        ...prev,
+        status: data.status ?? prev.status,
+        dispositionReason: data.dispositionReason ?? null,
+        stalledAt: data.stalledAt ?? null,
+        lostAt: data.lostAt ?? null,
+        hiredAt: data.hiredAt ?? null,
+      } : null)
+    } finally {
+      setStatusBusy(false)
+    }
+  }
+
+  // Disposition reason picker modal state. Used by both "Move to Lost" /
+  // "Move to Nurture" (which require a reason) and "Change Reason"
+  // (no status change, just patch the dispositionReason).
+  const [reasonModal, setReasonModal] = useState<null | {
+    mode: 'set-status' | 'change-reason'
+    targetStatus?: CandidateStatus
+    initial?: CandidateDispositionReason | null
+  }>(null)
+  const openLostPicker = () => setReasonModal({ mode: 'set-status', targetStatus: 'lost', initial: 'manual_other' })
+  const openNurturePicker = () => setReasonModal({ mode: 'set-status', targetStatus: 'nurture', initial: candidate?.dispositionReason ?? null })
+  const openChangeReason = () => setReasonModal({ mode: 'change-reason', initial: candidate?.dispositionReason ?? null })
+  const submitReasonModal = async (chosen: CandidateDispositionReason | null) => {
+    const m = reasonModal
+    if (!m) return
+    if (m.mode === 'set-status' && m.targetStatus) {
+      await updateLifecycle(m.targetStatus, chosen)
+    } else if (m.mode === 'change-reason') {
+      // Patch dispositionReason without changing status. PATCH handles this
+      // via the standalone-dispositionReason path.
+      const res = await fetch(`/api/candidates/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dispositionReason: chosen }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCandidate((prev) => prev ? { ...prev, dispositionReason: data.dispositionReason ?? null } : null)
+      }
+    }
+    setReasonModal(null)
   }
 
   const updateOutcome = async (outcome: string) => {
@@ -606,6 +686,19 @@ export default function CandidateDetailPage() {
         </div>
       )}
 
+      {/* Disposition reason picker — used by Move to Lost / Move to Nurture
+          (which require a reason) and Change reason (no status change).
+          Shares a single modal because the picker UX is identical. */}
+      {reasonModal && (
+        <DispositionReasonPicker
+          mode={reasonModal.mode}
+          targetStatus={reasonModal.targetStatus}
+          initial={reasonModal.initial ?? null}
+          onClose={() => setReasonModal(null)}
+          onSubmit={submitReasonModal}
+        />
+      )}
+
       {/* Current activity — at-a-glance "where is the candidate right now"
           panel. Sits above the pipeline so recruiters scanning the page
           see live progress before historical state. */}
@@ -619,6 +712,103 @@ export default function CandidateDetailPage() {
         answersCount={candidate.answers.length}
         trainingEnrollments={candidate.trainingEnrollments}
       />
+
+      {/* Status panel — orthogonal axis (active/stalled/lost/...). Sits
+          above the funnel-stage pipeline so recruiters can see at a glance
+          whether the candidate is actually progressing or stuck. The 5
+          lifecycle actions all PATCH /api/candidates/[id]; statusTransitionPatch
+          on the server handles stalledAt/lostAt/hiredAt bookkeeping. */}
+      {(() => {
+        const status = (candidate.status ?? 'active') as CandidateStatus
+        const meta = STATUS_DISPLAY[status]
+        const dispLabel = candidate.dispositionReason
+          ? DISPOSITION_DISPLAY[candidate.dispositionReason]
+          : null
+        const stamp = status === 'stalled' ? candidate.stalledAt
+          : status === 'lost' ? candidate.lostAt
+          : status === 'hired' ? candidate.hiredAt
+          : null
+        const stampLabel = status === 'stalled' ? 'Stalled since'
+          : status === 'lost' ? 'Lost on'
+          : status === 'hired' ? 'Hired on'
+          : null
+        return (
+          <div className="bg-white rounded-[12px] border border-surface-border p-6 mb-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[11px] font-mono uppercase text-grey-50 mb-2" style={{ letterSpacing: '0.1em' }}>
+                  Candidate status
+                </div>
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <Badge tone={meta.tone}>{meta.label}</Badge>
+                  {dispLabel && (
+                    <span className="inline-flex items-center text-[11px] px-2 py-0.5 rounded-full bg-surface-light text-grey-15 border border-surface-border font-medium">
+                      {dispLabel}
+                    </span>
+                  )}
+                </div>
+                {stamp && stampLabel && (
+                  <div className="text-[12px] text-grey-40 mt-1">
+                    {stampLabel} {new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {' · '}
+                    <span className="text-grey-50">
+                      {(() => {
+                        const days = Math.floor((Date.now() - new Date(stamp).getTime()) / (24 * 60 * 60 * 1000))
+                        return days === 0 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`
+                      })()}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {status !== 'active' && status !== 'waiting' && (
+                  <button
+                    onClick={() => updateLifecycle('active', null)}
+                    disabled={statusBusy}
+                    className="text-xs px-3 py-1.5 rounded-[6px] bg-brand-100 text-brand-700 hover:bg-brand-200 font-medium disabled:opacity-50"
+                  >
+                    Reactivate
+                  </button>
+                )}
+                {status !== 'lost' && (
+                  <button
+                    onClick={openLostPicker}
+                    disabled={statusBusy}
+                    className="text-xs px-3 py-1.5 rounded-[6px] bg-red-100 text-red-700 hover:bg-red-200 font-medium disabled:opacity-50"
+                  >
+                    Move to Lost
+                  </button>
+                )}
+                {status !== 'nurture' && (
+                  <button
+                    onClick={openNurturePicker}
+                    disabled={statusBusy}
+                    className="text-xs px-3 py-1.5 rounded-[6px] bg-surface-light text-grey-15 hover:bg-surface-divider font-medium border border-surface-border disabled:opacity-50"
+                  >
+                    Move to Nurture
+                  </button>
+                )}
+                {status !== 'hired' && (
+                  <button
+                    onClick={() => updateLifecycle('hired')}
+                    disabled={statusBusy}
+                    className="text-xs px-3 py-1.5 rounded-[6px] bg-green-100 text-green-700 hover:bg-green-200 font-medium disabled:opacity-50"
+                  >
+                    Mark as Hired
+                  </button>
+                )}
+                <button
+                  onClick={openChangeReason}
+                  disabled={statusBusy}
+                  className="text-xs px-3 py-1.5 rounded-[6px] text-grey-40 hover:text-grey-15 hover:bg-surface-light font-medium disabled:opacity-50"
+                >
+                  Change reason
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Pipeline progress */}
       <div className="bg-white rounded-[12px] border border-surface-border p-6 mb-6">
@@ -981,6 +1171,84 @@ export default function CandidateDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Modal for picking a structured disposition reason. Used by Move to Lost,
+// Move to Nurture, and Change Reason on the candidate detail page. The
+// "Lost" path defaults to manual_other so the recruiter can submit instantly
+// without picking; everything else starts from whatever's currently set.
+function DispositionReasonPicker(props: {
+  mode: 'set-status' | 'change-reason'
+  targetStatus?: CandidateStatus
+  initial: CandidateDispositionReason | null
+  onClose: () => void
+  onSubmit: (reason: CandidateDispositionReason | null) => void | Promise<void>
+}) {
+  const { mode, targetStatus, initial, onClose, onSubmit } = props
+  const [chosen, setChosen] = useState<CandidateDispositionReason | null>(initial)
+  const [busy, setBusy] = useState(false)
+  const title = mode === 'change-reason'
+    ? 'Change reason'
+    : targetStatus === 'lost' ? 'Move to Lost'
+    : targetStatus === 'nurture' ? 'Move to Nurture'
+    : 'Pick reason'
+  const subtitle = mode === 'change-reason'
+    ? 'Update the structured reason. This does not change the candidate status.'
+    : targetStatus === 'lost'
+      ? 'Pick the reason this candidate is lost. Used by analytics to bucket lost candidates.'
+      : 'Pick a reason (optional). Helps remember why this candidate is parked.'
+
+  const handleSubmit = async () => {
+    setBusy(true)
+    try { await onSubmit(chosen) } finally { setBusy(false) }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose() }}
+    >
+      <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[520px] p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-grey-15 mb-1">{title}</h3>
+        <p className="text-xs text-grey-40 mb-4">{subtitle}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto">
+          {CANDIDATE_DISPOSITION_REASONS.map((r) => (
+            <button
+              key={r}
+              onClick={() => setChosen(r)}
+              className={`text-left text-[13px] px-3 py-2 rounded-[8px] border transition-colors ${
+                chosen === r
+                  ? 'border-brand-500 bg-brand-50 text-brand-700'
+                  : 'border-surface-border text-grey-15 hover:border-grey-50 hover:bg-surface-light'
+              }`}
+            >
+              {DISPOSITION_DISPLAY[r]}
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-between items-center mt-5 gap-2">
+          {mode === 'change-reason' && (
+            <button
+              onClick={() => setChosen(null)}
+              className={`text-xs px-3 py-1.5 rounded-[8px] ${chosen === null ? 'text-brand-600 bg-brand-50' : 'text-grey-40 hover:text-grey-15'}`}
+            >
+              Clear reason
+            </button>
+          )}
+          <div className="ml-auto flex gap-2">
+            <button onClick={onClose} disabled={busy} className="text-sm px-4 py-2 rounded-[8px] text-grey-40 hover:text-grey-15 disabled:opacity-50">Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={busy || (mode === 'set-status' && targetStatus === 'lost' && chosen === null)}
+              className="text-sm px-4 py-2 rounded-[8px] bg-brand-500 text-white hover:bg-brand-600 font-medium disabled:opacity-50"
+            >
+              {busy ? 'Saving…' : 'Confirm'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

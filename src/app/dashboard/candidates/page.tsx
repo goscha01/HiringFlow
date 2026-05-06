@@ -22,11 +22,20 @@ import {
   normalizeStages,
   resolveStage,
 } from '@/lib/funnel-stages'
+import {
+  STATUS_DISPLAY,
+  DISPOSITION_DISPLAY,
+  type CandidateStatus,
+  type CandidateDispositionReason,
+} from '@/lib/candidate-status'
 import { StageSettingsDrawer } from './_StageSettingsDrawer'
 
 interface Candidate {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
   outcome: string | null; pipelineStatus: string | null; rejectionReason: string | null
+  status: CandidateStatus | null
+  dispositionReason: CandidateDispositionReason | null
+  stalledAt: string | null; lostAt: string | null; hiredAt: string | null
   startedAt: string; finishedAt: string | null
   source: string | null; answerCount: number; submissionCount: number
   trainingStatus: string | null; trainingCompletedAt: string | null
@@ -35,6 +44,27 @@ interface Candidate {
   ad: { id: string; name: string; source: string } | null
   isRebook?: boolean
   nextMeetingAt?: string | null
+}
+
+// Status tabs above the kanban. The "Active" tab — the default view —
+// includes both 'active' and 'waiting' so candidates parked waiting for an
+// external action (e.g. a training to be scheduled) still show up. "All"
+// disables the filter entirely. Order roughly mirrors the candidate
+// lifecycle so recruiters can scan left to right.
+const STATUS_TABS: Array<{ key: string; label: string; statuses: CandidateStatus[] | null }> = [
+  { key: 'active',  label: 'Active',  statuses: ['active', 'waiting'] },
+  { key: 'stalled', label: 'Stalled', statuses: ['stalled'] },
+  { key: 'nurture', label: 'Nurture', statuses: ['nurture'] },
+  { key: 'hired',   label: 'Hired',   statuses: ['hired'] },
+  { key: 'lost',    label: 'Lost',    statuses: ['lost'] },
+  { key: 'all',     label: 'All',     statuses: null },
+]
+
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const ms = Date.now() - new Date(iso).getTime()
+  if (!isFinite(ms) || ms < 0) return null
+  return Math.floor(ms / (24 * 60 * 60 * 1000))
 }
 
 interface Flow { id: string; name: string }
@@ -58,6 +88,14 @@ export default function CandidatesPage() {
   // current default), 'desc' = newest first. Persisted in localStorage so
   // the choice survives page reloads. Stages without an entry default to asc.
   const [stageSorts, setStageSorts] = useState<Record<string, 'asc' | 'desc'>>({})
+  // Status tab — controls which candidates render on the board. Default is
+  // 'active', which the API maps to status IN ('active','waiting'). 'all'
+  // disables the filter. Persisted in localStorage so the tab survives
+  // refreshes (recruiters who live on the Stalled tab get to keep it).
+  const [statusTab, setStatusTab] = useState<string>('active')
+  const [statusCounts, setStatusCounts] = useState<Record<CandidateStatus, number>>({
+    active: 0, waiting: 0, stalled: 0, nurture: 0, lost: 0, hired: 0,
+  })
   // A card must be explicitly clicked ("picked up") before its drag handle
   // activates. Until then the card is treated as part of the board so the
   // mousedown initiates a horizontal pan instead of an HTML5 drag.
@@ -185,7 +223,15 @@ export default function CandidatesPage() {
         setStageSorts(cleaned)
       }
     } catch {}
+    try {
+      const raw = localStorage.getItem('hiringflow:status-tab')
+      if (raw && STATUS_TABS.some((t) => t.key === raw)) setStatusTab(raw)
+    } catch {}
   }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('hiringflow:status-tab', statusTab) } catch {}
+  }, [statusTab])
 
   const setStageSort = (stageId: string, direction: 'asc' | 'desc') => {
     setStageSorts((cur) => {
@@ -200,8 +246,32 @@ export default function CandidatesPage() {
     const params = new URLSearchParams()
     if (flowFilter) params.set('flowId', flowFilter)
     if (search) params.set('search', search)
-    fetch(`/api/candidates?${params}`).then((r) => r.json()).then((d) => { setCandidates(d); setLoading(false) })
-  }, [flowFilter, search])
+    const tab = STATUS_TABS.find((t) => t.key === statusTab)
+    if (tab && tab.statuses) params.set('candidateStatus', tab.statuses.join(','))
+    fetch(`/api/candidates?${params}`)
+      .then((r) => r.json())
+      .then((d: Candidate[]) => { setCandidates(d); setLoading(false) })
+
+    // Counts for the tab pills — fetched separately with the SAME flow /
+    // search filters but no status filter, then bucketed client-side.
+    // Keeps every tab's badge accurate regardless of which tab is active.
+    const countParams = new URLSearchParams()
+    if (flowFilter) countParams.set('flowId', flowFilter)
+    if (search) countParams.set('search', search)
+    fetch(`/api/candidates?${countParams}`)
+      .then((r) => r.json())
+      .then((all: Candidate[]) => {
+        const buckets: Record<CandidateStatus, number> = {
+          active: 0, waiting: 0, stalled: 0, nurture: 0, lost: 0, hired: 0,
+        }
+        for (const c of all) {
+          const s = (c.status ?? 'active') as CandidateStatus
+          if (s in buckets) buckets[s] += 1
+        }
+        setStatusCounts(buckets)
+      })
+      .catch(() => {})
+  }, [flowFilter, search, statusTab])
 
   useEffect(() => { load() }, [load])
 
@@ -316,6 +386,35 @@ export default function CandidatesPage() {
       />
 
       <div className="flex-1 min-h-0 flex flex-col px-8 py-5">
+        {/* Status tabs — orthogonal to the funnel stages. Default 'Active'
+            hides stalled/lost/nurture/hired so the board only shows
+            candidates currently in motion. Counts come from the count
+            fetch in load() so they always reflect totals across tabs. */}
+        <div data-no-pan className="shrink-0 flex gap-1 mb-3 overflow-x-auto">
+          {STATUS_TABS.map((tab) => {
+            const isActive = statusTab === tab.key
+            const count = tab.statuses
+              ? tab.statuses.reduce((s, k) => s + (statusCounts[k] ?? 0), 0)
+              : Object.values(statusCounts).reduce((s, v) => s + v, 0)
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setStatusTab(tab.key)}
+                className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium transition-colors ${
+                  isActive
+                    ? 'bg-ink text-white border-ink'
+                    : 'bg-white text-grey-35 border-surface-border hover:border-grey-50 hover:text-ink'
+                }`}
+              >
+                {tab.label}
+                <span className={`font-mono text-[10px] tabular-nums ${isActive ? 'text-white/80' : 'text-grey-50'}`}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
         {/* Filters */}
         <div className="shrink-0 flex gap-2.5 mb-5">
           <input
@@ -487,6 +586,38 @@ export default function CandidatesPage() {
                           </div>
                           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                             <Badge tone={cardStage.tone}>{cardStage.label}</Badge>
+                            {/* Status pill — only render when status diverges
+                                from 'active' (the implicit happy path), so the
+                                board doesn't get cluttered with "Active" tags
+                                on every card. Days-since-stalled appears next
+                                to the badge for stalled cards so recruiters can
+                                tell "stalled 2 days" from "stalled 3 weeks"
+                                without opening the candidate. */}
+                            {c.status && c.status !== 'active' && (() => {
+                              const meta = STATUS_DISPLAY[c.status]
+                              const stamp = c.status === 'stalled' ? c.stalledAt
+                                : c.status === 'lost' ? c.lostAt
+                                : c.status === 'hired' ? c.hiredAt
+                                : null
+                              const days = daysSince(stamp)
+                              return (
+                                <Badge tone={meta.tone}>
+                                  {meta.label}{days !== null ? ` · ${days}d` : ''}
+                                </Badge>
+                              )
+                            })()}
+                            {/* Structured disposition reason — uses humanized
+                                label from DISPOSITION_DISPLAY. Hidden when
+                                empty; the legacy free-form rejectionReason
+                                pill below still renders independently. */}
+                            {c.dispositionReason && DISPOSITION_DISPLAY[c.dispositionReason] && (
+                              <span
+                                title={`Disposition: ${DISPOSITION_DISPLAY[c.dispositionReason]}`}
+                                className="inline-flex items-center max-w-[160px] truncate text-[10px] px-2 py-0.5 rounded-full bg-surface-light text-grey-15 border border-surface-border font-medium"
+                              >
+                                {DISPOSITION_DISPLAY[c.dispositionReason]}
+                              </span>
+                            )}
                             {c.isRebook && (
                               <span
                                 title="This candidate had a prior no-show and re-booked via the follow-up invite"

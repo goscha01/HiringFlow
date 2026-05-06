@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
-import { getFunnelMetrics, getSourceMetrics, getAdMetrics, DateFilter } from '@/lib/analytics'
+import { getFunnelMetrics, getSourceMetrics, getAdMetrics, getStatusMetrics, DateFilter } from '@/lib/analytics'
 
 export async function GET(request: NextRequest) {
   const ws = await getWorkspaceSession()
@@ -17,11 +17,12 @@ export async function GET(request: NextRequest) {
     filter = { from: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) }
   }
 
-  const [funnel, sources, ads] = await Promise.all([
+  const [funnel, sources, ads, status] = await Promise.all([
     getFunnelMetrics(ws.workspaceId, filter),
     getSourceMetrics(ws.workspaceId, filter),
     getAdMetrics(ws.workspaceId, filter),
+    getStatusMetrics(ws.workspaceId, filter),
   ])
 
-  return NextResponse.json({ funnel, sources, ads })
+  return NextResponse.json({ funnel, sources, ads, status })
 }
