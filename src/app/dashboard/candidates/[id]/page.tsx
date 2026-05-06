@@ -688,12 +688,12 @@ export default function CandidateDetailPage() {
           </div>
           <button
             onClick={openPreview}
-            disabled={!activeStageHasTriggers || activeStageRuleCount === 0 || runningAutomations}
+            disabled={activeStageRuleCount === 0 || runningAutomations}
             title={
-              !activeStageHasTriggers
-                ? 'This stage has no triggers configured. Add triggers in Stages settings.'
-                : activeStageRuleCount === 0
-                ? 'No active automations match this stage’s triggers.'
+              activeStageRuleCount === 0
+                ? (activeStageHasTriggers
+                    ? 'No active automations match this stage’s triggers.'
+                    : 'No automations are pinned to this stage. Pin one from the rule editor (Pipeline stage field) or add a trigger to the stage.')
                 : 'Preview which automations will fire, then confirm'
             }
             className="text-xs px-3 py-1.5 rounded-[6px] bg-brand-500 text-white hover:bg-brand-600 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
