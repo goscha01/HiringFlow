@@ -207,6 +207,56 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Diagnostic fallback: when CertnCentric returns 401/403, the key is
+    // probably from the deprecated v1 API ("Token" auth scheme on
+    // api.certn.co, also api.{ca,uk,au}.certn.co with a different path
+    // shape). Probe both common legacy variants and surface which (if any)
+    // worked, so the user can tell whether they have a legacy key or a
+    // genuinely-broken one.
+    let legacyProbe: { worked: boolean; host: string; scheme: string; status: number } | null = null
+    if (res.status === 401 || res.status === 403) {
+      const legacyHosts = ['https://api.certn.co', client.baseUrl] // base region URL too
+      const legacySchemes = ['Token', 'Bearer']
+      const legacyPaths = ['/api/v1/hr/applicants/?limit=1', '/api/v1/applicants/?limit=1']
+      outer: for (const h of legacyHosts) {
+        for (const s of legacySchemes) {
+          for (const p of legacyPaths) {
+            try {
+              const probeRes = await fetch(`${h}${p}`, {
+                method: 'GET',
+                headers: { 'Authorization': `${s} ${client.apiKey}`, 'Accept': 'application/json' },
+                cache: 'no-store',
+              })
+              if (probeRes.status >= 200 && probeRes.status < 300) {
+                legacyProbe = { worked: true, host: h, scheme: s, status: probeRes.status }
+                break outer
+              }
+              // Track the most-informative failure too — a 404 with auth
+              // success (rare) would beat a 401.
+              if (!legacyProbe || probeRes.status !== 401) {
+                legacyProbe = { worked: false, host: h, scheme: s, status: probeRes.status }
+              }
+            } catch { /* swallow — keep trying */ }
+          }
+        }
+      }
+    }
+
+    let hint: string
+    if (res.status === 401 || res.status === 403) {
+      if (legacyProbe?.worked) {
+        hint = `KEY DIAGNOSIS: Your token works against the LEGACY Certn v1 API (${legacyProbe.host}, header "Authorization: ${legacyProbe.scheme} ..."), NOT CertnCentric. CertnCentric needs a different key. Options: (a) contact Certn support and ask them to provision a CertnCentric API key for your account, or (b) keep using the legacy v1 API — but it's deprecated and shuts down 2026-08-05, so (a) is strongly preferred.`
+      } else if (client.useSandbox) {
+        hint = 'Sandbox key rejected. Confirm the key is from a sandbox/test workspace (production keys do not work against sandbox hosts). Also try a different region.'
+      } else {
+        hint = 'Production key rejected. Three things to try: (1) toggle "Use sandbox environment" if your Certn account is a sandbox/test workspace, (2) try a different region (CA / UK / AU), (3) regenerate the key in your Certn portal.'
+      }
+    } else if (res.status === 404) {
+      hint = 'Endpoint returned 404. This account may still be on the legacy v1 API rather than CertnCentric — contact Certn support.'
+    } else {
+      hint = `Certn returned ${res.status}.`
+    }
+
     return NextResponse.json({
       ok: false,
       error: res.status === 401 || res.status === 403 ? 'auth_failed' : 'request_failed',
@@ -215,14 +265,8 @@ export async function POST(request: NextRequest) {
       sandbox: client.useSandbox,
       url,
       body: bodyPreview,
-      hint:
-        res.status === 401 || res.status === 403
-          ? client.useSandbox
-            ? 'Sandbox key rejected. Confirm the key is from a sandbox/test workspace (production keys do not work against sandbox hosts). Also try a different region.'
-            : 'Production key rejected. Three things to try: (1) toggle "Use sandbox environment" if your Certn account is a sandbox/test workspace, (2) try a different region (CA / UK / AU), (3) regenerate the key in your Certn portal.'
-          : res.status === 404
-            ? 'Endpoint returned 404. This account may still be on the legacy v1 API rather than CertnCentric — contact Certn support.'
-            : `Certn returned ${res.status}.`,
+      legacyProbe,
+      hint,
     }, { status: 200 })
   } catch (err) {
     if (err instanceof CertnConfigError) {

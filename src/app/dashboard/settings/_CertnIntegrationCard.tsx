@@ -232,7 +232,9 @@ export function CertnIntegrationCard() {
                 {copied ? 'Copied!' : 'Copy'}
               </button>
             </div>
-            {!status!.integration!.hasWebhookSecret && (
+            {status!.integration!.hasWebhookSecret ? (
+              <p className="text-[11px] text-green-700 mt-1.5">✓ Signing secret saved. Incoming webhook payloads will be HMAC-verified.</p>
+            ) : (
               <p className="text-[11px] text-amber-700 mt-1.5">⚠ No signing secret configured. Webhooks are accepted unsigned right now — paste the secret Certn shows you after registering this URL.</p>
             )}
           </div>
@@ -365,8 +367,16 @@ export function CertnIntegrationCard() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-grey-20 mb-1.5">
-              Webhook signing secret {configured && status?.integration?.hasWebhookSecret ? <span className="text-grey-50 font-normal">(leave blank to keep current)</span> : null}
+            <label className="block text-xs font-medium text-grey-20 mb-1.5 flex items-center gap-2">
+              <span>Webhook signing secret</span>
+              {configured && status?.integration?.hasWebhookSecret && (
+                <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-800 font-semibold normal-case">
+                  ✓ Saved
+                </span>
+              )}
+              {configured && status?.integration?.hasWebhookSecret && (
+                <span className="text-grey-50 font-normal text-[11px]">(paste a new value below to rotate; leave blank to keep current)</span>
+              )}
             </label>
             <div className="bg-brand-50 border border-brand-200 rounded-[8px] p-3 mb-2 text-[11px] text-grey-20 leading-relaxed">
               <div className="font-medium text-brand-700 mb-1">How to register the webhook in Certn</div>
