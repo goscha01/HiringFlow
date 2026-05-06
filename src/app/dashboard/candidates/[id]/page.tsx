@@ -741,11 +741,21 @@ export default function CandidateDetailPage() {
                 </div>
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <Badge tone={meta.tone}>{meta.label}</Badge>
-                  {dispLabel && (
-                    <span className="inline-flex items-center text-[11px] px-2 py-0.5 rounded-full bg-surface-light text-grey-15 border border-surface-border font-medium">
-                      {dispLabel}
-                    </span>
-                  )}
+                  {dispLabel && (() => {
+                    // Tint the disposition pill to match the status — amber
+                    // for stalled, red for lost, green for hired. Mirrors
+                    // the kanban card's DISPOSITION_TINT so the pill reads
+                    // identically in both places.
+                    const tint = status === 'stalled' ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : status === 'lost'    ? 'bg-red-50 text-red-700 border-red-200'
+                      : status === 'hired'   ? 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-surface-light text-grey-15 border-surface-border'
+                    return (
+                      <span className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full font-medium border ${tint}`}>
+                        {dispLabel}
+                      </span>
+                    )
+                  })()}
                 </div>
                 {stamp && stampLabel && (
                   <div className="text-[12px] text-grey-40 mt-1">

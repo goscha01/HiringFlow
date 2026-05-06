@@ -50,15 +50,27 @@ interface Candidate {
 // includes both 'active' and 'waiting' so candidates parked waiting for an
 // external action (e.g. a training to be scheduled) still show up. "All"
 // disables the filter entirely. Order roughly mirrors the candidate
-// lifecycle so recruiters can scan left to right.
-const STATUS_TABS: Array<{ key: string; label: string; statuses: CandidateStatus[] | null }> = [
-  { key: 'active',  label: 'Active',  statuses: ['active', 'waiting'] },
-  { key: 'stalled', label: 'Stalled', statuses: ['stalled'] },
-  { key: 'nurture', label: 'Nurture', statuses: ['nurture'] },
-  { key: 'hired',   label: 'Hired',   statuses: ['hired'] },
-  { key: 'lost',    label: 'Lost',    statuses: ['lost'] },
-  { key: 'all',     label: 'All',     statuses: null },
+// lifecycle so recruiters can scan left to right. Each tab carries its
+// own accent color (matching the status tone vocabulary) so the row reads
+// as a colored legend at a glance.
+const STATUS_TABS: Array<{ key: string; label: string; statuses: CandidateStatus[] | null; color: string }> = [
+  { key: 'active',  label: 'Active',  statuses: ['active', 'waiting'], color: 'var(--brand-primary)' },
+  { key: 'stalled', label: 'Stalled', statuses: ['stalled'],            color: '#D97706'             },
+  { key: 'nurture', label: 'Nurture', statuses: ['nurture'],            color: 'var(--neutral-fg)'   },
+  { key: 'hired',   label: 'Hired',   statuses: ['hired'],              color: 'var(--success-fg)'   },
+  { key: 'lost',    label: 'Lost',    statuses: ['lost'],               color: 'var(--danger-fg)'    },
+  { key: 'all',     label: 'All',     statuses: null,                   color: 'var(--neutral-fg)'   },
 ]
+
+// Background tint for the disposition pill, keyed by the candidate's
+// current status. Pulls the existing rejection-pill (red) and adds amber
+// for stalled — same color vocabulary as the funnel stage tones.
+const DISPOSITION_TINT: Partial<Record<CandidateStatus, { bg: string; text: string; border: string }>> = {
+  stalled: { bg: 'bg-amber-50',  text: 'text-amber-800',  border: 'border-amber-200' },
+  lost:    { bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200'   },
+  hired:   { bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200' },
+  nurture: { bg: 'bg-surface-light', text: 'text-grey-15', border: 'border-surface-border' },
+}
 
 function daysSince(iso: string | null | undefined): number | null {
   if (!iso) return null
@@ -400,12 +412,17 @@ export default function CandidatesPage() {
               <button
                 key={tab.key}
                 onClick={() => setStatusTab(tab.key)}
+                style={isActive ? { background: tab.color, borderColor: tab.color } : undefined}
                 className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium transition-colors ${
                   isActive
-                    ? 'bg-ink text-white border-ink'
+                    ? 'text-white'
                     : 'bg-white text-grey-35 border-surface-border hover:border-grey-50 hover:text-ink'
                 }`}
               >
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: isActive ? 'rgba(255,255,255,0.85)' : tab.color }}
+                />
                 {tab.label}
                 <span className={`font-mono text-[10px] tabular-nums ${isActive ? 'text-white/80' : 'text-grey-50'}`}>
                   {count}
@@ -606,17 +623,22 @@ export default function CandidatesPage() {
                               )
                             })()}
                             {/* Structured disposition reason — uses humanized
-                                label from DISPOSITION_DISPLAY. Hidden when
-                                empty; the legacy free-form rejectionReason
-                                pill below still renders independently. */}
-                            {c.dispositionReason && DISPOSITION_DISPLAY[c.dispositionReason] && (
-                              <span
-                                title={`Disposition: ${DISPOSITION_DISPLAY[c.dispositionReason]}`}
-                                className="inline-flex items-center max-w-[160px] truncate text-[10px] px-2 py-0.5 rounded-full bg-surface-light text-grey-15 border border-surface-border font-medium"
-                              >
-                                {DISPOSITION_DISPLAY[c.dispositionReason]}
-                              </span>
-                            )}
+                                label from DISPOSITION_DISPLAY. Tinted by
+                                the candidate's current status so stalled
+                                reasons read amber and lost reasons red,
+                                consistent with the status badge palette. */}
+                            {c.dispositionReason && DISPOSITION_DISPLAY[c.dispositionReason] && (() => {
+                              const tint = DISPOSITION_TINT[(c.status ?? 'active') as CandidateStatus]
+                                ?? { bg: 'bg-surface-light', text: 'text-grey-15', border: 'border-surface-border' }
+                              return (
+                                <span
+                                  title={`Disposition: ${DISPOSITION_DISPLAY[c.dispositionReason]}`}
+                                  className={`inline-flex items-center max-w-[160px] truncate text-[10px] px-2 py-0.5 rounded-full font-medium border ${tint.bg} ${tint.text} ${tint.border}`}
+                                >
+                                  {DISPOSITION_DISPLAY[c.dispositionReason]}
+                                </span>
+                              )
+                            })()}
                             {c.isRebook && (
                               <span
                                 title="This candidate had a prior no-show and re-booked via the follow-up invite"
