@@ -17,10 +17,10 @@ interface IntegrationStatus {
   webhookUrl: string
 }
 
-const REGION_OPTIONS: Array<{ value: 'CA' | 'UK' | 'AU'; label: string; host: string }> = [
-  { value: 'CA', label: 'North America', host: 'api.ca.certn.co' },
-  { value: 'UK', label: 'Europe / Middle East / Africa', host: 'api.uk.certn.co' },
-  { value: 'AU', label: 'Asia Pacific', host: 'api.au.certn.co' },
+const REGION_OPTIONS: Array<{ value: 'CA' | 'UK' | 'AU'; label: string; host: string; portal: string }> = [
+  { value: 'CA', label: 'North America',                   host: 'api.ca.certn.co', portal: 'https://client.certn.co/ca/login' },
+  { value: 'UK', label: 'Europe / Middle East / Africa',   host: 'api.uk.certn.co', portal: 'https://client.certn.co/uk/login' },
+  { value: 'AU', label: 'Asia Pacific',                    host: 'api.au.certn.co', portal: 'https://client.certn.co/au/login' },
 ]
 
 const COMMON_CHECK_TYPES: Array<{ value: string; label: string }> = [
@@ -225,6 +225,25 @@ export function CertnIntegrationCard() {
             <label className="block text-xs font-medium text-grey-20 mb-1.5">
               API key {configured ? <span className="text-grey-50 font-normal">(leave blank to keep current)</span> : <span className="text-red-500">*</span>}
             </label>
+            <div className="bg-brand-50 border border-brand-200 rounded-[8px] p-3 mb-2 text-[11px] text-grey-20 leading-relaxed">
+              <div className="font-medium text-brand-700 mb-1">How to get your API key</div>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>
+                  Sign in to your{' '}
+                  <a
+                    href={REGION_OPTIONS.find((r) => r.value === region)?.portal || 'https://client.certn.co/ca/login'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-600 hover:text-brand-700 underline font-medium"
+                  >
+                    Certn Client Portal ({region})
+                  </a>
+                </li>
+                <li>Open <span className="font-medium">Settings → Integrations → API Keys</span></li>
+                <li>Click <span className="font-medium">Create new key</span> and copy it (shown once)</li>
+                <li>Paste the key below</li>
+              </ol>
+            </div>
             <input
               type="password"
               value={apiKey}
@@ -234,7 +253,7 @@ export function CertnIntegrationCard() {
               className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <p className="text-[11px] text-grey-50 mt-1">
-              Create a key in Certn Client Portal → Integrations → API Keys. Keys expire after 365 days; rotate before then.
+              Keys expire after 365 days. Multiple active keys are allowed, so rotation has no downtime.
             </p>
           </div>
 
