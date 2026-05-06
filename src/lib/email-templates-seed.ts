@@ -7,9 +7,22 @@
 // Lives in DEFAULT_EMAIL_TEMPLATES so it gets seeded for new workspaces;
 // the send-meeting-reminder endpoint also lazy-creates it on first use
 // for workspaces that already pre-date this addition.
+//
+// For this one template, the `bodyText` field doubles as the SMS body —
+// it's the editable copy sent to the candidate's phone when the recruiter
+// clicks "Send reminder" on the candidate page. The plain-text email alt
+// uses the same content (a short "join now" message reads fine in both).
+// Other templates use bodyText as a normal plain-text email alternative.
 export const MANUAL_MEETING_NUDGE_TEMPLATE_NAME = 'Meeting nudge — join now'
 
-export const DEFAULT_EMAIL_TEMPLATES = [
+export interface DefaultEmailTemplate {
+  name: string
+  subject: string
+  bodyHtml: string
+  bodyText?: string
+}
+
+export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
   {
     name: 'Training Invitation',
     subject: 'Your training is ready, {{candidate_name}}!',
@@ -69,6 +82,9 @@ export const DEFAULT_EMAIL_TEMPLATES = [
     name: MANUAL_MEETING_NUDGE_TEMPLATE_NAME,
     subject: 'We\'re on the call waiting for you, {{candidate_name}}',
     bodyHtml: '<p>Hi {{candidate_name}},</p>\n<p>We\'re on the call waiting for you to join your interview for <strong>{{flow_name}}</strong>.</p>\n<p style="margin:24px 0"><a href="{{meeting_link}}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold;">Join now</a></p>\n<p>Direct link: <a href="{{meeting_link}}">{{meeting_link}}</a></p>\n<p>Scheduled for: {{meeting_time}}</p>\n<p>If something has come up, please reply and let us know.</p>\n<p>The Hiring Team</p>',
+    // bodyText doubles as the SMS body for this template — keep it short
+    // and include the meeting link.
+    bodyText: 'Hi {{candidate_name}}, we\'re on the call waiting for you. Join: {{meeting_link}}',
   },
   {
     name: 'Interview Follow-up (Post-meeting)',
