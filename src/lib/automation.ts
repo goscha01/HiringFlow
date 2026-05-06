@@ -691,6 +691,19 @@ async function queueStepAtDelay(
     where: { stepId_sessionId_channel: { stepId, sessionId, channel } },
   })
   if (existing?.status === 'sent') return false
+  // Delete any previously-queued QStash msg for this row before re-publishing.
+  // Without this, a second meeting_scheduled (rebooking, in-app re-create)
+  // overwrites qstashMessageId in the DB but leaves the old QStash msg live —
+  // so the stale msg fires later against whatever meeting is current at that
+  // time, producing wrong-time reminders (e.g. "1h before" SMS arriving 14h
+  // early after a rebooking).
+  if (existing?.qstashMessageId) {
+    try {
+      await (qstash.messages as unknown as { delete: (id: string) => Promise<unknown> }).delete(existing.qstashMessageId)
+    } catch (err) {
+      console.warn('[Automation] qstash.messages.delete failed during re-queue (likely already fired):', (err as Error).message)
+    }
+  }
   const row = await upsertExecution({
     ruleId, stepId, sessionId, channel,
     status: 'queued',
