@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { SubNav } from '../_components/SubNav'
-import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
+import { DEFAULT_EMAIL_TEMPLATES, type DefaultEmailTemplate } from '@/lib/email-templates-seed'
 import { Badge, Button, PageHeader } from '@/components/design'
 
 const ASSETS_NAV = [
@@ -186,7 +186,7 @@ function MarkdownToolbar({ textareaRef, value, onChange }: {
   )
 }
 
-const EMAIL_DEFAULTS = DEFAULT_EMAIL_TEMPLATES.map(t => ({ ...t, category: 'email' as const }))
+const EMAIL_DEFAULTS: Array<DefaultEmailTemplate & { category: 'email' }> = DEFAULT_EMAIL_TEMPLATES.map(t => ({ ...t, category: 'email' as const }))
 
 const AD_DEFAULTS = [
   { name: 'Indeed - General Hiring', source: 'indeed', headline: 'Now Hiring — Join Our Team!', bodyText: 'We are looking for motivated team members to join our growing company.\n\nGreat opportunity for career growth.', requirements: '- Authorized to work\n- Reliable transportation\n- Positive attitude', benefits: '- Competitive pay\n- Flexible schedule\n- Growth opportunities', callToAction: 'Apply now — takes less than 5 minutes!' },
