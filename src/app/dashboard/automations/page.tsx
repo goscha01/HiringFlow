@@ -271,6 +271,10 @@ export default function AutomationsPage() {
   const [name, setName] = useState('')
   const [triggerType, setTriggerType] = useState('flow_completed')
   const [flowId, setFlowId] = useState('')
+  // Rule-level training filter for training_started / training_completed
+  // triggers — which training fires this rule. '' means any training.
+  // Independent from per-step trainingId (action target).
+  const [triggerTrainingId, setTriggerTrainingId] = useState('')
   // Explicit stage assignment — '' means "auto" (fall back to triggerType→stage mapping).
   const [stageIdField, setStageIdField] = useState('')
   const [minutesBefore, setMinutesBefore] = useState(60)
@@ -504,6 +508,7 @@ export default function AutomationsPage() {
     setTriggerType(trigger)
     setName(`${TRIGGER_LABELS[trigger]} follow-up`)
     setFlowId('')
+    setTriggerTrainingId('')
     setStageIdField('')
     setMinutesBefore(60); setWaitForRecording(false)
 
@@ -535,6 +540,7 @@ export default function AutomationsPage() {
   const openEdit = (r: Rule) => {
     setEditing(r); setName(r.name); setTriggerType(r.triggerType)
     setFlowId(r.flowId || (r as { triggerAutomationId?: string }).triggerAutomationId || '')
+    setTriggerTrainingId(r.trainingId ?? '')
     setStageIdField(r.stageId ?? '')
     setMinutesBefore(r.minutesBefore || 60)
     setWaitForRecording(!!r.waitForRecording)
@@ -612,9 +618,11 @@ export default function AutomationsPage() {
     }
 
     setSaving(true)
+    const isTrainingTrigger = triggerType === 'training_started' || triggerType === 'training_completed'
     const body = {
       name, triggerType,
       flowId: (!SESSION_WIDE_TRIGGERS.has(triggerType)) ? (flowId || null) : null,
+      trainingId: isTrainingTrigger ? (triggerTrainingId || null) : null,
       stageId: stageIdField || null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
       minutesBefore: triggerType === 'before_meeting' ? minutesBefore : null,
@@ -1109,6 +1117,19 @@ export default function AutomationsPage() {
                     <option value="">Any flow</option>
                     {flows.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
+                </div>
+              )}
+              {(triggerType === 'training_started' || triggerType === 'training_completed') && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Training (optional — leave empty for all trainings)</label>
+                  <select value={triggerTrainingId} onChange={(e) => setTriggerTrainingId(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="">Any training</option>
+                    {trainings.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                  </select>
+                  <p className="text-xs text-grey-40 mt-1">
+                    Pick a specific training to fire only when that one is {triggerType === 'training_completed' ? 'completed' : 'started'}.
+                    Leave on &ldquo;Any&rdquo; to fire for every training in the workspace.
+                  </p>
                 </div>
               )}
               <div>

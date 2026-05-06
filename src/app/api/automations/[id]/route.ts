@@ -94,6 +94,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         ...(body.name !== undefined && { name: body.name }),
         ...(body.triggerType !== undefined && { triggerType: body.triggerType }),
         ...(body.flowId !== undefined && { flowId: body.flowId || null }),
+        // trainingId is the trigger filter for training_* rules (which
+        // training fires this rule). Independent from step.trainingId
+        // (the action target). Persisted regardless of trigger so the
+        // editor round-trips cleanly; only the dispatcher reads it, and
+        // only for training-* triggers.
+        ...(body.trainingId !== undefined && {
+          trainingId: typeof body.trainingId === 'string' && body.trainingId ? body.trainingId : null,
+        }),
         ...(body.stageId !== undefined && {
           stageId: typeof body.stageId === 'string' && body.stageId ? body.stageId : null,
         }),
@@ -112,7 +120,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           smsBody: firstStep.smsBody ?? null,
           nextStepType: firstStep.nextStepType ?? null,
           nextStepUrl: firstStep.nextStepUrl ?? null,
-          trainingId: firstStep.trainingId ?? null,
           schedulingConfigId: firstStep.schedulingConfigId ?? null,
           delayMinutes: firstStep.delayMinutes ?? 0,
           emailDestination: firstStep.emailDestination ?? 'applicant',

@@ -86,6 +86,14 @@ export async function POST(request: NextRequest) {
   if (!ws) return unauthorized()
   const body = await request.json()
   const { name, triggerType, flowId, stageId, triggerAutomationId, minutesBefore, waitForRecording, steps } = body
+  // Rule-level trainingId scopes which training a `training_*` rule fires for
+  // ("Onboarding only" vs "any training"). Distinct from step.trainingId,
+  // which is the action target (which training to send the candidate to).
+  // Only meaningful for training_started / training_completed; ignored
+  // server-side for other triggers but persisted as-is so the editor can
+  // round-trip without surprising the recruiter.
+  const triggerTrainingId: string | null =
+    typeof body.trainingId === 'string' && body.trainingId ? body.trainingId : null
   if (!name || !triggerType) return NextResponse.json({ error: 'name and triggerType required' }, { status: 400 })
 
   // Steps are the canonical send config now. Reject if missing.
@@ -124,7 +132,7 @@ export async function POST(request: NextRequest) {
       smsBody: firstStep.smsBody ?? null,
       nextStepType: firstStep.nextStepType ?? null,
       nextStepUrl: firstStep.nextStepUrl ?? null,
-      trainingId: firstStep.trainingId ?? null,
+      trainingId: triggerTrainingId,
       schedulingConfigId: firstStep.schedulingConfigId ?? null,
       delayMinutes: firstStep.delayMinutes ?? 0,
       minutesBefore: triggerType === 'before_meeting' ? (minutesBefore as number) : null,
