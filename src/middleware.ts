@@ -53,6 +53,8 @@ export default withAuth(
           if (path.startsWith('/api/cron/')) return true
           // Meet integration v2 artifact proxy — signed artifact token or session auth inside the handler
           if (path.startsWith('/api/interview-meetings/')) return true
+          // Chrome extension attendance ingest — Bearer-token auth inside the handler
+          if (path.startsWith('/api/google-meet/attendance')) return true
           return !!token
         }
 
