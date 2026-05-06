@@ -74,6 +74,17 @@ export async function fireTrainingCompletedAutomations(sessionId: string, traini
       trainingId,
       legacyStatus: 'training_completed',
     }).catch(() => updatePipelineStatus(sessionId, 'training_completed').catch(() => {}))
+
+    // Candidate finished training. Nuke queued follow-ups whose value was
+    // "did you finish training?" — flow_completed/passed nudges and
+    // training_started reminders. meeting_scheduled cancellation is a
+    // separate path (fireMeetingScheduledAutomations) so we don't touch it
+    // here.
+    await cancelPendingStepsForSession(sessionId, {
+      ruleTriggerTypes: new Set(['flow_completed', 'flow_passed', 'training_started']),
+      reason: 'Training was completed before this step fired',
+    }).catch((err) => console.error('[Automation] cancel post-training-completed follow-ups failed:', err))
+
     await dispatchRulesForTrigger(sessionId, 'training_completed', session, { trainingId })
   } catch (error) {
     console.error('[Automation] Error firing training_completed automations for session', sessionId, ':', error)
@@ -94,6 +105,14 @@ export async function fireTrainingStartedAutomations(sessionId: string, training
       trainingId,
       legacyStatus: 'training_in_progress',
     })
+
+    // Candidate is now engaged with training. Nuke queued flow_*/passed
+    // nudges ("have you started yet?") — they're moot now.
+    await cancelPendingStepsForSession(sessionId, {
+      ruleTriggerTypes: new Set(['flow_completed', 'flow_passed']),
+      reason: 'Training was started before this step fired',
+    }).catch((err) => console.error('[Automation] cancel post-training-started follow-ups failed:', err))
+
     await dispatchRulesForTrigger(sessionId, 'training_started', session, { trainingId })
   } catch (error) {
     console.error('[Automation] Error firing training_started for session', sessionId, ':', error)
@@ -432,10 +451,12 @@ export async function fireMeetingLifecycleAutomations(
  *   - ruleTriggerTypes: only cancel executions whose parent rule has one of
  *     these trigger types. e.g. PRE_MEETING_TRIGGERS to nuke pre-booking
  *     follow-ups when the candidate books.
+ *   - reason: optional human-readable string written to errorMessage so the
+ *     Automations run history shows *why* the step was cancelled.
  */
 export async function cancelPendingStepsForSession(
   sessionId: string,
-  opts?: { ruleTriggerTypes?: Set<string>; stepTimingModes?: Set<string> },
+  opts?: { ruleTriggerTypes?: Set<string>; stepTimingModes?: Set<string>; reason?: string },
 ): Promise<number> {
   type Where = {
     sessionId: string
@@ -469,10 +490,26 @@ export async function cancelPendingStepsForSession(
     }
     await prisma.automationExecution.update({
       where: { id: e.id },
-      data: { status: 'cancelled', errorMessage: null },
+      data: { status: 'cancelled', errorMessage: opts?.reason ?? null },
     }).catch(() => {})
   }
   return queued.length
+}
+
+/**
+ * Cancel queued follow-ups whose value depended on the meeting still
+ * happening — i.e. delayed steps from rules with triggerType
+ * `meeting_scheduled` or `meeting_rescheduled` (e.g. "thanks for booking,
+ * see you Friday" sent 1 hour after booking). Composed with
+ * `cancelBeforeMeetingReminders` at the cancellation call sites so a
+ * cancelled meeting kills both pre-meeting reminders and post-booking
+ * nudges.
+ */
+export async function cancelMeetingDependentFollowups(sessionId: string): Promise<number> {
+  return cancelPendingStepsForSession(sessionId, {
+    ruleTriggerTypes: new Set(['meeting_scheduled', 'meeting_rescheduled']),
+    reason: 'Meeting was cancelled before this step fired',
+  })
 }
 
 async function dispatchRulesForTrigger(

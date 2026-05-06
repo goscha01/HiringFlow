@@ -11,7 +11,7 @@
 import type { calendar_v3 } from 'googleapis'
 import { prisma } from './prisma'
 import { logSchedulingEvent, updatePipelineStatus } from './scheduling'
-import { fireMeetingScheduledAutomations, fireMeetingRescheduledAutomations, cancelBeforeMeetingReminders, rescheduleBeforeMeetingReminders } from './automation'
+import { fireMeetingScheduledAutomations, fireMeetingRescheduledAutomations, cancelBeforeMeetingReminders, cancelMeetingDependentFollowups, rescheduleBeforeMeetingReminders } from './automation'
 import { meetIntegrationEnabled } from './meet/feature-flag'
 import { getSpaceByMeetingCode, parseMeetingCodeFromUrl, updateSpaceSettings } from './meet/google-meet'
 import { subscribeSpace, deleteSubscription } from './meet/workspace-events'
@@ -46,6 +46,12 @@ export async function processCalendarEvent(
     // a "your interview starts in 1h" email after the meeting was cancelled.
     await cancelBeforeMeetingReminders(sessionId).catch((err) => {
       console.error('[GCal] cancelBeforeMeetingReminders failed:', err)
+    })
+    // Also nuke queued post-booking follow-ups (meeting_scheduled /
+    // meeting_rescheduled rules) — "thanks for booking" / "see you Friday"
+    // is wrong if the meeting was cancelled.
+    await cancelMeetingDependentFollowups(sessionId).catch((err) => {
+      console.error('[GCal] cancelMeetingDependentFollowups failed:', err)
     })
     return { matched: true, eventType: 'meeting_cancelled', sessionId }
   }

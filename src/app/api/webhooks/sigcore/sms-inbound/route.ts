@@ -46,7 +46,7 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
 import { applyStageTrigger } from '@/lib/funnel-stage-runtime'
-import { cancelBeforeMeetingReminders } from '@/lib/automation'
+import { cancelBeforeMeetingReminders, cancelMeetingDependentFollowups } from '@/lib/automation'
 import { deleteCalendarEvent } from '@/lib/google'
 import { sendSms, normalizeToE164 } from '@/lib/sms'
 import { sendEmail } from '@/lib/email'
@@ -296,6 +296,10 @@ async function handleCancel(target: Target, from: string) {
   // get a "your interview is in 1h" SMS after they cancelled.
   await cancelBeforeMeetingReminders(target.sessionId).catch((err) =>
     console.error('[sms-inbound] cancelBeforeMeetingReminders failed:', err))
+  // Also nuke queued post-booking follow-ups (meeting_scheduled /
+  // meeting_rescheduled rules) — same reasoning as the gcal cancel path.
+  await cancelMeetingDependentFollowups(target.sessionId).catch((err) =>
+    console.error('[sms-inbound] cancelMeetingDependentFollowups failed:', err))
 
   // Stamp rejection reason. Always overwrite — the candidate's most recent
   // signal wins, mirroring the no-show auto-stamp behaviour.
