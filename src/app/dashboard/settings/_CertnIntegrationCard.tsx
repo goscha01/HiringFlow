@@ -7,6 +7,7 @@ interface IntegrationStatus {
   integration: {
     id: string
     region: 'CA' | 'UK' | 'AU'
+    useSandbox: boolean
     isActive: boolean
     defaultCheckTypes: Record<string, Record<string, unknown>>
     inviteExpiryDays: number
@@ -17,11 +18,23 @@ interface IntegrationStatus {
   webhookUrl: string
 }
 
-const REGION_OPTIONS: Array<{ value: 'CA' | 'UK' | 'AU'; label: string; host: string; portal: string }> = [
-  { value: 'CA', label: 'North America',                   host: 'api.ca.certn.co', portal: 'https://client.certn.co/ca/login' },
-  { value: 'UK', label: 'Europe / Middle East / Africa',   host: 'api.uk.certn.co', portal: 'https://client.certn.co/uk/login' },
-  { value: 'AU', label: 'Asia Pacific',                    host: 'api.au.certn.co', portal: 'https://client.certn.co/au/login' },
+const REGION_OPTIONS: Array<{
+  value: 'CA' | 'UK' | 'AU'
+  label: string
+  host: string
+  sandboxHost: string
+  portal: string
+}> = [
+  { value: 'CA', label: 'North America',                   host: 'api.ca.certn.co', sandboxHost: 'api.sandbox.certn.co',    portal: 'https://client.certn.co/ca/login' },
+  { value: 'UK', label: 'Europe / Middle East / Africa',   host: 'api.uk.certn.co', sandboxHost: 'api-uk.sandbox.certn.co', portal: 'https://client.certn.co/uk/login' },
+  { value: 'AU', label: 'Asia Pacific',                    host: 'api.au.certn.co', sandboxHost: 'api-au.sandbox.certn.co', portal: 'https://client.certn.co/au/login' },
 ]
+
+function hostFor(region: 'CA' | 'UK' | 'AU', sandbox: boolean): string {
+  const meta = REGION_OPTIONS.find((r) => r.value === region)
+  if (!meta) return ''
+  return sandbox ? meta.sandboxHost : meta.host
+}
 
 const COMMON_CHECK_TYPES: Array<{ value: string; label: string }> = [
   { value: 'IDENTITY_VERIFICATION_1', label: 'Identity Verification' },
@@ -44,6 +57,7 @@ export function CertnIntegrationCard() {
   // form state
   const [apiKey, setApiKey] = useState('')
   const [region, setRegion] = useState<'CA' | 'UK' | 'AU'>('CA')
+  const [useSandbox, setUseSandbox] = useState(false)
   const [webhookSecret, setWebhookSecret] = useState('')
   const [inviteExpiryDays, setInviteExpiryDays] = useState(7)
   const [checkTypes, setCheckTypes] = useState<Set<string>>(new Set(['IDENTITY_VERIFICATION_1']))
@@ -59,6 +73,7 @@ export function CertnIntegrationCard() {
       setStatus(d)
       if (d.integration) {
         setRegion(d.integration.region)
+        setUseSandbox(!!d.integration.useSandbox)
         setInviteExpiryDays(d.integration.inviteExpiryDays)
         const types = Object.keys(d.integration.defaultCheckTypes || {})
         if (types.length > 0) setCheckTypes(new Set(types))
@@ -75,6 +90,7 @@ export function CertnIntegrationCard() {
       const defaultCheckTypes = Object.fromEntries(Array.from(checkTypes).map(k => [k, {}]))
       const body: Record<string, unknown> = {
         region,
+        useSandbox,
         defaultCheckTypes,
         inviteExpiryDays,
       }
@@ -183,9 +199,12 @@ export function CertnIntegrationCard() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-surface rounded-[8px] p-3">
-              <div className="text-[11px] uppercase tracking-wide text-grey-40 mb-1">Region</div>
+              <div className="text-[11px] uppercase tracking-wide text-grey-40 mb-1">
+                Region
+                {status!.integration!.useSandbox && <span className="ml-1.5 text-[10px] px-1.5 py-0 rounded-full bg-amber-100 text-amber-800 font-semibold normal-case tracking-normal">Sandbox</span>}
+              </div>
               <div className="text-sm font-medium text-grey-15">{regionMeta?.label || status!.integration!.region}</div>
-              <div className="text-[11px] text-grey-50 font-mono mt-0.5">{regionMeta?.host}</div>
+              <div className="text-[11px] text-grey-50 font-mono mt-0.5">{hostFor(status!.integration!.region, status!.integration!.useSandbox)}</div>
             </div>
             <div className="bg-surface rounded-[8px] p-3">
               <div className="text-[11px] uppercase tracking-wide text-grey-40 mb-1">Invite expiry</div>
@@ -279,12 +298,29 @@ export function CertnIntegrationCard() {
               className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               {REGION_OPTIONS.map((r) => (
-                <option key={r.value} value={r.value}>{r.label} ({r.host})</option>
+                <option key={r.value} value={r.value}>{r.label} ({useSandbox ? r.sandboxHost : r.host})</option>
               ))}
             </select>
             <p className="text-[11px] text-grey-50 mt-1">
               API keys are region-scoped — pick the region your Certn account lives in. Wrong region returns 401.
             </p>
+          </div>
+
+          <div>
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useSandbox}
+                onChange={(e) => setUseSandbox(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-surface-border text-brand-500 focus:ring-brand-500"
+              />
+              <span className="text-xs">
+                <span className="font-medium text-grey-20">Use sandbox environment</span>
+                <span className="block text-[11px] text-grey-50 mt-0.5">
+                  Routes requests to <code className="text-[11px] font-mono">{hostFor(region, true)}</code> instead of production. Sandbox accounts have separate API keys from production — if your token came from a sandbox/test workspace, enable this.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div>

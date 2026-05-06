@@ -38,8 +38,18 @@ export class CertnConfigError extends Error {
   }
 }
 
-export function baseUrlForRegion(region: CertnRegion | string): string {
+export function baseUrlForRegion(region: CertnRegion | string, useSandbox = false): string {
   const r = (region || 'CA').toUpperCase()
+  if (useSandbox) {
+    // Asymmetric sandbox host naming per Certn docs: CA sandbox has no
+    // region prefix, UK/AU sandboxes use a hyphenated prefix.
+    switch (r) {
+      case 'UK': return 'https://api-uk.sandbox.certn.co'
+      case 'AU': return 'https://api-au.sandbox.certn.co'
+      case 'CA':
+      default: return 'https://api.sandbox.certn.co'
+    }
+  }
   switch (r) {
     case 'UK': return 'https://api.uk.certn.co'
     case 'AU': return 'https://api.au.certn.co'
@@ -51,6 +61,7 @@ export function baseUrlForRegion(region: CertnRegion | string): string {
 interface ResolvedClient {
   apiKey: string
   region: CertnRegion
+  useSandbox: boolean
   baseUrl: string
   integrationId: string
   webhookSecret: string | null
@@ -83,12 +94,14 @@ export async function resolveClient(workspaceId: string): Promise<ResolvedClient
   }
 
   const region = (integration.region as CertnRegion) || 'CA'
+  const useSandbox = !!integration.useSandbox
   const defaultCheckTypes = (integration.defaultCheckTypes as Record<string, Record<string, unknown>>) || {}
 
   return {
     apiKey,
     region,
-    baseUrl: baseUrlForRegion(region),
+    useSandbox,
+    baseUrl: baseUrlForRegion(region, useSandbox),
     integrationId: integration.id,
     webhookSecret,
     defaultCheckTypes,

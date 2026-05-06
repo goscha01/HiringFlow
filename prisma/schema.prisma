@@ -880,6 +880,11 @@ model CertnIntegration {
   apiKeyEncrypted   String    @map("api_key_encrypted")
   // 'CA' (api.ca.certn.co) | 'UK' (api.uk.certn.co) | 'AU' (api.au.certn.co)
   region            String    @default("CA")
+  // When true, route requests to the per-region sandbox host instead of
+  // production. Sandbox: api.sandbox.certn.co (CA), api-uk.sandbox.certn.co
+  // (UK), api-au.sandbox.certn.co (AU). Sandbox accounts and production
+  // accounts have separate API keys — they're not interchangeable.
+  useSandbox        Boolean   @default(false) @map("use_sandbox")
   // HMAC-SHA256 signing secret pasted in by the customer after they register
   // the HiringFlow webhook URL in the Certn portal. Encrypted.
   webhookSecret     String?   @map("webhook_secret")

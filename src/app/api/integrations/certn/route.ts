@@ -33,6 +33,7 @@ export async function GET() {
     select: {
       id: true,
       region: true,
+      useSandbox: true,
       isActive: true,
       defaultCheckTypes: true,
       inviteExpiryDays: true,
@@ -49,6 +50,7 @@ export async function GET() {
       ? {
           id: integration.id,
           region: integration.region,
+          useSandbox: integration.useSandbox,
           isActive: integration.isActive,
           defaultCheckTypes: integration.defaultCheckTypes ?? {},
           inviteExpiryDays: integration.inviteExpiryDays,
@@ -68,6 +70,7 @@ export async function PUT(request: NextRequest) {
   const body = await request.json().catch(() => null) as {
     apiKey?: string | null
     region?: string
+    useSandbox?: boolean
     webhookSecret?: string | null
     defaultCheckTypes?: Record<string, Record<string, unknown>>
     inviteExpiryDays?: number
@@ -91,12 +94,16 @@ export async function PUT(request: NextRequest) {
 
   const data: {
     region: string
+    useSandbox?: boolean
     apiKeyEncrypted?: string
     webhookSecret?: string | null
     defaultCheckTypes?: object
     inviteExpiryDays?: number
   } = { region }
 
+  if (typeof body.useSandbox === 'boolean') {
+    data.useSandbox = body.useSandbox
+  }
   if (body.apiKey && body.apiKey.trim().length > 0) {
     data.apiKeyEncrypted = encrypt(body.apiKey.trim())
   }
@@ -126,6 +133,7 @@ export async function PUT(request: NextRequest) {
           workspaceId: session.workspaceId,
           // Required-on-create fields
           region: data.region,
+          useSandbox: data.useSandbox ?? false,
           apiKeyEncrypted: data.apiKeyEncrypted!, // guaranteed by check above
           webhookSecret: data.webhookSecret ?? null,
           defaultCheckTypes: (data.defaultCheckTypes as object) ?? null,
@@ -138,6 +146,7 @@ export async function PUT(request: NextRequest) {
     integration: {
       id: integration.id,
       region: integration.region,
+      useSandbox: integration.useSandbox,
       isActive: integration.isActive,
       hasWebhookSecret: !!integration.webhookSecret,
       defaultCheckTypes: integration.defaultCheckTypes ?? {},
@@ -203,11 +212,14 @@ export async function POST(request: NextRequest) {
       error: res.status === 401 || res.status === 403 ? 'auth_failed' : 'request_failed',
       status: res.status,
       region: client.region,
+      sandbox: client.useSandbox,
       url,
       body: bodyPreview,
       hint:
         res.status === 401 || res.status === 403
-          ? 'Most often: the API key is for a different region (try CA / UK / AU), or the token was revoked. The Token from Teams → API Keys (legacy portal) may not be a CertnCentric key — your account may need to generate one in the new portal.'
+          ? client.useSandbox
+            ? 'Sandbox key rejected. Confirm the key is from a sandbox/test workspace (production keys do not work against sandbox hosts). Also try a different region.'
+            : 'Production key rejected. Three things to try: (1) toggle "Use sandbox environment" if your Certn account is a sandbox/test workspace, (2) try a different region (CA / UK / AU), (3) regenerate the key in your Certn portal.'
           : res.status === 404
             ? 'Endpoint returned 404. This account may still be on the legacy v1 API rather than CertnCentric — contact Certn support.'
             : `Certn returned ${res.status}.`,
