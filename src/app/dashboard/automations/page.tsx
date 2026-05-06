@@ -88,6 +88,9 @@ const TRIGGERS = [
   { value: 'meeting_no_show', label: 'No-show' },
   { value: 'recording_ready', label: 'Recording Ready' },
   { value: 'transcript_ready', label: 'Transcript Ready' },
+  { value: 'background_check_passed', label: 'Background Check Passed' },
+  { value: 'background_check_failed', label: 'Background Check Failed' },
+  { value: 'background_check_needs_review', label: 'Background Check — Needs Review' },
   { value: 'automation_completed', label: 'After Automation' },
 ]
 
@@ -103,6 +106,9 @@ const SESSION_WIDE_TRIGGERS = new Set([
   'meeting_no_show',
   'recording_ready',
   'transcript_ready',
+  'background_check_passed',
+  'background_check_failed',
+  'background_check_needs_review',
 ])
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -118,6 +124,9 @@ const TRIGGER_LABELS: Record<string, string> = {
   meeting_no_show: 'No-show',
   recording_ready: 'Recording Ready',
   transcript_ready: 'Transcript Ready',
+  background_check_passed: 'Background Check Passed',
+  background_check_failed: 'Background Check Failed',
+  background_check_needs_review: 'Background Check — Needs Review',
   automation_completed: 'After Automation',
 }
 
@@ -148,6 +157,9 @@ const TRIGGER_TO_SMS_BODY: Record<string, string> = {
   meeting_no_show:    'Hi {{candidate_name}}, we missed you for the interview. Pick a new time: {{schedule_link}}',
   recording_ready:    'Hi {{candidate_name}}, the recording from your interview is ready: {{recording_link}}',
   transcript_ready:   'Hi {{candidate_name}}, the transcript from your interview is ready: {{transcript_link}}',
+  background_check_passed: 'Hi {{candidate_name}}, your background check came back clear. We\'ll be in touch with next steps.',
+  background_check_failed: 'Hi {{candidate_name}}, thanks for your interest. We won\'t be moving forward with your application at this time.',
+  background_check_needs_review: 'Hi {{candidate_name}}, your background check needs a quick review on our side. We\'ll be in touch shortly.',
   automation_completed: 'Hi {{candidate_name}}, just checking in regarding your application for {{flow_name}}.',
 }
 const DEFAULT_SMS_BODY = 'Hi {{candidate_name}}, this is a quick note about your application for {{flow_name}}.'
@@ -161,12 +173,13 @@ function pickDefaultSmsBody(triggerType: string): string {
  * and infer which "Includes link to" option matches the merge tokens used.
  * Priority: training > scheduling > meet_link. Returns null if none matched.
  */
-type LinkType = 'training' | 'scheduling' | 'meet_link'
+type LinkType = 'training' | 'scheduling' | 'meet_link' | 'background_check'
 function detectLinkType(content: string | null | undefined): LinkType | null {
   if (!content) return null
   if (content.includes('{{training_link}}')) return 'training'
   if (content.includes('{{schedule_link}}')) return 'scheduling'
   if (content.includes('{{meeting_link}}')) return 'meet_link'
+  if (content.includes('{{certn_link}}')) return 'background_check'
   return null
 }
 
@@ -326,12 +339,12 @@ export default function AutomationsPage() {
   // hand-editing the template; we don't lock placement.
   const insertTokenInTemplate = async (
     templateId: string,
-    kind: 'training' | 'scheduling' | 'meet_link',
+    kind: 'training' | 'scheduling' | 'meet_link' | 'background_check',
     label: string,
   ): Promise<boolean> => {
     const tpl = templates.find((t) => t.id === templateId)
     if (!tpl || !tpl.bodyHtml) return false
-    const tokenMap = { training: '{{training_link}}', scheduling: '{{schedule_link}}', meet_link: '{{meeting_link}}' }
+    const tokenMap = { training: '{{training_link}}', scheduling: '{{schedule_link}}', meet_link: '{{meeting_link}}', background_check: '{{certn_link}}' }
     const token = tokenMap[kind]
     if (tpl.bodyHtml.includes(token)) return true // already present
     const ctaHtml = `<p style="margin:24px 0"><a href="${token}" style="background:#FF9500;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:bold">${label}</a></p>`
@@ -357,8 +370,8 @@ export default function AutomationsPage() {
   // Same idea for SMS — inject token at end of step.smsBody (in step
   // state, no API call). The step is saved when the recruiter clicks
   // Save on the rule modal.
-  const insertTokenInSmsBody = (stepIdx: number, kind: 'training' | 'scheduling' | 'meet_link') => {
-    const tokenMap = { training: '{{training_link}}', scheduling: '{{schedule_link}}', meet_link: '{{meeting_link}}' }
+  const insertTokenInSmsBody = (stepIdx: number, kind: 'training' | 'scheduling' | 'meet_link' | 'background_check') => {
+    const tokenMap = { training: '{{training_link}}', scheduling: '{{schedule_link}}', meet_link: '{{meeting_link}}', background_check: '{{certn_link}}' }
     const token = tokenMap[kind]
     setSteps((prev) => prev.map((s, i) => {
       if (i !== stepIdx) return s
@@ -1389,8 +1402,8 @@ function StepCard(props: {
   onCompanyMissing: () => void
   onPreview: (channel?: 'email' | 'sms') => void
   onCreateDefaultDirect: (tpl: { name: string; subject: string; bodyHtml: string }) => Promise<string | null>
-  onInsertTokenInTemplate: (templateId: string, kind: 'training' | 'scheduling' | 'meet_link', label: string) => Promise<boolean>
-  onInsertTokenInSmsBody: (kind: 'training' | 'scheduling' | 'meet_link') => void
+  onInsertTokenInTemplate: (templateId: string, kind: 'training' | 'scheduling' | 'meet_link' | 'background_check', label: string) => Promise<boolean>
+  onInsertTokenInSmsBody: (kind: 'training' | 'scheduling' | 'meet_link' | 'background_check') => void
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
   isEditingTemplate: boolean
@@ -1739,6 +1752,7 @@ function StepCard(props: {
                 training: '{{training_link}}',
                 scheduling: '{{schedule_link}}',
                 meet_link: '{{meeting_link}}',
+                background_check: '{{certn_link}}',
               }
               const expectedToken = tokenMap[step.nextStepType]
               if (!expectedToken) return null
@@ -1747,6 +1761,7 @@ function StepCard(props: {
                 training:   step.training?.title || trainings.find((t) => t.id === step.trainingId)?.title || 'Continue',
                 scheduling: step.schedulingConfig?.name || schedulingConfigs.find((s) => s.id === step.schedulingConfigId)?.name || 'Book interview',
                 meet_link:  'Join interview',
+                background_check: 'Start background check',
               }
               const ctaLabel = labelMap[step.nextStepType] || 'Continue'
               const emailHasToken = !wantsEmail || (tpl && (tpl.bodyHtml || '').includes(expectedToken))
@@ -1772,10 +1787,10 @@ function StepCard(props: {
                   type="button"
                   onClick={async () => {
                     if (emailNeedsInsert && tpl) {
-                      await props.onInsertTokenInTemplate(tpl.id, step.nextStepType as 'training' | 'scheduling' | 'meet_link', ctaLabel)
+                      await props.onInsertTokenInTemplate(tpl.id, step.nextStepType as 'training' | 'scheduling' | 'meet_link' | 'background_check', ctaLabel)
                     }
                     if (smsNeedsInsert) {
-                      props.onInsertTokenInSmsBody(step.nextStepType as 'training' | 'scheduling' | 'meet_link')
+                      props.onInsertTokenInSmsBody(step.nextStepType as 'training' | 'scheduling' | 'meet_link' | 'background_check')
                     }
                   }}
                   className="text-[11px] px-2.5 py-1 rounded-[6px] bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-200 font-medium whitespace-nowrap"
@@ -1790,12 +1805,13 @@ function StepCard(props: {
               )
             })()}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {[
               { v: '', l: 'Nothing' },
               { v: 'training', l: 'Training' },
               { v: 'scheduling', l: 'Scheduling' },
               { v: 'meet_link', l: 'Google Meet' },
+              { v: 'background_check', l: 'Background Check' },
             ].map(({ v, l }) => {
               const detected = detectStepLinkType(step, templates)
               const isSelected = (step.nextStepType || '') === v
@@ -1819,7 +1835,11 @@ function StepCard(props: {
           {(() => {
             const detected = detectStepLinkType(step, templates)
             if (!step.nextStepType && detected) {
-              return <p className="text-[11px] text-brand-700/80 mt-1.5">✦ Detected <code>{detected === 'meet_link' ? '{{meeting_link}}' : detected === 'training' ? '{{training_link}}' : '{{schedule_link}}'}</code> in the template — click to confirm.</p>
+              const detectedToken = detected === 'meet_link' ? '{{meeting_link}}'
+                : detected === 'training' ? '{{training_link}}'
+                : detected === 'background_check' ? '{{certn_link}}'
+                : '{{schedule_link}}'
+              return <p className="text-[11px] text-brand-700/80 mt-1.5">✦ Detected <code>{detectedToken}</code> in the template — click to confirm.</p>
             }
             // Mismatch warning: picker is set but the actual template/SMS body
             // doesn't use the corresponding merge token, so the link won't
@@ -1829,6 +1849,7 @@ function StepCard(props: {
                 training: '{{training_link}}',
                 scheduling: '{{schedule_link}}',
                 meet_link: '{{meeting_link}}',
+                background_check: '{{certn_link}}',
               }
               const expectedToken = tokenMap[step.nextStepType]
               if (!expectedToken) return null
@@ -1865,6 +1886,11 @@ function StepCard(props: {
           {step.nextStepType === 'meet_link' && (
             <p className="text-[11px] text-grey-40 mt-2">
               {'{{meeting_link}}'} renders the candidate&apos;s scheduled Meet URL — populated automatically from the InterviewMeeting row when the meeting is created (in-app scheduler or Calendly adoption). No additional configuration needed.
+            </p>
+          )}
+          {step.nextStepType === 'background_check' && (
+            <p className="text-[11px] text-grey-40 mt-2">
+              {'{{certn_link}}'} orders a Certn case for the candidate when this step runs and renders the personalized invite URL. Configure your API key, region, and default check types in <a href="/dashboard/settings?tab=integrations" className="text-brand-500 hover:text-brand-600 underline">Settings → Integrations</a>. The check completes asynchronously (1–2 days) and fires the Background Check Passed/Failed/Needs Review triggers.
             </p>
           )}
         </div>

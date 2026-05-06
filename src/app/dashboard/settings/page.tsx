@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { GoogleIntegrationCard } from './_GoogleIntegrationCard'
+import { CertnIntegrationCard } from './_CertnIntegrationCard'
 import { SenderVerificationCard } from './_SenderVerificationCard'
 import { Badge, PageHeader, type BadgeTone } from '@/components/design'
 
@@ -31,7 +32,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'business' || t === 'team' || t === 'email' || t === 'providers') setTab(t)
+    if (t === 'business' || t === 'team' || t === 'email' || t === 'providers' || t === 'integrations') setTab(t)
   }, [])
 
   // Form state
@@ -299,6 +300,7 @@ export default function SettingsPage() {
       {tab === 'integrations' && (
         <div className="space-y-4 max-w-2xl">
           <GoogleIntegrationCard />
+          <CertnIntegrationCard />
         </div>
       )}
       </div>

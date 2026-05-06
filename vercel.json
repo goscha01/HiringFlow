@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/meet-subscriptions-renew",
       "schedule": "10 3 * * *"
+    },
+    {
+      "path": "/api/cron/certn-reconcile",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

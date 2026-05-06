@@ -282,6 +282,48 @@ async function reScheduleMeetingRelativeSteps(sessionId: string) {
 }
 
 /**
+ * Background check outcome dispatcher. Called from the Certn webhook route
+ * (and the reconciliation cron) when a case crosses into a terminal+scored
+ * state. Maps Certn's overall_score onto one of three trigger types and
+ * dispatches the matching rules.
+ *
+ * Outcome → trigger mapping:
+ *   passed       → background_check_passed       (CLEAR | NOT_APPLICABLE)
+ *   failed       → background_check_failed       (REJECT)
+ *   needs_review → background_check_needs_review (REVIEW | RESTRICTED)
+ *
+ * passed/failed also auto-advance the candidate via applyStageTrigger to
+ * mirror the meeting lifecycle pattern. needs_review stays put — it's a
+ * recruiter-decision moment, not an automatic stage transition.
+ */
+export async function fireBackgroundCheckAutomations(
+  sessionId: string,
+  outcome: 'passed' | 'failed' | 'needs_review',
+) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { flow: true, ad: true },
+    })
+    if (!session) return
+    const triggerType = `background_check_${outcome}` as const
+
+    const legacyStatus = outcome === 'failed' ? 'rejected' : undefined
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: triggerType,
+      flowId: session.flowId,
+      legacyStatus,
+    }).catch(() => {})
+
+    await dispatchRulesForTrigger(sessionId, triggerType, session)
+  } catch (error) {
+    console.error(`[Automation] Error firing background_check_${outcome} for session`, sessionId, ':', error)
+  }
+}
+
+/**
  * Generic lifecycle dispatcher for Meet integration v2 events
  * (meeting_started / meeting_ended / recording_ready / transcript_ready).
  */
@@ -813,6 +855,27 @@ export async function executeStep(
     if (!scheduleLink && step.nextStepUrl) scheduleLink = step.nextStepUrl
   }
 
+  // Background check link. When nextStepType='background_check', order a
+  // Certn case (or reuse the existing active one) and surface the invite URL
+  // via {{certn_link}}. Same semantics as training_link — the recruiter
+  // configures the merge token in the email/SMS body and we resolve it
+  // here. Failures are logged and the link stays empty rather than
+  // crashing the send; the recruiter sees the missing link in the rendered
+  // email and can investigate.
+  let certnLink = ''
+  if (step.nextStepType === 'background_check') {
+    try {
+      const { orderForSession } = await import('./certn/order')
+      const result = await orderForSession({
+        sessionId,
+        orderedById: null,
+      })
+      certnLink = result.backgroundCheck.inviteLink || ''
+    } catch (err) {
+      console.error('[Automation] Failed to order Certn background check:', err)
+    }
+  }
+
   let meetingTime = ''
   let meetingLink = ''
   let recordingLink = ''
@@ -894,6 +957,7 @@ export async function executeStep(
     flow_name: session.flow.name,
     training_link: trainingLink,
     schedule_link: scheduleLink,
+    certn_link: certnLink,
     meeting_time: meetingTime,
     meeting_link: meetingLink,
     recording_link: recordingLink,

@@ -25,6 +25,9 @@ const EVENT_LABELS: Record<StageTriggerEvent, string> = {
   meeting_started:    'Interview started',
   meeting_ended:      'Interview ended',
   meeting_no_show:    'Interview no-show',
+  background_check_passed:       'Background check passed',
+  background_check_failed:       'Background check failed',
+  background_check_needs_review: 'Background check — needs review',
 }
 
 function eventTargetKind(event: StageTriggerEvent): 'flow' | 'training' | null {

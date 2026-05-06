@@ -12,6 +12,7 @@ import {
 import { InterviewPanel } from './_InterviewPanel'
 import { NotesPanel } from './_NotesPanel'
 import { CurrentActivityCard } from './_CurrentActivityCard'
+import { BackgroundCheckCard } from './_BackgroundCheckCard'
 
 interface Answer {
   id: string; answeredAt: string
@@ -765,6 +766,13 @@ export default function CandidateDetailPage() {
           the panel self-hides if the feature flag / scopes aren't active, so
           this never affects workspaces still on the Calendly flow) */}
       <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} isRebook={candidate.isRebook} />
+
+      {/* Background check — Certn integration; self-hides gracefully if the
+          workspace hasn't connected Certn yet (the order button just returns
+          a friendly config error). */}
+      <div className="mb-6">
+        <BackgroundCheckCard sessionId={id} />
+      </div>
 
       {/* Internal notes — recruiter-only, not shown to the candidate */}
       <NotesPanel candidateId={id} />
