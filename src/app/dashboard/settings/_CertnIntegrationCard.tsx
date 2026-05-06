@@ -106,9 +106,23 @@ export function CertnIntegrationCard() {
     setBanner(null)
     try {
       const r = await fetch('/api/integrations/certn?action=test', { method: 'POST' })
-      const d = await r.json() as { ok: boolean; region?: string; error?: string }
-      if (d.ok) setBanner({ type: 'success', text: `Connected to Certn ${d.region} region.` })
-      else setBanner({ type: 'error', text: `Test failed: ${d.error || 'Unknown error'}` })
+      const d = await r.json() as {
+        ok: boolean; region?: string; error?: string; status?: number
+        url?: string; body?: string; hint?: string
+      }
+      if (d.ok) {
+        setBanner({ type: 'success', text: `Connected to Certn ${d.region} region.` })
+        return
+      }
+      // Detailed multi-line failure — the pre-formatted "Test failed: X"
+      // string was useless when X was just "auth_failed".
+      const lines = [
+        `Test failed: ${d.error || 'Unknown'}${d.status ? ` (HTTP ${d.status})` : ''}`,
+      ]
+      if (d.hint) lines.push(d.hint)
+      if (d.url) lines.push(`Tried: ${d.url}`)
+      if (d.body) lines.push(`Response: ${d.body}`)
+      setBanner({ type: 'error', text: lines.join('\n') })
     } finally {
       setTesting(false)
     }
@@ -159,7 +173,7 @@ export function CertnIntegrationCard() {
       </div>
 
       {banner && (
-        <div className={`mb-4 px-3 py-2 rounded-[8px] text-sm border ${banner.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+        <div className={`mb-4 px-3 py-2 rounded-[8px] text-sm border whitespace-pre-line break-words ${banner.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
           {banner.text}
         </div>
       )}

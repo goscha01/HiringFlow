@@ -172,30 +172,54 @@ export async function POST(request: NextRequest) {
 
   try {
     const client = await resolveClient(session.workspaceId)
-    // Hit a cheap, low-side-effect endpoint. Fetching a non-existent case
-    // returns 404 which still proves auth works; any auth failure surfaces
-    // as 401/403.
-    try {
-      await getCase(client, '00000000-0000-0000-0000-000000000000')
-    } catch (err) {
-      if (err instanceof CertnError) {
-        if (err.status === 404) {
-          // 404 = key works, just no such case. That's a successful test.
-          return NextResponse.json({ ok: true, region: client.region })
-        }
-        if (err.status === 401 || err.status === 403) {
-          return NextResponse.json({ ok: false, error: 'auth_failed', status: err.status }, { status: 200 })
-        }
-        return NextResponse.json({ ok: false, error: err.message, status: err.status }, { status: 200 })
-      }
-      throw err
+    // Hit /api/public/cases/ (list) — documented endpoint that returns 200
+    // with an empty results array when the account has no cases. Cleaner
+    // success signal than probing a known-missing case id, and lets us
+    // distinguish "auth failed" (401/403) from "endpoint not on this
+    // account" (404 on the list path itself = legacy v1 account).
+    const url = `${client.baseUrl}/api/public/cases/?page_size=1`
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Api-Key ${client.apiKey}`,
+        'Accept': 'application/json',
+      },
+      cache: 'no-store',
+    })
+    const bodyText = await res.text()
+    const bodyPreview = bodyText.length > 500 ? bodyText.slice(0, 500) + '…' : bodyText
+
+    if (res.ok) {
+      return NextResponse.json({
+        ok: true,
+        region: client.region,
+        baseUrl: client.baseUrl,
+        status: res.status,
+      })
     }
-    return NextResponse.json({ ok: true, region: client.region })
+
+    return NextResponse.json({
+      ok: false,
+      error: res.status === 401 || res.status === 403 ? 'auth_failed' : 'request_failed',
+      status: res.status,
+      region: client.region,
+      url,
+      body: bodyPreview,
+      hint:
+        res.status === 401 || res.status === 403
+          ? 'Most often: the API key is for a different region (try CA / UK / AU), or the token was revoked. The Token from Teams → API Keys (legacy portal) may not be a CertnCentric key — your account may need to generate one in the new portal.'
+          : res.status === 404
+            ? 'Endpoint returned 404. This account may still be on the legacy v1 API rather than CertnCentric — contact Certn support.'
+            : `Certn returned ${res.status}.`,
+    }, { status: 200 })
   } catch (err) {
     if (err instanceof CertnConfigError) {
       return NextResponse.json({ ok: false, error: err.message }, { status: 200 })
     }
+    if (err instanceof CertnError) {
+      return NextResponse.json({ ok: false, error: err.message, status: err.status, body: err.body }, { status: 200 })
+    }
     console.error('[Certn test] unexpected error', err)
-    return NextResponse.json({ ok: false, error: 'unexpected_error' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'unexpected_error', message: (err as Error).message }, { status: 500 })
   }
 }
