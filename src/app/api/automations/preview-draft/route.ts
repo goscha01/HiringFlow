@@ -39,6 +39,8 @@ export async function POST(request: NextRequest) {
     schedulingConfigId?: string | null
     emailDestination?: 'applicant' | 'company' | 'specific'
     emailDestinationAddress?: string | null
+    smsDestination?: 'applicant' | 'company' | 'specific'
+    smsDestinationNumber?: string | null
   } | null
   if (!body) return NextResponse.json({ error: 'Bad JSON' }, { status: 400 })
 
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
   // caller's workspace so you can't preview templates you don't own.
   const workspace = await prisma.workspace.findUnique({
     where: { id: ws.workspaceId },
-    select: { senderEmail: true, senderName: true, timezone: true },
+    select: { senderEmail: true, senderName: true, timezone: true, phone: true },
   })
   const template = channel === 'email' && body.emailTemplateId
     ? await prisma.emailTemplate.findFirst({
@@ -116,10 +118,15 @@ export async function POST(request: NextRequest) {
 
   if (channel === 'sms') {
     const renderedBody = renderTemplate(body.smsBody as string, variables)
+    const smsRecipient = body.smsDestination === 'company'
+      ? (workspace?.phone || '(no company phone configured)')
+      : body.smsDestination === 'specific'
+        ? (body.smsDestinationNumber || '(no specific number configured)')
+        : '+15551230000'
     return NextResponse.json({
       channel,
       smsBody: renderedBody,
-      recipient: '+15551230000',
+      recipient: smsRecipient,
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
       templateName: 'SMS body',
       variables,

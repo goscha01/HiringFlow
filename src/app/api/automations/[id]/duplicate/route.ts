@@ -47,6 +47,8 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
           smsBody: s.smsBody,
           emailDestination: s.emailDestination,
           emailDestinationAddress: s.emailDestinationAddress,
+          smsDestination: s.smsDestination,
+          smsDestinationNumber: s.smsDestinationNumber,
           nextStepType: s.nextStepType,
           nextStepUrl: s.nextStepUrl,
           trainingId: s.trainingId,

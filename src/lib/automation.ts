@@ -802,7 +802,7 @@ export async function executeStep(
       schedulingConfig: true,
       rule: {
         include: {
-          workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true, timezone: true } },
+          workspace: { select: { senderEmail: true, senderName: true, senderVerifiedAt: true, senderDomain: true, senderDomainValidatedAt: true, timezone: true, phone: true } },
         },
       },
     },
@@ -980,18 +980,33 @@ export async function executeStep(
       })
       return
     }
-    if (!session.candidatePhone) {
+
+    // Resolve recipient phone based on smsDestination — mirrors email's
+    // applicant / company / specific options. Default 'applicant' → candidate.
+    let rawRecipient: string | null = null
+    let recipientLabel = ''
+    if (step.smsDestination === 'company') {
+      rawRecipient = rule.workspace?.phone ?? null
+      recipientLabel = 'workspace company phone'
+    } else if (step.smsDestination === 'specific') {
+      rawRecipient = step.smsDestinationNumber ?? null
+      recipientLabel = 'specific number on the step'
+    } else {
+      rawRecipient = session.candidatePhone ?? null
+      recipientLabel = 'candidate phone'
+    }
+    if (!rawRecipient) {
       await prisma.automationExecution.update({
         where: { id: execution.id },
-        data: { status: 'failed', errorMessage: 'Candidate has no phone number — cannot send SMS', channel, provider },
+        data: { status: 'failed', errorMessage: `No ${recipientLabel} configured`, channel, provider },
       })
       return
     }
-    const normalized = normalizeToE164(session.candidatePhone)
+    const normalized = normalizeToE164(rawRecipient)
     if (!normalized) {
       await prisma.automationExecution.update({
         where: { id: execution.id },
-        data: { status: 'failed', errorMessage: `Candidate phone is not E.164-normalizable: ${session.candidatePhone}`, channel, provider },
+        data: { status: 'failed', errorMessage: `${recipientLabel} is not E.164-normalizable: ${rawRecipient}`, channel, provider },
       })
       return
     }

@@ -25,6 +25,8 @@ interface StepShape {
   smsBody: string | null
   emailDestination: 'applicant' | 'company' | 'specific'
   emailDestinationAddress: string | null
+  smsDestination: 'applicant' | 'company' | 'specific'
+  smsDestinationNumber: string | null
   nextStepType: string | null
   nextStepUrl: string | null
   trainingId: string | null
@@ -228,6 +230,8 @@ function newStep(order: number, defaultTemplateId?: string): StepShape {
     smsBody: null,
     emailDestination: 'applicant',
     emailDestinationAddress: null,
+    smsDestination: 'applicant',
+    smsDestinationNumber: null,
     nextStepType: null,
     nextStepUrl: null,
     trainingId: null,
@@ -298,7 +302,9 @@ export default function AutomationsPage() {
     }
   }, [templateEditorStepIdx])
   const [companyEmail, setCompanyEmail] = useState<string | null>(null)
+  const [companyPhone, setCompanyPhone] = useState<string | null>(null)
   const [showCompanyEmailWarning, setShowCompanyEmailWarning] = useState(false)
+  const [showCompanyPhoneWarning, setShowCompanyPhoneWarning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
@@ -476,6 +482,8 @@ export default function AutomationsPage() {
           schedulingConfigId: step.schedulingConfigId,
           emailDestination: step.emailDestination,
           emailDestinationAddress: step.emailDestinationAddress,
+          smsDestination: step.smsDestination,
+          smsDestinationNumber: step.smsDestinationNumber,
         }),
       })
       if (!res.ok) {
@@ -542,6 +550,8 @@ export default function AutomationsPage() {
           channel: (s.channel === 'sms' || s.channel === 'both') ? s.channel : 'email',
           timingMode: (tm === 'before_meeting' || tm === 'after_meeting') ? tm : 'trigger',
           emailDestination: (s.emailDestination as StepShape['emailDestination']) || 'applicant',
+          smsDestination: (s.smsDestination as StepShape['smsDestination']) || 'applicant',
+          smsDestinationNumber: s.smsDestinationNumber ?? null,
         }
       }))
     } else {
@@ -554,6 +564,8 @@ export default function AutomationsPage() {
         smsBody: r.smsBody ?? null,
         emailDestination: (r.emailDestination as StepShape['emailDestination']) || 'applicant',
         emailDestinationAddress: r.emailDestinationAddress ?? null,
+        smsDestination: 'applicant',
+        smsDestinationNumber: null,
         nextStepType: r.nextStepType ?? null,
         nextStepUrl: r.nextStepUrl ?? null,
         trainingId: r.trainingId ?? null,
@@ -616,6 +628,8 @@ export default function AutomationsPage() {
         smsBody: s.smsBody,
         emailDestination: s.emailDestination,
         emailDestinationAddress: s.emailDestinationAddress,
+        smsDestination: s.smsDestination,
+        smsDestinationNumber: s.smsDestinationNumber,
         nextStepType: s.nextStepType,
         nextStepUrl: s.nextStepUrl,
         trainingId: s.trainingId,
@@ -1170,6 +1184,7 @@ export default function AutomationsPage() {
                       trainings={trainings}
                       schedulingConfigs={schedulingConfigs}
                       companyEmail={companyEmail}
+                      companyPhone={companyPhone}
                       previewLoading={draftPreviewLoading}
                       isEditingTemplate={templateEditorStepIdx === idx}
                       onChange={(patch) => updateStep(idx, patch)}
@@ -1177,6 +1192,7 @@ export default function AutomationsPage() {
                       onMoveUp={() => moveStep(idx, -1)}
                       onMoveDown={() => moveStep(idx, 1)}
                       onCompanyMissing={() => setShowCompanyEmailWarning(true)}
+                      onCompanyPhoneMissing={() => setShowCompanyPhoneWarning(true)}
                       onPreview={(channelOverride) => previewDraftStep(idx, channelOverride)}
                       onCreateDefaultDirect={createDefaultTemplate}
                       onInsertTokenInTemplate={insertTokenInTemplate}
@@ -1267,6 +1283,26 @@ export default function AutomationsPage() {
             <div className="flex gap-3">
               <button onClick={() => setShowCompanyEmailWarning(false)} className="btn-secondary flex-1">Cancel</button>
               <Link href="/dashboard/settings?tab=email" className="btn-primary flex-1 text-center">Go to Settings</Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCompanyPhoneWarning && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[420px]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-grey-15 mb-1">Company phone not set</h3>
+                <p className="text-sm text-grey-35">Add a phone number under Settings → Workspace before SMS automations can send to your company.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowCompanyPhoneWarning(false)} className="btn-secondary flex-1">Cancel</button>
+              <Link href="/dashboard/settings" className="btn-primary flex-1 text-center">Go to Settings</Link>
             </div>
           </div>
         </div>
@@ -1394,12 +1430,14 @@ function StepCard(props: {
   trainings: TrainingItem[]
   schedulingConfigs: SchedulingItem[]
   companyEmail: string | null
+  companyPhone: string | null
   previewLoading: boolean
   onChange: (patch: Partial<StepShape>) => void
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
   onCompanyMissing: () => void
+  onCompanyPhoneMissing: () => void
   onPreview: (channel?: 'email' | 'sms') => void
   onCreateDefaultDirect: (tpl: { name: string; subject: string; bodyHtml: string }) => Promise<string | null>
   onInsertTokenInTemplate: (templateId: string, kind: 'training' | 'scheduling' | 'meet_link' | 'background_check', label: string) => Promise<boolean>
@@ -1409,7 +1447,7 @@ function StepCard(props: {
   isEditingTemplate: boolean
   editorSlot: React.ReactNode
 }) {
-  const { step, idx, total, isFirst, triggerType, templates, trainings, schedulingConfigs, companyEmail } = props
+  const { step, idx, total, isFirst, triggerType, templates, trainings, schedulingConfigs, companyEmail, companyPhone } = props
   const wantsEmail = step.channel === 'email' || step.channel === 'both'
   const wantsSms = step.channel === 'sms' || step.channel === 'both'
   const delayLocked = isFirst && triggerType === 'before_meeting'
@@ -1739,6 +1777,39 @@ function StepCard(props: {
                 </div>
               )
             })()}
+            <div>
+              <label className="block text-xs text-grey-40 mb-1">Send to</label>
+              <div className="flex gap-2">
+                {([
+                  { v: 'applicant' as const, l: 'Applicant' },
+                  { v: 'company' as const, l: 'Company' },
+                  { v: 'specific' as const, l: 'Specific' },
+                ]).map(({ v, l }) => (
+                  <button
+                    key={v}
+                    onClick={() => {
+                      if (v === 'company' && !companyPhone) { props.onCompanyPhoneMissing(); return }
+                      props.onChange({ smsDestination: v })
+                    }}
+                    className={`flex-1 py-1.5 text-xs rounded-[8px] border font-medium ${step.smsDestination === v ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-surface-border text-grey-35'}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {step.smsDestination === 'specific' && (
+                <input
+                  type="tel"
+                  value={step.smsDestinationNumber || ''}
+                  onChange={(e) => props.onChange({ smsDestinationNumber: e.target.value })}
+                  placeholder="+15551234567"
+                  className="mt-2 w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              )}
+              {step.smsDestination === 'company' && companyPhone && (
+                <p className="text-[11px] text-grey-40 mt-1">Will send to <span className="font-medium text-grey-20">{companyPhone}</span>.</p>
+              )}
+            </div>
           </div>
         )}
 

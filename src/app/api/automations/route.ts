@@ -12,6 +12,8 @@ interface StepInput {
   smsBody?: string | null
   emailDestination?: 'applicant' | 'company' | 'specific'
   emailDestinationAddress?: string | null
+  smsDestination?: 'applicant' | 'company' | 'specific'
+  smsDestinationNumber?: string | null
   nextStepType?: string | null
   nextStepUrl?: string | null
   trainingId?: string | null
@@ -41,6 +43,8 @@ function validateSteps(steps: unknown): { ok: true; steps: Required<Pick<StepInp
       smsBody: wantsSms ? raw.smsBody ?? null : null,
       emailDestination: raw.emailDestination ?? 'applicant',
       emailDestinationAddress: raw.emailDestination === 'specific' ? (raw.emailDestinationAddress || null) : null,
+      smsDestination: raw.smsDestination ?? 'applicant',
+      smsDestinationNumber: raw.smsDestination === 'specific' ? (raw.smsDestinationNumber || null) : null,
       nextStepType: raw.nextStepType || null,
       nextStepUrl: raw.nextStepUrl || null,
       trainingId: raw.trainingId || null,
@@ -137,6 +141,8 @@ export async function POST(request: NextRequest) {
           smsBody: s.smsBody ?? null,
           emailDestination: s.emailDestination ?? 'applicant',
           emailDestinationAddress: s.emailDestinationAddress ?? null,
+          smsDestination: s.smsDestination ?? 'applicant',
+          smsDestinationNumber: s.smsDestinationNumber ?? null,
           nextStepType: s.nextStepType ?? null,
           nextStepUrl: s.nextStepUrl ?? null,
           trainingId: s.trainingId ?? null,

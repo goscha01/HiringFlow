@@ -770,6 +770,13 @@ model AutomationStep {
   smsBody                 String?               @map("sms_body")
   emailDestination        String                @default("applicant") @map("email_destination")
   emailDestinationAddress String?               @map("email_destination_address")
+  // SMS destination — mirrors email's three options. 'applicant' sends to
+  // session.candidatePhone; 'company' sends to workspace.phone; 'specific'
+  // sends to smsDestinationNumber. Allows recruiters to alert themselves
+  // (or a hiring manager) on lifecycle events instead of pinging the
+  // candidate.
+  smsDestination          String                @default("applicant") @map("sms_destination")
+  smsDestinationNumber    String?               @map("sms_destination_number")
   // Per-step next-step config (for steps that include a scheduling/training
   // CTA in the body — e.g. the post-training scheduling-invite step).
   nextStepType            String?               @map("next_step_type")

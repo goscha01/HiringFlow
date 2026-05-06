@@ -25,7 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const rule = await prisma.automationRule.findFirst({
     where: { id: params.id, workspaceId: ws.workspaceId },
     include: {
-      workspace: { select: { senderEmail: true, senderName: true, timezone: true } },
+      workspace: { select: { senderEmail: true, senderName: true, timezone: true, phone: true } },
       steps: {
         orderBy: { order: 'asc' },
         include: {
@@ -87,12 +87,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   if (channel === 'sms') {
     const body = renderTemplate(step.smsBody as string, variables)
+    const smsRecipient = step.smsDestination === 'company'
+      ? (rule.workspace?.phone || '(no company phone configured)')
+      : step.smsDestination === 'specific'
+        ? (step.smsDestinationNumber || '(no specific number configured)')
+        : '+15551230000'
     return NextResponse.json({
       channel,
       stepId: step.id,
       stepOrder: step.order,
       smsBody: body,
-      recipient: '+15551230000',
+      recipient: smsRecipient,
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
       templateName: 'SMS body',
       variables,
