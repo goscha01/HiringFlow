@@ -26,15 +26,26 @@ interface InterviewMeeting {
   driveTranscriptFileId: string | null
   participants: Array<{ email?: string; displayName?: string; joinTime?: string; leaveTime?: string }> | null
   confirmedAt: string | null
+  cancelledAt: string | null
   createdAt: string
 }
 
-function stateLabel(m: InterviewMeeting): { text: string; tone: 'blue' | 'green' | 'gray' | 'amber' } {
+function stateLabel(m: InterviewMeeting): { text: string; tone: 'blue' | 'green' | 'gray' | 'amber' | 'red' } {
+  if (m.cancelledAt) return { text: 'Cancelled', tone: 'red' }
   if (m.actualEnd) return { text: 'Ended', tone: 'gray' }
   if (m.actualStart) return { text: 'In progress', tone: 'green' }
   const inPast = new Date(m.scheduledEnd).getTime() < Date.now()
   if (inPast) return { text: 'Missed or not yet reported', tone: 'amber' }
   return { text: 'Scheduled', tone: 'blue' }
+}
+
+function Spinner() {
+  return (
+    <svg className="animate-spin h-3 w-3 inline-block mr-1 -mt-0.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+  )
 }
 
 export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { candidateId: string; candidateEmail: string | null; isRebook?: boolean }) {
@@ -100,7 +111,13 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
     try {
       const res = await fetch(`/api/interview-meetings/${meetingId}/cancel`, { method: 'POST' })
       if (res.ok) {
-        await load()
+        // Optimistic: flip the row to Cancelled immediately so the UI doesn't
+        // wait on the GET round-trip (which also runs sync-on-read).
+        const nowIso = new Date().toISOString()
+        setMeetings((prev) =>
+          prev ? prev.map((mm) => (mm.id === meetingId ? { ...mm, cancelledAt: nowIso } : mm)) : prev
+        )
+        load().catch(() => {})
       } else {
         const body = await res.json().catch(() => ({}))
         alert(body?.message || body?.error || 'Could not cancel meeting. Please retry.')
@@ -183,6 +200,7 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                     s.tone === 'green' ? 'bg-green-100 text-green-700' :
                     s.tone === 'blue' ? 'bg-blue-100 text-blue-700' :
                     s.tone === 'amber' ? 'bg-amber-100 text-amber-700' :
+                    s.tone === 'red' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-grey-40'
                   }`}>{s.text}</span>
                 </div>
@@ -228,7 +246,7 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                   </div>
                 )}
 
-                {new Date(m.scheduledEnd).getTime() >= Date.now() && !m.actualStart && (
+                {!m.cancelledAt && new Date(m.scheduledEnd).getTime() >= Date.now() && !m.actualStart && (
                   <div className="mt-3 pt-3 border-t border-surface-border">
                     <div className="flex items-center gap-3 flex-wrap">
                       <button
@@ -242,15 +260,15 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                       <button
                         onClick={() => cancelMeeting(m.id)}
                         disabled={cancelling === m.id}
-                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        className="text-xs text-red-600 hover:underline disabled:opacity-50 inline-flex items-center"
                       >
-                        {cancelling === m.id ? 'Cancelling…' : 'Cancel meeting'}
+                        {cancelling === m.id ? (<><Spinner />Cancelling…</>) : 'Cancel meeting'}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {new Date(m.scheduledEnd).getTime() < Date.now() && (
+                {!m.cancelledAt && new Date(m.scheduledEnd).getTime() < Date.now() && (
                   <div className="mt-3 pt-3 border-t border-surface-border space-y-2">
                     <div className="flex items-center gap-3 flex-wrap">
                       <button

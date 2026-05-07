@@ -60,5 +60,27 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     },
   })
 
-  return NextResponse.json({ meetings })
+  // InterviewMeeting has no `cancelledAt` column — derive it from the latest
+  // `meeting_cancelled` SchedulingEvent that references the meeting id, so the
+  // UI can show a "Cancelled" pill and hide actions.
+  const cancelEvents = await prisma.schedulingEvent.findMany({
+    where: { sessionId: session.id, eventType: 'meeting_cancelled' },
+    orderBy: { eventAt: 'desc' },
+    select: { eventAt: true, metadata: true },
+  })
+  const cancelledAtByMeetingId = new Map<string, string>()
+  for (const ev of cancelEvents) {
+    const meta = (ev.metadata as Record<string, unknown> | null) || {}
+    const mid = typeof meta.interviewMeetingId === 'string' ? meta.interviewMeetingId : null
+    if (mid && !cancelledAtByMeetingId.has(mid)) {
+      cancelledAtByMeetingId.set(mid, ev.eventAt.toISOString())
+    }
+  }
+
+  const enriched = meetings.map((m) => ({
+    ...m,
+    cancelledAt: cancelledAtByMeetingId.get(m.id) ?? null,
+  }))
+
+  return NextResponse.json({ meetings: enriched })
 }
