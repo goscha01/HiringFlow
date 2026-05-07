@@ -56,7 +56,7 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
   {
     name: 'Form Submit Notification',
     subject: 'New application received — {{flow_name}}',
-    bodyHtml: '<p>A new candidate has submitted their application.</p>\n<p><strong>Name:</strong> {{candidate_name}}<br/><strong>Flow:</strong> {{flow_name}}<br/><strong>Source:</strong> {{source}}</p>\n<p>Log in to your dashboard to review the submission.</p>',
+    bodyHtml: '<p>A new candidate has submitted their application.</p>\n<p><strong>Name:</strong> {{candidate_name}}<br/><strong>Email:</strong> {{candidate_email}}<br/><strong>Phone:</strong> {{candidate_phone}}<br/><strong>Flow:</strong> {{flow_name}}<br/><strong>Source:</strong> {{source}}</p>\n<p>Reply to this email to contact the candidate directly. Or log in to your dashboard to review the submission.</p>',
   },
   {
     name: 'Next Step Email',

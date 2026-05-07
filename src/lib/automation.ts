@@ -1034,6 +1034,8 @@ export async function executeStep(
 
   const variables: Record<string, string> = {
     candidate_name: session.candidateName || 'Candidate',
+    candidate_email: session.candidateEmail || '',
+    candidate_phone: session.candidatePhone || '',
     flow_name: session.flow.name,
     training_link: trainingLink,
     schedule_link: scheduleLink,
@@ -1151,7 +1153,16 @@ export async function executeStep(
       }
     }
 
-    result = await sendEmail({ to: recipient, subject, html, text, from })
+    // For company-destination notifications the recipient IS the workspace
+    // sender, so without a reply-to the recruiter's "Reply" goes back to
+    // their own inbox. Point it at the candidate so replies actually reach
+    // them.
+    let replyTo: { email: string; name?: string } | null = null
+    if (step.emailDestination === 'company' && session.candidateEmail) {
+      replyTo = { email: session.candidateEmail, name: session.candidateName || undefined }
+    }
+
+    result = await sendEmail({ to: recipient, subject, html, text, from, replyTo })
   }
 
   await prisma.automationExecution.update({

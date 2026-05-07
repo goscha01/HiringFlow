@@ -14,6 +14,7 @@ export interface EmailPayload {
   html: string
   text?: string
   from?: { email: string; name?: string } | null
+  replyTo?: { email: string; name?: string } | null
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
@@ -26,10 +27,15 @@ export async function sendEmail(payload: EmailPayload): Promise<{ success: boole
     ? { email: payload.from.email, name: payload.from.name || FROM_NAME }
     : { email: FROM_EMAIL, name: FROM_NAME }
 
+  const replyTo = payload.replyTo?.email
+    ? { email: payload.replyTo.email, name: payload.replyTo.name || undefined }
+    : undefined
+
   try {
     const [response] = await sgMail.send({
       to: payload.to,
       from,
+      replyTo,
       subject: payload.subject,
       html: payload.html,
       text: payload.text || undefined,
