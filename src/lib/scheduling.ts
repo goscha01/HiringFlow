@@ -88,16 +88,57 @@ export async function logSchedulingEvent(opts: {
  * Routes through the audit helper so every change is recorded — this
  * function is called from in-app scheduler / Calendly adoption / etc., all
  * of which are scheduling-driven moves and tag the source as such.
+ *
+ * Furthest-wins guard: when the workspace has configured funnel stages,
+ * we never regress a candidate from a higher-order stage to a lower one.
+ * Without this, an automation step writing the legacy `invited_to_schedule`
+ * status would knock a candidate at a custom "Orientation training" stage
+ * (which has no `training_completed` trigger to keep them put) back to the
+ * "Application" column. Caller can opt out via `{ allowRegression: true }`
+ * for cases where the regression is intentional (e.g. a manual recruiter
+ * action via the candidate page that explicitly moves the candidate back).
  */
 export async function updatePipelineStatus(
   sessionId: string,
   status: string,
-  opts?: { source?: string; triggeredBy?: string | null; metadata?: Record<string, unknown> },
+  opts?: { source?: string; triggeredBy?: string | null; metadata?: Record<string, unknown>; allowRegression?: boolean },
 ) {
-  // Local import to avoid pulling pipeline-status' prisma binding into a
-  // module-level cycle (scheduling.ts is imported very early during request
-  // lifecycle).
+  // Local imports to avoid pulling pipeline-status' / funnel-stages' prisma
+  // bindings into a module-level cycle (scheduling.ts is imported very
+  // early during request lifecycle).
   const { setPipelineStatus } = await import('./pipeline-status')
+  const { normalizeStages, mapLegacyStatusToStageId } = await import('./funnel-stages')
+
+  if (!opts?.allowRegression) {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { pipelineStatus: true, workspaceId: true },
+    })
+    if (session) {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: session.workspaceId },
+        select: { settings: true },
+      })
+      const stages = normalizeStages((ws?.settings as { funnelStages?: unknown } | null)?.funnelStages)
+      const orderOf = (statusValue: string | null): number | null => {
+        if (!statusValue) return null
+        const direct = stages.find((s) => s.id === statusValue)
+        if (direct) return direct.order
+        const mapped = mapLegacyStatusToStageId(statusValue)
+        const fallback = stages.find((s) => s.id === mapped)
+        return fallback ? fallback.order : null
+      }
+      const currentOrder = orderOf(session.pipelineStatus)
+      const targetOrder = orderOf(status)
+      if (currentOrder !== null && targetOrder !== null && targetOrder < currentOrder) {
+        // Skip silently — the candidate is already further along. Caller's
+        // intent (e.g. "send scheduling invite, mark invited") is satisfied
+        // implicitly because the candidate is past that point.
+        return prisma.session.findUnique({ where: { id: sessionId } })
+      }
+    }
+  }
+
   await setPipelineStatus({
     sessionId,
     toStatus: status,
