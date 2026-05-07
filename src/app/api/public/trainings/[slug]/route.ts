@@ -316,11 +316,16 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     return allResults
   })()
 
-  // Update enrollment progress if enrollmentId provided
+  // Update enrollment progress if enrollmentId provided. Wrapped in a
+  // transaction with a per-enrollment advisory lock so a concurrent
+  // section-completion PATCH (from /progress) can't race the quiz score
+  // write — same fix as the /progress route.
   if (enrollmentId) {
     try {
-      const enrollment = await prisma.trainingEnrollment.findUnique({ where: { id: enrollmentId } })
-      if (enrollment) {
+      const sessionId = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${enrollmentId}::text, 0))`
+        const enrollment = await tx.trainingEnrollment.findUnique({ where: { id: enrollmentId } })
+        if (!enrollment) return null
         const progress = (enrollment.progress as { completedSections: string[]; quizScores: { sectionId: string; score: number }[]; sectionTimestamps?: Record<string, string> }) || { completedSections: [], quizScores: [] }
         // Find which section this quiz belongs to
         const section = training.sections.find(s => s.quiz?.id === quizId)
@@ -342,13 +347,14 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
             if (!stamps[section.id]) stamps[section.id] = new Date().toISOString()
             progress.sectionTimestamps = stamps
           }
-          await prisma.trainingEnrollment.update({
+          await tx.trainingEnrollment.update({
             where: { id: enrollmentId },
             data: { progress },
           })
         }
-        await bumpSessionActivity(enrollment.sessionId)
-      }
+        return enrollment.sessionId
+      })
+      if (sessionId !== null) await bumpSessionActivity(sessionId)
     } catch (err) {
       console.error('[Training] Failed to update enrollment progress:', err)
     }
