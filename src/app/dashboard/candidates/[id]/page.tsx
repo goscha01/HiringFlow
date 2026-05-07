@@ -13,8 +13,10 @@ import {
   STATUS_DISPLAY,
   DISPOSITION_DISPLAY,
   CANDIDATE_DISPOSITION_REASONS,
+  normalizeCustomStatuses,
   type CandidateStatus,
   type CandidateDispositionReason,
+  type CustomStatus,
 } from '@/lib/candidate-status'
 import { Badge } from '@/components/design'
 import { InterviewPanel } from './_InterviewPanel'
@@ -131,6 +133,7 @@ export default function CandidateDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
   const [customReasons, setCustomReasons] = useState<string[]>([])
+  const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
   const [stageRuleCounts, setStageRuleCounts] = useState<Record<string, number>>({})
   const [runningAutomations, setRunningAutomations] = useState(false)
   const [automationToast, setAutomationToast] = useState<string | null>(null)
@@ -153,9 +156,10 @@ export default function CandidateDetailPage() {
     fetch('/api/workspace/settings')
       .then((r) => r.json())
       .then((d) => {
-        const settings = (d?.settings as { funnelStages?: unknown; customRejectionReasons?: unknown } | null) ?? null
+        const settings = (d?.settings as { funnelStages?: unknown; customRejectionReasons?: unknown; customStatuses?: unknown } | null) ?? null
         setStages(normalizeStages(settings?.funnelStages))
         setCustomReasons(normalizeCustomReasons(settings?.customRejectionReasons))
+        setCustomStatuses(normalizeCustomStatuses(settings?.customStatuses))
       })
       .catch(() => {})
   }, [])
@@ -201,7 +205,9 @@ export default function CandidateDetailPage() {
   // the *At stamps and clearing on reactivate; we just optimistic-merge the
   // returned row so the panel reflects the new state immediately.
   const [statusBusy, setStatusBusy] = useState(false)
-  const updateLifecycle = async (next: CandidateStatus, reason?: CandidateDispositionReason | null) => {
+  // `next` is widened to string so the same helper handles built-in statuses
+  // and workspace-defined custom statuses (cust_*). The backend validates.
+  const updateLifecycle = async (next: CandidateStatus | string, reason?: CandidateDispositionReason | null) => {
     if (statusBusy) return
     setStatusBusy(true)
     try {
@@ -782,8 +788,17 @@ export default function CandidateDetailPage() {
           lifecycle actions all PATCH /api/candidates/[id]; statusTransitionPatch
           on the server handles stalledAt/lostAt/hiredAt bookkeeping. */}
       {(() => {
-        const status = (candidate.status ?? 'active') as CandidateStatus
-        const meta = STATUS_DISPLAY[status]
+        const rawStatus: string = candidate.status ?? 'active'
+        // Resolve label/tone from STATUS_DISPLAY for built-ins; fall through
+        // to the workspace's custom-statuses list otherwise.
+        const builtin = (STATUS_DISPLAY as Record<string, { label: string; tone: 'neutral' | 'brand' | 'success' | 'warn' | 'info' | 'danger' }>)[rawStatus]
+        const custom = customStatuses.find((c) => c.id === rawStatus)
+        const meta = builtin
+          ? builtin
+          : custom
+            ? { label: custom.label, tone: custom.tone }
+            : { label: rawStatus, tone: 'neutral' as const }
+        const status = rawStatus as CandidateStatus // narrow only used for the built-in stamp/label switches below
         const dispLabel = candidate.dispositionReason
           ? DISPOSITION_DISPLAY[candidate.dispositionReason]
           : null
@@ -870,6 +885,20 @@ export default function CandidateDetailPage() {
                     Mark as Hired
                   </button>
                 )}
+                {/* Workspace-defined custom statuses — manual labels (no
+                    auto-detect, no lifecycle stamp). Hidden when the
+                    candidate is already in that custom status. */}
+                {customStatuses.filter((c) => c.id !== status).map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => updateLifecycle(c.id)}
+                    disabled={statusBusy}
+                    title={`Move to ${c.label}`}
+                    className="text-xs px-3 py-1.5 rounded-[6px] bg-surface-light text-grey-15 hover:bg-surface-divider font-medium border border-surface-border disabled:opacity-50"
+                  >
+                    Move to {c.label}
+                  </button>
+                ))}
                 <button
                   onClick={openChangeReason}
                   disabled={statusBusy}

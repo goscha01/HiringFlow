@@ -25,10 +25,13 @@ import {
 import {
   STATUS_DISPLAY,
   DISPOSITION_DISPLAY,
+  normalizeCustomStatuses,
   type CandidateStatus,
   type CandidateDispositionReason,
+  type CustomStatus,
 } from '@/lib/candidate-status'
 import { StageSettingsDrawer } from './_StageSettingsDrawer'
+import { StatusSettingsDrawer } from './_StatusSettingsDrawer'
 
 interface Candidate {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
@@ -53,7 +56,12 @@ interface Candidate {
 // lifecycle so recruiters can scan left to right. Each tab carries its
 // own accent color (matching the status tone vocabulary) so the row reads
 // as a colored legend at a glance.
-const STATUS_TABS: Array<{ key: string; label: string; statuses: CandidateStatus[] | null; color: string }> = [
+//
+// `BUILT_IN_STATUS_TABS` is the static set; `useStatusTabs(customStatuses)`
+// inside the component splices in workspace-defined custom-status tabs
+// after Hired and before Lost, so the final All tab stays last.
+type StatusTab = { key: string; label: string; statuses: string[] | null; color: string }
+const BUILT_IN_STATUS_TABS: StatusTab[] = [
   { key: 'active',  label: 'Active',  statuses: ['active', 'waiting'], color: 'var(--brand-primary)' },
   { key: 'stalled', label: 'Stalled', statuses: ['stalled'],            color: '#D97706'             },
   { key: 'nurture', label: 'Nurture', statuses: ['nurture'],            color: 'var(--neutral-fg)'   },
@@ -61,6 +69,30 @@ const STATUS_TABS: Array<{ key: string; label: string; statuses: CandidateStatus
   { key: 'lost',    label: 'Lost',    statuses: ['lost'],               color: 'var(--danger-fg)'    },
   { key: 'all',     label: 'All',     statuses: null,                   color: 'var(--neutral-fg)'   },
 ]
+const STATUS_TONE_TO_COLOR: Record<string, string> = {
+  neutral: 'var(--neutral-fg)',
+  brand:   'var(--brand-primary)',
+  success: 'var(--success-fg)',
+  warn:    '#D97706',
+  info:    '#2563EB',
+  danger:  'var(--danger-fg)',
+}
+function buildStatusTabs(customStatuses: CustomStatus[]): StatusTab[] {
+  const customTabs: StatusTab[] = customStatuses.map((c) => ({
+    key: c.id,
+    label: c.label,
+    statuses: [c.id],
+    color: STATUS_TONE_TO_COLOR[c.tone] ?? 'var(--neutral-fg)',
+  }))
+  // Splice custom tabs in before "All" so All stays the last entry.
+  const allIdx = BUILT_IN_STATUS_TABS.findIndex((t) => t.key === 'all')
+  if (allIdx === -1) return [...BUILT_IN_STATUS_TABS, ...customTabs]
+  return [
+    ...BUILT_IN_STATUS_TABS.slice(0, allIdx),
+    ...customTabs,
+    ...BUILT_IN_STATUS_TABS.slice(allIdx),
+  ]
+}
 
 // Background tint for the disposition pill, keyed by the candidate's
 // current status. Pulls the existing rejection-pill (red) and adds amber
@@ -95,6 +127,8 @@ export default function CandidatesPage() {
   const [dragging, setDragging] = useState<string | null>(null)
   const [hoverCol, setHoverCol] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [statusSettingsOpen, setStatusSettingsOpen] = useState(false)
+  const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   // Per-stage sort direction. 'asc' = oldest first (FIFO follow-up — the
   // current default), 'desc' = newest first. Persisted in localStorage so
@@ -105,7 +139,9 @@ export default function CandidatesPage() {
   // disables the filter. Persisted in localStorage so the tab survives
   // refreshes (recruiters who live on the Stalled tab get to keep it).
   const [statusTab, setStatusTab] = useState<string>('active')
-  const [statusCounts, setStatusCounts] = useState<Record<CandidateStatus, number>>({
+  // Counts keyed by built-in CandidateStatus AND custom status ids. The
+  // tab strip reads this map; a missing key renders as 0.
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({
     active: 0, waiting: 0, stalled: 0, nurture: 0, lost: 0, hired: 0,
   })
   // A card must be explicitly clicked ("picked up") before its drag handle
@@ -219,8 +255,9 @@ export default function CandidatesPage() {
     fetch('/api/workspace/settings')
       .then((r) => r.json())
       .then((d) => {
-        const raw = (d?.settings as { funnelStages?: unknown } | null)?.funnelStages
-        setStages(normalizeStages(raw))
+        const settings = (d?.settings as { funnelStages?: unknown; customStatuses?: unknown } | null) ?? null
+        setStages(normalizeStages(settings?.funnelStages))
+        setCustomStatuses(normalizeCustomStatuses(settings?.customStatuses))
       })
       .catch(() => {})
     // Restore per-stage sort prefs from prior visits.
@@ -235,9 +272,13 @@ export default function CandidatesPage() {
         setStageSorts(cleaned)
       }
     } catch {}
+    // Restore the previously-selected tab. We can't validate against
+    // workspace custom statuses here yet (they're loaded async above), but
+    // any unknown saved tab is harmless — buildStatusTabs always renders
+    // the active/built-in set, and we just won't highlight a missing tab.
     try {
       const raw = localStorage.getItem('hiringflow:status-tab')
-      if (raw && STATUS_TABS.some((t) => t.key === raw)) setStatusTab(raw)
+      if (raw) setStatusTab(raw)
     } catch {}
   }, [])
 
@@ -253,12 +294,14 @@ export default function CandidatesPage() {
     })
   }
 
+  const statusTabs = useMemo(() => buildStatusTabs(customStatuses), [customStatuses])
+
   const load = useCallback((opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true)
     const params = new URLSearchParams()
     if (flowFilter) params.set('flowId', flowFilter)
     if (search) params.set('search', search)
-    const tab = STATUS_TABS.find((t) => t.key === statusTab)
+    const tab = statusTabs.find((t) => t.key === statusTab)
     if (tab && tab.statuses) params.set('candidateStatus', tab.statuses.join(','))
     fetch(`/api/candidates?${params}`)
       .then((r) => r.json())
@@ -273,17 +316,18 @@ export default function CandidatesPage() {
     fetch(`/api/candidates?${countParams}`)
       .then((r) => r.json())
       .then((all: Candidate[]) => {
-        const buckets: Record<CandidateStatus, number> = {
+        const buckets: Record<string, number> = {
           active: 0, waiting: 0, stalled: 0, nurture: 0, lost: 0, hired: 0,
         }
+        for (const c of customStatuses) buckets[c.id] = 0
         for (const c of all) {
-          const s = (c.status ?? 'active') as CandidateStatus
+          const s = c.status ?? 'active'
           if (s in buckets) buckets[s] += 1
         }
         setStatusCounts(buckets)
       })
       .catch(() => {})
-  }, [flowFilter, search, statusTab])
+  }, [flowFilter, search, statusTab, statusTabs, customStatuses])
 
   useEffect(() => { load() }, [load])
 
@@ -374,6 +418,16 @@ export default function CandidatesPage() {
         actions={
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setStatusSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-surface-border text-[13px] text-ink hover:bg-surface-light transition-colors"
+              title="Manage statuses and stalled-detection rules"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+              </svg>
+              Statuses
+            </button>
+            <button
               onClick={() => setSettingsOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-surface-border text-[13px] text-ink hover:bg-surface-light transition-colors"
               title="Manage funnel stages"
@@ -403,7 +457,7 @@ export default function CandidatesPage() {
             candidates currently in motion. Counts come from the count
             fetch in load() so they always reflect totals across tabs. */}
         <div data-no-pan className="shrink-0 flex gap-1 mb-3 overflow-x-auto">
-          {STATUS_TABS.map((tab) => {
+          {statusTabs.map((tab) => {
             const isActive = statusTab === tab.key
             const count = tab.statuses
               ? tab.statuses.reduce((s, k) => s + (statusCounts[k] ?? 0), 0)
@@ -609,11 +663,17 @@ export default function CandidatesPage() {
                                 fall back to the application date so the
                                 badge is uniformly "<status> · <days>d". */}
                             {(() => {
-                              const status = (c.status ?? 'active') as CandidateStatus
-                              const meta = STATUS_DISPLAY[status]
-                              const stamp = status === 'stalled' ? c.stalledAt
-                                : status === 'lost' ? c.lostAt
-                                : status === 'hired' ? c.hiredAt
+                              const rawStatus: string = c.status ?? 'active'
+                              const builtin = (STATUS_DISPLAY as Record<string, { label: string; tone: 'neutral' | 'brand' | 'success' | 'warn' | 'info' | 'danger' }>)[rawStatus]
+                              const custom = customStatuses.find((cs) => cs.id === rawStatus)
+                              const meta = builtin
+                                ? builtin
+                                : custom
+                                  ? { label: custom.label, tone: custom.tone }
+                                  : { label: rawStatus, tone: 'neutral' as const }
+                              const stamp = rawStatus === 'stalled' ? c.stalledAt
+                                : rawStatus === 'lost' ? c.lostAt
+                                : rawStatus === 'hired' ? c.hiredAt
                                 : c.startedAt
                               const days = daysSince(stamp)
                               return (
@@ -708,6 +768,16 @@ export default function CandidatesPage() {
         candidateCounts={candidateCounts}
         onSaved={(next) => {
           setStages(next)
+          load()
+        }}
+      />
+
+      <StatusSettingsDrawer
+        open={statusSettingsOpen}
+        onClose={() => setStatusSettingsOpen(false)}
+        initialCustomStatuses={customStatuses}
+        onSaved={(next) => {
+          setCustomStatuses(next.customStatuses)
           load()
         }}
       />

@@ -4,10 +4,13 @@ import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
 import { recordPipelineStatusChange } from '@/lib/pipeline-status'
 import {
+  isAllowedStatus,
   isCandidateStatus,
   isDispositionReason,
+  normalizeCustomStatuses,
   statusTransitionPatch,
   type CandidateDispositionReason,
+  type CandidateStatus,
 } from '@/lib/candidate-status'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
@@ -266,7 +269,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   if (status !== undefined) {
-    if (!isCandidateStatus(status)) {
+    // Built-in statuses go through statusTransitionPatch (which writes the
+    // *At stamps). Custom statuses (cust_*) are nurture-like — manual labels
+    // with no lifecycle stamp. They write only the status field and clear
+    // the lifecycle stamps the same way reactivate does.
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: ws.workspaceId },
+      select: { settings: true },
+    })
+    const customStatuses = normalizeCustomStatuses((workspace?.settings as { customStatuses?: unknown } | null)?.customStatuses)
+    if (!isAllowedStatus(status, customStatuses)) {
       return NextResponse.json({ error: `Invalid status: ${status}` }, { status: 400 })
     }
     // Validate disposition reason if provided. `null` is allowed to clear.
@@ -283,7 +295,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         )
       }
     }
-    Object.assign(data, statusTransitionPatch(status, { dispositionReason: dispArg }))
+    if (isCandidateStatus(status)) {
+      Object.assign(data, statusTransitionPatch(status, { dispositionReason: dispArg }))
+    } else {
+      // Custom status — treat like a nurture-style transition: clear the
+      // terminal stamps so the candidate isn't simultaneously "lost" and
+      // "follow-up needed". Disposition reason is preserved if explicitly
+      // passed, otherwise cleared.
+      data.status = status
+      data.stalledAt = null
+      data.lostAt = null
+      data.hiredAt = null
+      if (dispArg !== undefined) data.dispositionReason = dispArg
+      else data.dispositionReason = null
+    }
   } else if (dispositionReason !== undefined) {
     // dispositionReason can be edited without changing the status
     // (e.g. recruiter recategorising a stalled candidate's reason).

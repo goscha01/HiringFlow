@@ -68,8 +68,35 @@ export async function PATCH(
   }
 
   try {
-    const body = await request.json()
-    const { name, isPublished, startMessage, endMessage, branding } = body
+    const body = await request.json() as {
+      name?: string
+      isPublished?: boolean
+      startMessage?: string
+      endMessage?: string
+      branding?: unknown
+      // Per-flow timeouts consumed by the cron stalled detector.
+      // Pass `null` to clear and fall back to the platform default in
+      // src/lib/candidate-status.ts (DEFAULT_TIMEOUTS).
+      videoInterviewTimeoutDays?: number | null
+      trainingTimeoutDays?: number | null
+      noShowTimeoutHours?: number | null
+    }
+    const { name, isPublished, startMessage, endMessage, branding,
+      videoInterviewTimeoutDays, trainingTimeoutDays, noShowTimeoutHours } = body
+
+    // Only allow positive integers (or null to clear). Reject other shapes
+    // so a typo in the drawer doesn't write garbage to the DB.
+    const validTimeout = (v: unknown): v is number | null =>
+      v === null || (typeof v === 'number' && Number.isInteger(v) && v > 0)
+    if (videoInterviewTimeoutDays !== undefined && !validTimeout(videoInterviewTimeoutDays)) {
+      return NextResponse.json({ error: 'videoInterviewTimeoutDays must be a positive integer or null' }, { status: 400 })
+    }
+    if (trainingTimeoutDays !== undefined && !validTimeout(trainingTimeoutDays)) {
+      return NextResponse.json({ error: 'trainingTimeoutDays must be a positive integer or null' }, { status: 400 })
+    }
+    if (noShowTimeoutHours !== undefined && !validTimeout(noShowTimeoutHours)) {
+      return NextResponse.json({ error: 'noShowTimeoutHours must be a positive integer or null' }, { status: 400 })
+    }
 
     const updated = await prisma.flow.update({
       where: { id: params.id },
@@ -78,7 +105,10 @@ export async function PATCH(
         ...(isPublished !== undefined && { isPublished }),
         ...(startMessage !== undefined && { startMessage }),
         ...(endMessage !== undefined && { endMessage }),
-        ...(branding !== undefined && { branding }),
+        ...(branding !== undefined && { branding: branding as object }),
+        ...(videoInterviewTimeoutDays !== undefined && { videoInterviewTimeoutDays }),
+        ...(trainingTimeoutDays !== undefined && { trainingTimeoutDays }),
+        ...(noShowTimeoutHours !== undefined && { noShowTimeoutHours }),
       },
     })
 

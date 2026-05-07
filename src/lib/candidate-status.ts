@@ -62,6 +62,66 @@ export function isCandidateStatus(v: unknown): v is CandidateStatus {
   return typeof v === 'string' && (CANDIDATE_STATUSES as readonly string[]).includes(v)
 }
 
+/**
+ * Workspace-configurable custom statuses. Stored as JSON on
+ * `Workspace.settings.customStatuses`. Custom statuses are MANUAL ONLY —
+ * the cron never auto-assigns them, and they don't carry the lifecycle
+ * stamps (`stalledAt`/`lostAt`/`hiredAt`). They appear as additional tabs
+ * on the kanban and as additional "Move to …" buttons on the candidate
+ * detail page.
+ *
+ * `id` is the value written to `Session.status`. Should be slug-shaped
+ * and prefixed with `cust_` so it never collides with the built-in enum
+ * values. `tone` reuses the BadgeTone vocabulary so the badge colors are
+ * consistent with the built-in statuses.
+ */
+export interface CustomStatus {
+  id: string
+  label: string
+  tone: CandidateStatusTone
+}
+
+export function isCustomStatusId(id: string): boolean {
+  return id.startsWith('cust_')
+}
+
+export function normalizeCustomStatuses(raw: unknown): CustomStatus[] {
+  if (!Array.isArray(raw)) return []
+  const out: CustomStatus[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const id = typeof r.id === 'string' ? r.id : null
+    const label = typeof r.label === 'string' ? r.label.trim() : null
+    const tone = typeof r.tone === 'string' ? r.tone : 'neutral'
+    if (!id || !label || !isCustomStatusId(id) || seen.has(id)) continue
+    if (!['neutral', 'brand', 'success', 'warn', 'info', 'danger'].includes(tone)) continue
+    seen.add(id)
+    out.push({ id, label, tone: tone as CandidateStatusTone })
+  }
+  return out
+}
+
+export function makeCustomStatusId(label: string, existing: CustomStatus[]): string {
+  const base = 'cust_' + (label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'status')
+  const taken = new Set(existing.map((s) => s.id))
+  if (!taken.has(base)) return base
+  let i = 2
+  while (taken.has(`${base}_${i}`)) i++
+  return `${base}_${i}`
+}
+
+/**
+ * Runtime check that accepts a built-in status OR any of the workspace's
+ * custom status ids. Use this from API routes that validate user input.
+ */
+export function isAllowedStatus(v: unknown, customStatuses: CustomStatus[] = []): v is string {
+  if (typeof v !== 'string') return false
+  if ((CANDIDATE_STATUSES as readonly string[]).includes(v)) return true
+  return customStatuses.some((s) => s.id === v)
+}
+
 export function isDispositionReason(v: unknown): v is CandidateDispositionReason {
   return typeof v === 'string' && (CANDIDATE_DISPOSITION_REASONS as readonly string[]).includes(v)
 }
