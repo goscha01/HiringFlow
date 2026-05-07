@@ -195,11 +195,16 @@ export async function GET(request: NextRequest) {
   // the silent path: scheduled meeting, time elapsed, no actualStart, no
   // meeting_no_show event. Mark as 'stalled' (not 'lost') so a recruiter
   // can investigate before declaring the candidate lost.
+  //
+  // We only flag if the candidate's MOST RECENT meeting is the silent miss.
+  // A later attended meeting (recovery) or a later scheduled rebook means
+  // the candidate is back in motion — flagging them on a stale older miss
+  // hides them from the default Active tab even though they're progressing
+  // (Stephanie Descofleur, 2026-05-06: 5/2 silent miss → 5/5 attended →
+  // 5/8 rebook, but the cron still stamped her stalled).
   for (const flow of flows) {
     const hours = flow.noShowTimeoutHours ?? DEFAULT_TIMEOUTS.noShowTimeoutHours
     const cutoff = new Date(now.getTime() - hours * 60 * 60 * 1000)
-    // Find sessions in this flow with at least one elapsed-but-not-started
-    // meeting and no recorded no-show event for it.
     const candidates = await prisma.session.findMany({
       where: {
         flowId: flow.id,
@@ -213,19 +218,39 @@ export async function GET(request: NextRequest) {
       },
       select: {
         id: true,
+        // Pull every meeting so we can pick the most recent and apply the
+        // recovery checks. The list is small per session — bounded by how
+        // many times a candidate has rebooked.
         interviewMeetings: {
-          where: { scheduledStart: { lt: cutoff }, actualStart: null },
-          select: { id: true },
+          orderBy: { scheduledStart: 'desc' },
+          select: { id: true, scheduledStart: true, actualStart: true },
         },
         schedulingEvents: {
           where: { eventType: 'meeting_no_show' },
-          select: { id: true },
+          select: { metadata: true },
         },
       },
     })
-    const targets = candidates
-      .filter((c) => c.interviewMeetings.length > 0 && c.schedulingEvents.length === 0)
-      .map((c) => c.id)
+    const targets: string[] = []
+    for (const c of candidates) {
+      const mostRecent = c.interviewMeetings[0]
+      if (!mostRecent) continue
+      // Future meeting or any attended meeting → recovered, skip.
+      if (mostRecent.scheduledStart > now) continue
+      if (c.interviewMeetings.some((m) => m.actualStart !== null)) continue
+      // Most recent must be elapsed past the cutoff and unstarted.
+      if (mostRecent.scheduledStart >= cutoff) continue
+      if (mostRecent.actualStart !== null) continue
+      // The Meet webhook owns the lost transition for meetings it could
+      // observe — if it already stamped meeting_no_show for this exact
+      // meeting, defer.
+      const hasNoShowForMostRecent = c.schedulingEvents.some((ev) => {
+        const id = (ev.metadata as { interviewMeetingId?: string } | null)?.interviewMeetingId
+        return id === mostRecent.id
+      })
+      if (hasNoShowForMostRecent) continue
+      targets.push(c.id)
+    }
     if (targets.length > 0) {
       const result = await prisma.session.updateMany({
         where: { id: { in: targets }, status: 'active' },
