@@ -13,7 +13,14 @@
  */
 
 import { prisma } from './prisma'
-import { findStageForEvent, normalizeStages, type StageTriggerEvent, type FunnelStage } from './funnel-stages'
+import { setPipelineStatus } from './pipeline-status'
+import {
+  findStageForEvent,
+  mapLegacyStatusToStageId,
+  normalizeStages,
+  type StageTriggerEvent,
+  type FunnelStage,
+} from './funnel-stages'
 
 // Events that mean the candidate is actively progressing — receiving any of
 // these should pull a previously-stalled candidate back into the active pool.
@@ -61,6 +68,16 @@ export async function applyStageTrigger(opts: {
     ? { status: 'active', stalledAt: null, dispositionReason: null }
     : null
 
+  // Pull the current pipelineStatus once so both branches share the same
+  // furthest-wins guard. We never move a candidate backwards through the
+  // funnel based on a system event, regardless of whether the destination
+  // came from a configured stage trigger or the legacy fallback.
+  const session = await prisma.session.findUnique({
+    where: { id: opts.sessionId },
+    select: { pipelineStatus: true },
+  })
+  const currentOrder = currentStageOrder(stages, session?.pipelineStatus ?? null)
+
   // No matching stage configured — fall back to the legacy hardcoded marker so
   // unconfigured workspaces keep working.
   if (!stage) {
@@ -71,9 +88,23 @@ export async function applyStageTrigger(opts: {
       }).catch(() => {})
     }
     if (!opts.legacyStatus) return null
-    await prisma.session.update({
-      where: { id: opts.sessionId },
-      data: { pipelineStatus: opts.legacyStatus },
+    // Apply the same furthest-wins guard to the legacy path. Without this, a
+    // late `meeting_no_show` could flip a candidate currently sitting in
+    // `hired` straight to `rejected` because the legacy path bypassed the
+    // order check entirely.
+    const legacyOrder = currentStageOrder(stages, opts.legacyStatus)
+    if (currentOrder !== null && legacyOrder !== null && legacyOrder < currentOrder) {
+      return null
+    }
+    await setPipelineStatus({
+      sessionId: opts.sessionId,
+      toStatus: opts.legacyStatus,
+      source: `auto:${opts.event}`,
+      metadata: {
+        legacyFallback: true,
+        flowId: opts.flowId,
+        trainingId: opts.trainingId,
+      },
     }).catch(() => {})
     return opts.legacyStatus
   }
@@ -82,19 +113,18 @@ export async function applyStageTrigger(opts: {
   // funnel based on a later-firing event for an earlier stage. Only apply the
   // trigger if the matched stage is at or after the candidate's current
   // stage in the funnel order.
-  const session = await prisma.session.findUnique({
-    where: { id: opts.sessionId },
-    select: { pipelineStatus: true },
-  })
-  const currentOrder = currentStageOrder(stages, session?.pipelineStatus ?? null)
   if (currentOrder !== null && stage.order < currentOrder) {
-    // Candidate is already further along — skip this auto-move.
     return null
   }
 
-  await prisma.session.update({
-    where: { id: opts.sessionId },
-    data: { pipelineStatus: stage.id },
+  await setPipelineStatus({
+    sessionId: opts.sessionId,
+    toStatus: stage.id,
+    source: `auto:${opts.event}`,
+    metadata: {
+      flowId: opts.flowId,
+      trainingId: opts.trainingId,
+    },
   }).catch(() => {})
 
   if (reactivatePatch) {
@@ -111,5 +141,11 @@ function currentStageOrder(stages: FunnelStage[], pipelineStatus: string | null)
   if (!pipelineStatus) return null
   const direct = stages.find((s) => s.id === pipelineStatus)
   if (direct) return direct.order
-  return null
+  // Resolve legacy status strings (e.g. 'rejected', 'training_completed') to
+  // their default-stage equivalent so callers passing a legacy value still
+  // get a meaningful order back. Returns null only when the value matches
+  // neither a configured stage nor a known legacy status.
+  const mapped = mapLegacyStatusToStageId(pipelineStatus)
+  const fallback = stages.find((s) => s.id === mapped)
+  return fallback ? fallback.order : null
 }

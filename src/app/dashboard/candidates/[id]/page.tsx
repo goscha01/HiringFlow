@@ -62,6 +62,17 @@ interface AutomationExec {
     emailTemplate: { name: string; subject: string } | null
   } | null
 }
+interface SiblingSession {
+  id: string
+  startedAt: string
+  finishedAt: string | null
+  pipelineStatus: string | null
+  status: string
+  dispositionReason: string | null
+  rejectionReason: string | null
+  flowName: string | null
+  hadNoShow: boolean
+}
 interface CandidateDetail {
   id: string; candidateName: string | null; candidateEmail: string | null; candidatePhone: string | null
   formData: Record<string, string> | null; outcome: string | null; pipelineStatus: string | null
@@ -89,6 +100,7 @@ interface CandidateDetail {
   automationExecutions?: AutomationExec[]
   formFieldLabels?: Record<string, string>
   isRebook?: boolean
+  siblingSessions?: SiblingSession[]
 }
 
 const REJECTION_PRESETS = ['No-show', 'Not qualified', 'Wrong schedule', 'Declined offer', 'Wrong location', 'Pay expectations']
@@ -698,6 +710,57 @@ export default function CandidateDetailPage() {
           onSubmit={submitReasonModal}
         />
       )}
+
+      {/* Sibling-session banner — surfaces other applications by the same
+          email so recruiters don't get fooled into reviewing a stale older
+          session while a newer one is the actually-active record (Stephanie
+          Descofleur, 2026-05-06). The kanban dedupes by email so the list
+          links the *newest* row, but the detail page is loaded by session
+          id and previously gave no signal that siblings existed. */}
+      {(candidate.siblingSessions?.length ?? 0) > 0 && (() => {
+        const siblings = candidate.siblingSessions!
+        // Newest first by API contract — pick that one for the deep link.
+        const newest = siblings[0]
+        const newestStartedAt = new Date(newest.startedAt).getTime()
+        const currentStartedAt = new Date(candidate.startedAt).getTime()
+        // Amber tint when the current session is older than at least one
+        // sibling AND the newer sibling isn't in a terminal lost/hired state.
+        // Recruiter is likely staring at the wrong row.
+        const lookingAtStale =
+          newestStartedAt > currentStartedAt &&
+          !['lost', 'hired'].includes(newest.status)
+        const stage = resolveStage(newest.pipelineStatus, stages)
+        const fmtDate = (iso: string) =>
+          new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        const tone = lookingAtStale
+          ? { wrap: 'bg-amber-50 border-amber-200', text: 'text-amber-900', sub: 'text-amber-800' }
+          : { wrap: 'bg-surface-light border-surface-border', text: 'text-grey-15', sub: 'text-grey-40' }
+        return (
+          <div className={`rounded-[12px] border ${tone.wrap} px-4 py-3 mb-4 flex items-center justify-between gap-3 flex-wrap`}>
+            <div className="min-w-0">
+              <div className={`text-sm font-medium ${tone.text}`}>
+                {lookingAtStale
+                  ? `You're viewing an older application. ${siblings.length === 1 ? 'A newer one exists' : `${siblings.length} other applications exist`} for this candidate.`
+                  : `${siblings.length} other application${siblings.length === 1 ? '' : 's'} by this candidate.`}
+              </div>
+              <div className={`text-xs ${tone.sub} mt-0.5`}>
+                Most recent: applied {fmtDate(newest.startedAt)} · {newest.flowName ?? 'Unknown flow'} · stage <span className="font-medium">{stage.label.trim()}</span>
+                {newest.hadNoShow ? ' · had no-show' : ''}
+              </div>
+            </div>
+            <Link
+              href={`/dashboard/candidates/${newest.id}`}
+              className={`text-xs px-3 py-1.5 rounded-[8px] border font-medium whitespace-nowrap ${
+                lookingAtStale
+                  ? 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'
+                  : 'border-surface-border bg-white text-grey-15 hover:border-grey-35'
+              }`}
+            >
+              Open most recent →
+            </Link>
+          </div>
+        )
+      })()}
 
       {/* Current activity — at-a-glance "where is the candidate right now"
           panel. Sits above the pipeline so recruiters scanning the page

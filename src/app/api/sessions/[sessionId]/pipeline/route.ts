@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
+import { setPipelineStatus } from '@/lib/pipeline-status'
 
 export async function PATCH(request: NextRequest, { params }: { params: { sessionId: string } }) {
   const ws = await getWorkspaceSession()
@@ -20,9 +21,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { sessio
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
   }
 
-  const updated = await prisma.session.update({
-    where: { id: params.sessionId },
-    data: { pipelineStatus },
+  await setPipelineStatus({
+    sessionId: params.sessionId,
+    toStatus: pipelineStatus,
+    source: 'manual:pipeline_route',
+    triggeredBy: ws.userId,
   })
 
   // Log scheduling event if marking as scheduled
@@ -34,5 +37,5 @@ export async function PATCH(request: NextRequest, { params }: { params: { sessio
     }).catch(() => {})
   }
 
-  return NextResponse.json({ success: true, pipelineStatus: updated.pipelineStatus })
+  return NextResponse.json({ success: true, pipelineStatus })
 }

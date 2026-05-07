@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
+import { recordPipelineStatusChange } from '@/lib/pipeline-status'
 import {
   isCandidateStatus,
   isDispositionReason,
@@ -111,21 +112,66 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
   }
 
-  // A session is a "rebook" if the same candidate (by email) has an earlier
-  // session in the workspace with a meeting_no_show event — i.e. they took
-  // the no-show follow-up invite and started over.
+  // Pull every other Session for this candidate (matched by email,
+  // case-insensitive — the same dedupe key the candidates list uses) so the
+  // detail page can surface "this person also has X other application(s)".
+  // The previous implementation only computed an `isRebook` boolean here,
+  // which meant the UI had no way to link out to the sibling — recruiters
+  // could end up looking at a stale older session without realising a
+  // current one existed (Stephanie Descofleur, 2026-05-06).
+  type SiblingSession = {
+    id: string
+    startedAt: string
+    finishedAt: string | null
+    pipelineStatus: string | null
+    status: string
+    dispositionReason: string | null
+    rejectionReason: string | null
+    flowName: string | null
+    hadNoShow: boolean
+  }
+  let siblingSessions: SiblingSession[] = []
   let isRebook = false
   if (session.candidateEmail) {
-    const earlier = await prisma.session.findFirst({
+    const siblings = await prisma.session.findMany({
       where: {
         workspaceId: ws.workspaceId,
-        candidateEmail: session.candidateEmail,
-        startedAt: { lt: session.startedAt },
-        schedulingEvents: { some: { eventType: 'meeting_no_show' } },
+        candidateEmail: { equals: session.candidateEmail, mode: 'insensitive' },
+        id: { not: session.id },
       },
-      select: { id: true },
+      orderBy: { startedAt: 'desc' },
+      select: {
+        id: true,
+        startedAt: true,
+        finishedAt: true,
+        pipelineStatus: true,
+        status: true,
+        dispositionReason: true,
+        rejectionReason: true,
+        flow: { select: { name: true } },
+        schedulingEvents: {
+          where: { eventType: 'meeting_no_show' },
+          select: { id: true },
+          take: 1,
+        },
+      },
     })
-    isRebook = !!earlier
+    siblingSessions = siblings.map((s) => ({
+      id: s.id,
+      startedAt: s.startedAt.toISOString(),
+      finishedAt: s.finishedAt?.toISOString() ?? null,
+      pipelineStatus: s.pipelineStatus,
+      status: s.status,
+      dispositionReason: s.dispositionReason,
+      rejectionReason: s.rejectionReason,
+      flowName: s.flow?.name ?? null,
+      hadNoShow: s.schedulingEvents.length > 0,
+    }))
+    // Same definition as before: a session is a "rebook" iff there is an
+    // earlier sibling that had a meeting_no_show.
+    isRebook = siblings.some(
+      (s) => s.startedAt < session.startedAt && s.schedulingEvents.length > 0,
+    )
   }
 
   // Effective "last activity" — derived from every event timestamp we know
@@ -173,6 +219,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     automationExecutions,
     formFieldLabels,
     isRebook,
+    siblingSessions,
     flowStepCount,
     effectiveLastActivityAt: effectiveLastActivityAt?.toISOString() ?? null,
   })
@@ -256,6 +303,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     where: { id: params.id },
     data,
   })
+
+  // Audit pipelineStatus changes from the manual PATCH surface (kanban drag,
+  // pipeline buttons, outcome flip — all funnel through this endpoint).
+  // The original `session` snapshot above holds the pre-update value.
+  if (pipelineStatus !== undefined && session.pipelineStatus !== updated.pipelineStatus) {
+    await recordPipelineStatusChange({
+      sessionId: params.id,
+      fromStatus: session.pipelineStatus,
+      toStatus: updated.pipelineStatus ?? '',
+      source: 'manual:patch',
+      triggeredBy: ws.userId,
+      metadata: outcome !== undefined ? { outcome } : undefined,
+    })
+  }
 
   // Log scheduling event if marking as scheduled
   if (pipelineStatus === 'scheduled') {

@@ -84,10 +84,26 @@ export async function logSchedulingEvent(opts: {
 
 /**
  * Update candidate pipeline status.
+ *
+ * Routes through the audit helper so every change is recorded — this
+ * function is called from in-app scheduler / Calendly adoption / etc., all
+ * of which are scheduling-driven moves and tag the source as such.
  */
-export async function updatePipelineStatus(sessionId: string, status: string) {
-  return prisma.session.update({
-    where: { id: sessionId },
-    data: { pipelineStatus: status },
+export async function updatePipelineStatus(
+  sessionId: string,
+  status: string,
+  opts?: { source?: string; triggeredBy?: string | null; metadata?: Record<string, unknown> },
+) {
+  // Local import to avoid pulling pipeline-status' prisma binding into a
+  // module-level cycle (scheduling.ts is imported very early during request
+  // lifecycle).
+  const { setPipelineStatus } = await import('./pipeline-status')
+  await setPipelineStatus({
+    sessionId,
+    toStatus: status,
+    source: opts?.source ?? 'scheduling:update',
+    triggeredBy: opts?.triggeredBy ?? null,
+    metadata: opts?.metadata,
   })
+  return prisma.session.findUnique({ where: { id: sessionId } })
 }
