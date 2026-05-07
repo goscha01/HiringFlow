@@ -45,6 +45,8 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
   const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [uploadResult, setUploadResult] = useState<Record<string, { ok: boolean; text: string }>>({})
   const [removingRecording, setRemovingRecording] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState<string | null>(null)
+  const [reschedulingFor, setReschedulingFor] = useState<InterviewMeeting | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/candidates/${candidateId}/interview-meetings`)
@@ -89,6 +91,22 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
       }
     } finally {
       setRemovingRecording(null)
+    }
+  }, [load])
+
+  const cancelMeeting = useCallback(async (meetingId: string) => {
+    if (!confirm('Cancel this interview? The Google Calendar event will be deleted (the candidate will be notified by Google), queued reminders will be voided, and the candidate will be moved to Rejected with reason "Canceled".')) return
+    setCancelling(meetingId)
+    try {
+      const res = await fetch(`/api/interview-meetings/${meetingId}/cancel`, { method: 'POST' })
+      if (res.ok) {
+        await load()
+      } else {
+        const body = await res.json().catch(() => ({}))
+        alert(body?.message || body?.error || 'Could not cancel meeting. Please retry.')
+      }
+    } finally {
+      setCancelling(null)
     }
   }, [load])
 
@@ -210,6 +228,28 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                   </div>
                 )}
 
+                {new Date(m.scheduledEnd).getTime() >= Date.now() && !m.actualStart && (
+                  <div className="mt-3 pt-3 border-t border-surface-border">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => setReschedulingFor(m)}
+                        disabled={cancelling === m.id}
+                        className="text-xs text-primary hover:underline disabled:opacity-50"
+                      >
+                        Reschedule
+                      </button>
+                      <span className="text-grey-40 text-xs">·</span>
+                      <button
+                        onClick={() => cancelMeeting(m.id)}
+                        disabled={cancelling === m.id}
+                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                      >
+                        {cancelling === m.id ? 'Cancelling…' : 'Cancel meeting'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {new Date(m.scheduledEnd).getTime() < Date.now() && (
                   <div className="mt-3 pt-3 border-t border-surface-border space-y-2">
                     <div className="flex items-center gap-3 flex-wrap">
@@ -260,6 +300,103 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
           onScheduled={() => load()}
         />
       )}
+
+      {reschedulingFor && (
+        <RescheduleInterviewDialog
+          meeting={reschedulingFor}
+          onClose={() => setReschedulingFor(null)}
+          onRescheduled={() => { setReschedulingFor(null); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function RescheduleInterviewDialog({
+  meeting,
+  onClose,
+  onRescheduled,
+}: {
+  meeting: InterviewMeeting
+  onClose: () => void
+  onRescheduled: () => void
+}) {
+  const initialStart = new Date(meeting.scheduledStart)
+  const initialDurationMinutes = Math.max(
+    10,
+    Math.round((new Date(meeting.scheduledEnd).getTime() - initialStart.getTime()) / 60_000),
+  )
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  const toLocalInput = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+
+  const [scheduledAt, setScheduledAt] = useState(toLocalInput(initialStart))
+  const [durationMinutes, setDurationMinutes] = useState(initialDurationMinutes)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    setSubmitting(true); setError(null)
+    try {
+      const res = await fetch(`/api/interview-meetings/${meeting.id}/reschedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduledAt: new Date(scheduledAt).toISOString(),
+          durationMinutes,
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(body?.message || body?.error || 'Failed to reschedule')
+        return
+      }
+      onRescheduled()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white rounded-[12px] p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-grey-15">Reschedule interview</h3>
+        <p className="text-sm text-grey-40 mt-0.5">The candidate will receive an updated calendar invite at the new time.</p>
+
+        <div className="mt-4 space-y-3 text-sm">
+          <label className="block">
+            <span className="text-grey-40">Date &amp; time</span>
+            <input
+              type="datetime-local"
+              className="mt-1 w-full border border-surface-border rounded-[8px] px-3 py-2"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="text-grey-40">Duration (minutes)</span>
+            <input
+              type="number"
+              min={10}
+              max={240}
+              className="mt-1 w-full border border-surface-border rounded-[8px] px-3 py-2"
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(Number(e.target.value))}
+            />
+          </label>
+        </div>
+
+        {error && <div className="mt-3 p-2 rounded-[8px] bg-red-50 text-xs text-red-700">{error}</div>}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-secondary text-sm" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn-primary text-sm" onClick={submit} disabled={submitting}>
+            {submitting ? 'Rescheduling…' : 'Reschedule interview'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
