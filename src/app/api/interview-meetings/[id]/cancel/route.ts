@@ -1,15 +1,18 @@
 /**
  * POST /api/interview-meetings/[id]/cancel
  *
- * Recruiter-initiated cancel from the candidate detail page. Mirrors the
- * candidate-side SMS cancel path in `webhooks/sigcore/sms-inbound`:
+ * Recruiter-initiated cancel from the candidate detail page:
  *   - Delete the Google Calendar event (so it disappears from both sides).
  *   - Log a `meeting_cancelled` SchedulingEvent (idempotent — skipped when
  *     one already exists for this meeting).
  *   - Cancel queued before_meeting reminders + meeting-dependent follow-ups.
- *   - Stamp `Session.rejectionReason='Canceled'` + `rejectionReasonAt=now`.
- *   - applyStageTrigger('meeting_cancelled', legacyStatus='rejected') so
- *     unconfigured workspaces still land in the default Rejected column.
+ *   - applyStageTrigger('meeting_cancelled') — runs configured stage
+ *     triggers, but does NOT fall back to a hardcoded 'rejected' status.
+ *     "Cancelled" is not the same as "Rejected"; if the workspace wants
+ *     auto-routing they wire a `meeting_cancelled` stage trigger.
+ *
+ * The UI follows up with a "Where to move the candidate?" modal so the
+ * recruiter can decide stage placement explicitly (or keep current).
  *
  * Returns `{ ok, calendarDeleted, alreadyCancelled }` so the UI can toast
  * accordingly.
@@ -72,16 +75,15 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   await cancelMeetingDependentFollowups(meeting.sessionId).catch((err) =>
     console.error('[interview-meetings.cancel] cancelMeetingDependentFollowups failed:', err))
 
-  await prisma.session.update({
-    where: { id: meeting.sessionId },
-    data: { rejectionReason: 'Canceled', rejectionReasonAt: new Date() },
-  }).catch((err) => console.error('[interview-meetings.cancel] stamp rejectionReason failed:', err))
-
+  // Cancel != reject. Don't auto-stamp rejectionReason and don't auto-route
+  // to Rejected. Workspaces with a configured `meeting_cancelled` stage
+  // trigger still move via applyStageTrigger; the UI follows up with a
+  // "Where to move the candidate?" modal so the recruiter can decide
+  // explicitly or keep the candidate in their current stage.
   await applyStageTrigger({
     sessionId: meeting.sessionId,
     workspaceId: ws.workspaceId,
     event: 'meeting_cancelled',
-    legacyStatus: 'rejected',
   }).catch((err) => console.error('[interview-meetings.cancel] applyStageTrigger failed:', err))
 
   return NextResponse.json({ ok: true, alreadyCancelled: false, calendarDeleted })

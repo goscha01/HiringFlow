@@ -8,6 +8,12 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import {
+  DEFAULT_FUNNEL_STAGES,
+  normalizeStages,
+  resolveStage,
+  type FunnelStage,
+} from '@/lib/funnel-stages'
 import { ScheduleInterviewDialog } from './_ScheduleInterviewDialog'
 
 interface InterviewMeeting {
@@ -58,6 +64,27 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
   const [removingRecording, setRemovingRecording] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState<string | null>(null)
   const [reschedulingFor, setReschedulingFor] = useState<InterviewMeeting | null>(null)
+  // "Where to move the candidate?" modal — opens when the recruiter clicks
+  // Cancel meeting. Holds the meeting being cancelled until the recruiter
+  // confirms a destination stage (or chooses to keep them where they are).
+  const [cancelModal, setCancelModal] = useState<null | { meetingId: string }>(null)
+  const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
+  const [currentPipelineStatus, setCurrentPipelineStatus] = useState<string | null>(null)
+
+  // Load workspace funnel stages + this candidate's current stage so the
+  // cancel modal can pre-select "Keep in current stage" and label all the
+  // alternatives by name.
+  useEffect(() => {
+    fetch('/api/workspace/settings').then((r) => r.json()).then((d) => {
+      const raw = (d?.settings as { funnelStages?: unknown } | null)?.funnelStages
+      setStages(normalizeStages(raw))
+    }).catch(() => {})
+  }, [])
+  useEffect(() => {
+    fetch(`/api/candidates/${candidateId}`).then((r) => r.json()).then((d) => {
+      setCurrentPipelineStatus(typeof d?.pipelineStatus === 'string' ? d.pipelineStatus : null)
+    }).catch(() => {})
+  }, [candidateId])
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/candidates/${candidateId}/interview-meetings`)
@@ -105,27 +132,49 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
     }
   }, [load])
 
-  const cancelMeeting = useCallback(async (meetingId: string) => {
-    if (!confirm('Cancel this interview? The Google Calendar event will be deleted (the candidate will be notified by Google), queued reminders will be voided, and the candidate will be moved to Rejected with reason "Canceled".')) return
+  // Step 1 — open the modal. The actual cancel doesn't fire until the
+  // recruiter confirms a destination (or "keep in current stage").
+  const openCancelModal = useCallback((meetingId: string) => {
+    setCancelModal({ meetingId })
+  }, [])
+
+  // Step 2 — confirmed from the modal. Cancels the meeting, then if a
+  // target stage was picked, PATCHes the candidate's pipelineStatus.
+  // `targetStageId === null` means "keep in current stage".
+  const confirmCancel = useCallback(async (meetingId: string, targetStageId: string | null) => {
     setCancelling(meetingId)
     try {
       const res = await fetch(`/api/interview-meetings/${meetingId}/cancel`, { method: 'POST' })
-      if (res.ok) {
-        // Optimistic: flip the row to Cancelled immediately so the UI doesn't
-        // wait on the GET round-trip (which also runs sync-on-read).
-        const nowIso = new Date().toISOString()
-        setMeetings((prev) =>
-          prev ? prev.map((mm) => (mm.id === meetingId ? { ...mm, cancelledAt: nowIso } : mm)) : prev
-        )
-        load().catch(() => {})
-      } else {
+      if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         alert(body?.message || body?.error || 'Could not cancel meeting. Please retry.')
+        return
       }
+      // Optimistic: flip the row to Cancelled immediately so the UI doesn't
+      // wait on the GET round-trip (which also runs sync-on-read).
+      const nowIso = new Date().toISOString()
+      setMeetings((prev) =>
+        prev ? prev.map((mm) => (mm.id === meetingId ? { ...mm, cancelledAt: nowIso } : mm)) : prev
+      )
+
+      if (targetStageId && targetStageId !== currentPipelineStatus) {
+        // Recruiter chose to move the candidate. Override any auto-move
+        // applyStageTrigger may have done by writing the chosen stage
+        // straight to the candidate record.
+        await fetch(`/api/candidates/${candidateId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pipelineStatus: targetStageId }),
+        }).catch(() => {})
+        setCurrentPipelineStatus(targetStageId)
+      }
+
+      setCancelModal(null)
+      load().catch(() => {})
     } finally {
       setCancelling(null)
     }
-  }, [load])
+  }, [candidateId, currentPipelineStatus, load])
 
   const markNoShow = useCallback(async (meetingId: string) => {
     if (!confirm('Mark this meeting as a no-show? The candidate will be moved to Rejected and the no-show follow-up automation (if configured) will run.')) return
@@ -258,7 +307,7 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                       </button>
                       <span className="text-grey-40 text-xs">·</span>
                       <button
-                        onClick={() => cancelMeeting(m.id)}
+                        onClick={() => openCancelModal(m.id)}
                         disabled={cancelling === m.id}
                         className="text-xs text-red-600 hover:underline disabled:opacity-50 inline-flex items-center"
                       >
@@ -326,6 +375,108 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
           onRescheduled={() => { setReschedulingFor(null); load() }}
         />
       )}
+
+      {cancelModal && (
+        <CancelMeetingModal
+          stages={stages}
+          currentPipelineStatus={currentPipelineStatus}
+          busy={cancelling === cancelModal.meetingId}
+          onClose={() => setCancelModal(null)}
+          onConfirm={(targetStageId) => confirmCancel(cancelModal.meetingId, targetStageId)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * "Where to move the candidate?" modal that opens when the recruiter
+ * clicks Cancel meeting. Defaults to "Keep in current stage" — cancelling
+ * a meeting (e.g. to reschedule) shouldn't auto-route the candidate
+ * anywhere unless the recruiter explicitly asks. The candidate's actual
+ * funnel position only changes when the recruiter picks a different
+ * stage and confirms.
+ */
+function CancelMeetingModal({
+  stages,
+  currentPipelineStatus,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  stages: FunnelStage[]
+  currentPipelineStatus: string | null
+  busy: boolean
+  onClose: () => void
+  onConfirm: (targetStageId: string | null) => void
+}) {
+  const currentStage = resolveStage(currentPipelineStatus, stages)
+  // null = "keep current stage" (default). A stage id = move there.
+  const [choice, setChoice] = useState<string | null>(null)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose() }}
+    >
+      <div className="w-full max-w-[480px] rounded-[14px] bg-white shadow-xl border border-surface-border">
+        <div className="px-6 pt-5 pb-3">
+          <h3 className="text-base font-semibold text-ink mb-1">Cancel interview</h3>
+          <p className="text-[12px] text-grey-40">
+            The Google Calendar event will be deleted (the candidate will be notified by Google) and any queued reminders / follow-ups voided.
+          </p>
+        </div>
+        <div className="px-6 py-3">
+          <div className="text-[12px] font-medium text-grey-15 mb-2">Where to move the candidate?</div>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2.5 px-3 py-2 rounded-[8px] border border-surface-border hover:bg-surface-light cursor-pointer">
+              <input
+                type="radio"
+                checked={choice === null}
+                onChange={() => setChoice(null)}
+                className="accent-brand-500"
+              />
+              <span className="text-[13px] text-ink">
+                Keep in current stage
+                <span className="ml-2 text-[11px] text-grey-40">
+                  (currently <strong>{currentStage.label}</strong>)
+                </span>
+              </span>
+            </label>
+            {stages.map((s) => (
+              <label
+                key={s.id}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-[8px] border border-surface-border hover:bg-surface-light cursor-pointer"
+              >
+                <input
+                  type="radio"
+                  checked={choice === s.id}
+                  onChange={() => setChoice(s.id)}
+                  className="accent-brand-500"
+                />
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                <span className="text-[13px] text-ink">{s.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="px-6 py-4 flex justify-end gap-2 border-t border-surface-divider">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="text-sm px-4 py-2 rounded-[8px] text-grey-40 hover:text-grey-15 disabled:opacity-50"
+          >
+            Back
+          </button>
+          <button
+            onClick={() => onConfirm(choice)}
+            disabled={busy}
+            className="text-sm px-4 py-2 rounded-[8px] bg-red-600 text-white hover:bg-red-700 font-medium disabled:opacity-50"
+          >
+            {busy ? 'Cancelling…' : 'Cancel meeting'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
