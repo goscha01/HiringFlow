@@ -98,6 +98,20 @@ export default function CampaignsPage() {
     await fetch(`/api/ads/${id}`, { method: 'DELETE' }); refresh()
   }
 
+  const duplicateAd = async (ad: Ad) => {
+    const res = await fetch('/api/ads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `${ad.name} (copy)`,
+        source: ad.source,
+        campaign: ad.campaign,
+        flowId: ad.flowId,
+      }),
+    })
+    if (res.ok) refresh()
+  }
+
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
 
   const copyLink = (slug: string, id: string) => {
@@ -217,6 +231,7 @@ export default function CampaignsPage() {
                           {copiedId === ad.id ? 'Copied!' : 'Copy Link'}
                         </button>
                         <button onClick={() => openEdit(ad)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
+                        <button onClick={() => duplicateAd(ad)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
                         <button onClick={() => deleteAd(ad.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
                       </td>
                     </tr>
