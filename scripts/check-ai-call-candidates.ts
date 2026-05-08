@@ -33,7 +33,7 @@ async function main() {
   const agentIds = workspaces
     .map(w => ((w.settings || {}) as any).elevenlabs_agent_id)
     .filter(Boolean) as string[]
-  for (const agentId of [...new Set(agentIds)]) {
+  for (const agentId of Array.from(new Set(agentIds))) {
     const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversations?agent_id=${agentId}&page_size=10`, {
       headers: { 'xi-api-key': platformKey.value },
     })
