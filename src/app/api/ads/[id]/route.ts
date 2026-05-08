@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (!ad) return NextResponse.json({ error: 'Ad not found' }, { status: 404 })
 
   const body = await request.json()
-  const { name, source, campaign, flowId, isActive } = body
+  const { name, source, campaign, flowId, isActive, imageUrl } = body
 
   const updated = await prisma.ad.update({
     where: { id: params.id },
@@ -33,6 +33,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ...(campaign !== undefined && { campaign: campaign || null }),
       ...(flowId !== undefined && { flowId }),
       ...(isActive !== undefined && { isActive }),
+      ...(imageUrl !== undefined && { imageUrl: imageUrl || null }),
     },
     include: { flow: { select: { id: true, name: true, slug: true } } },
   })

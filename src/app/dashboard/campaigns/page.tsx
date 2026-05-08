@@ -6,9 +6,10 @@ import { Button, Card, Eyebrow, PageHeader, Stat } from '@/components/design'
 
 interface Flow { id: string; name: string; slug: string; isPublished?: boolean }
 interface AdTemplateItem { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null }
+interface Picture { id: string; url: string; filename: string; displayName?: string | null }
 interface Ad {
   id: string; name: string; source: string; campaign: string | null
-  slug: string; isActive: boolean; flowId: string
+  slug: string; isActive: boolean; flowId: string; imageUrl: string | null
   flow: Flow; createdAt: string; _count: { sessions: number }
 }
 
@@ -55,6 +56,13 @@ export default function CampaignsPage() {
   const [duplicatingAd, setDuplicatingAd] = useState<Ad | null>(null)
   const [duplicateName, setDuplicateName] = useState('')
   const [duplicating, setDuplicating] = useState(false)
+  // Image picker
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [pictures, setPictures] = useState<Picture[]>([])
+  const [picturesLoading, setPicturesLoading] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -73,23 +81,61 @@ export default function CampaignsPage() {
 
   const openCreate = () => {
     setEditingAd(null); setName(''); setSource('indeed'); setCampaign(''); setFlowId(flows[0]?.id || '')
+    setImageUrl(null); setImageError(null); setShowLibrary(false)
     const d = DEFAULT_AD_COPY.indeed
     setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
     setShowAdCopy(true); setShowModal(true)
   }
   const openEdit = (ad: Ad) => {
-    setEditingAd(ad); setName(ad.name); setSource(ad.source); setCampaign(ad.campaign || ''); setFlowId(ad.flowId); setShowModal(true)
+    setEditingAd(ad); setName(ad.name); setSource(ad.source); setCampaign(ad.campaign || ''); setFlowId(ad.flowId)
+    setImageUrl(ad.imageUrl); setImageError(null); setShowLibrary(false)
+    setShowModal(true)
   }
 
   const save = async () => {
     if (!name.trim() || !flowId) return
     setSaving(true)
+    const payload = { name, source, campaign, flowId, imageUrl }
     if (editingAd) {
-      await fetch(`/api/ads/${editingAd.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, source, campaign, flowId }) })
+      await fetch(`/api/ads/${editingAd.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } else {
-      await fetch('/api/ads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, source, campaign, flowId }) })
+      await fetch('/api/ads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     }
     setSaving(false); setShowModal(false); refresh()
+  }
+
+  const uploadImage = async (file: File) => {
+    setImageError(null)
+    if (!file.type.startsWith('image/')) { setImageError('File must be an image'); return }
+    if (file.size > 10 * 1024 * 1024) { setImageError('Image too large (max 10MB)'); return }
+    setImageUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/pictures', { method: 'POST', body: fd })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setImageError(err.error || 'Upload failed')
+        return
+      }
+      const picture = await res.json() as Picture
+      setImageUrl(picture.url)
+    } finally {
+      setImageUploading(false)
+    }
+  }
+
+  const openLibrary = async () => {
+    setShowLibrary(true)
+    if (pictures.length === 0) {
+      setPicturesLoading(true)
+      try {
+        const r = await fetch('/api/pictures')
+        if (r.ok) setPictures(await r.json())
+      } finally {
+        setPicturesLoading(false)
+      }
+    }
   }
 
   const toggleActive = async (ad: Ad) => {
@@ -118,6 +164,7 @@ export default function CampaignsPage() {
         source: duplicatingAd.source,
         campaign: duplicatingAd.campaign,
         flowId: duplicatingAd.flowId,
+        imageUrl: duplicatingAd.imageUrl,
       }),
     })
     setDuplicating(false)
@@ -207,6 +254,7 @@ export default function CampaignsPage() {
               <table className="min-w-full">
                 <thead>
                   <tr className="border-b border-surface-border bg-surface">
+                    <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase w-[68px]"></th>
                     <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Name</th>
                     <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Source</th>
                     <th className="px-5 py-3 text-left text-xs font-medium text-grey-40 uppercase">Flow</th>
@@ -219,6 +267,15 @@ export default function CampaignsPage() {
                 <tbody className="divide-y divide-surface-border">
                   {ads.map((ad) => (
                     <tr key={ad.id} className="hover:bg-surface-light">
+                      <td className="px-5 py-4">
+                        {ad.imageUrl ? (
+                          <img src={ad.imageUrl} alt="" className="w-10 h-10 rounded-[6px] object-cover border border-surface-border" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-[6px] bg-surface border border-surface-border flex items-center justify-center text-grey-50">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-5 py-4">
                         <div className="text-sm font-medium text-grey-15">{ad.name}</div>
                         <div className="text-xs text-grey-50 mt-0.5">{new Date(ad.createdAt).toLocaleDateString()}</div>
@@ -367,6 +424,33 @@ export default function CampaignsPage() {
                 <input type="text" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="e.g. Q1 Hiring, Miami Market" className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
 
+              {/* Picture */}
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Picture (optional)</label>
+                {imageUrl ? (
+                  <div className="flex items-start gap-3">
+                    <img src={imageUrl} alt="Ad" className="w-24 h-24 object-cover rounded-[8px] border border-surface-border" />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-brand-500 hover:text-brand-600 font-medium cursor-pointer">
+                        Replace
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = '' }} />
+                      </label>
+                      <button type="button" onClick={openLibrary} className="text-xs text-grey-35 hover:text-grey-15 text-left">Choose from library</button>
+                      <button type="button" onClick={() => setImageUrl(null)} className="text-xs text-red-500 hover:text-red-600 text-left">Remove</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <label className={`flex-1 border-2 border-dashed border-surface-border rounded-[8px] p-4 text-center cursor-pointer hover:bg-surface ${imageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <div className="text-sm text-grey-35">{imageUploading ? 'Uploading…' : 'Click to upload — PNG/JPG up to 10MB'}</div>
+                      <input type="file" accept="image/*" className="hidden" disabled={imageUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = '' }} />
+                    </label>
+                    <button type="button" onClick={openLibrary} className="px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-35 hover:bg-surface">Library</button>
+                  </div>
+                )}
+                {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
+              </div>
+
               {/* Ad Copy Section */}
               <div className="border-t border-surface-border pt-4">
                 <div className="mb-3">
@@ -417,6 +501,44 @@ export default function CampaignsPage() {
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={save} disabled={saving || !name.trim() || !flowId} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editingAd ? 'Save Changes' : 'Create Ad'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Picture Library Modal */}
+      {showLibrary && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[60]" onClick={() => setShowLibrary(false)}>
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[680px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-grey-15">Choose a picture</h2>
+              <label className="text-xs text-brand-500 hover:text-brand-600 font-medium cursor-pointer">
+                + Upload new
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) { await uploadImage(f); setShowLibrary(false) } e.target.value = '' }} />
+              </label>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {picturesLoading ? (
+                <div className="text-center py-12 text-grey-40 text-sm">Loading…</div>
+              ) : pictures.length === 0 ? (
+                <div className="text-center py-12 text-grey-40 text-sm">No pictures yet — upload one above.</div>
+              ) : (
+                <div className="grid grid-cols-4 gap-3">
+                  {pictures.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => { setImageUrl(p.url); setShowLibrary(false) }}
+                      className={`group relative aspect-square rounded-[8px] overflow-hidden border-2 ${imageUrl === p.url ? 'border-brand-500' : 'border-surface-border hover:border-brand-300'}`}
+                    >
+                      <img src={p.url} alt={p.displayName || p.filename} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setShowLibrary(false)} className="btn-secondary">Close</button>
             </div>
           </div>
         </div>
