@@ -94,6 +94,36 @@ function buildStatusTabs(customStatuses: CustomStatus[]): StatusTab[] {
   ]
 }
 
+// Built-in candidate sources offered in the "Add candidate" modal. Mirrors
+// the values used by Ad.source plus 'manual' (for recruiter-created rows).
+// Workspaces can extend this list via Workspace.settings.customSources;
+// custom entries are persisted as plain trimmed strings.
+const BUILTIN_SOURCES: Array<{ id: string; label: string }> = [
+  { id: 'manual',    label: 'Manual'    },
+  { id: 'indeed',    label: 'Indeed'    },
+  { id: 'facebook',  label: 'Facebook'  },
+  { id: 'craigslist',label: 'Craigslist'},
+  { id: 'google',    label: 'Google'    },
+  { id: 'linkedin',  label: 'LinkedIn'  },
+  { id: 'other',     label: 'Other'     },
+]
+function normalizeCustomSources(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const builtin = new Set(BUILTIN_SOURCES.map((s) => s.id))
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const t = item.trim()
+    if (!t) continue
+    const key = t.toLowerCase()
+    if (builtin.has(key) || seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+  }
+  return out
+}
+
 // Background tint for the disposition pill, keyed by the candidate's
 // current status. Pulls the existing rejection-pill (red) and adds amber
 // for stalled — same color vocabulary as the funnel stage tones.
@@ -129,6 +159,7 @@ export default function CandidatesPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [statusSettingsOpen, setStatusSettingsOpen] = useState(false)
   const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
+  const [customSources, setCustomSources] = useState<string[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   // Per-stage sort direction. 'asc' = oldest first (FIFO follow-up — the
   // current default), 'desc' = newest first. Persisted in localStorage so
@@ -255,9 +286,10 @@ export default function CandidatesPage() {
     fetch('/api/workspace/settings')
       .then((r) => r.json())
       .then((d) => {
-        const settings = (d?.settings as { funnelStages?: unknown; customStatuses?: unknown } | null) ?? null
+        const settings = (d?.settings as { funnelStages?: unknown; customStatuses?: unknown; customSources?: unknown } | null) ?? null
         setStages(normalizeStages(settings?.funnelStages))
         setCustomStatuses(normalizeCustomStatuses(settings?.customStatuses))
+        setCustomSources(normalizeCustomSources(settings?.customSources))
       })
       .catch(() => {})
     // Restore per-stage sort prefs from prior visits.
@@ -788,6 +820,8 @@ export default function CandidatesPage() {
         flows={flows}
         stages={stages}
         defaultFlowId={flowFilter || flows[0]?.id || ''}
+        customSources={customSources}
+        onCustomSourcesChanged={setCustomSources}
         onCreated={(id) => {
           setCreateOpen(false)
           load()
@@ -804,15 +838,21 @@ interface NewCandidateModalProps {
   flows: Flow[]
   stages: FunnelStage[]
   defaultFlowId: string
+  customSources: string[]
+  onCustomSourcesChanged: (next: string[]) => void
   onCreated: (id: string) => void
 }
 
-function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, onCreated }: NewCandidateModalProps) {
+function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, customSources, onCustomSourcesChanged, onCreated }: NewCandidateModalProps) {
   const [flowId, setFlowId] = useState(defaultFlowId)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [stageId, setStageId] = useState(stages[0]?.id ?? 'new')
+  const [source, setSource] = useState<string>('manual')
+  const [addingSource, setAddingSource] = useState(false)
+  const [newSourceName, setNewSourceName] = useState('')
+  const [savingSource, setSavingSource] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -823,8 +863,48 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, onCrea
     setEmail('')
     setPhone('')
     setStageId(stages[0]?.id ?? 'new')
+    setSource('manual')
+    setAddingSource(false)
+    setNewSourceName('')
     setError(null)
   }, [open, defaultFlowId, stages])
+
+  // Persists a new custom source on Workspace.settings.customSources, dedup
+  // case-insensitively against built-ins and existing customs. Reads current
+  // settings first so we don't clobber other keys (funnelStages, etc.).
+  const addCustomSource = async () => {
+    const trimmed = newSourceName.trim()
+    if (!trimmed || savingSource) return
+    const existingLower = new Set([
+      ...BUILTIN_SOURCES.map((s) => s.id),
+      ...customSources.map((s) => s.toLowerCase()),
+    ])
+    if (existingLower.has(trimmed.toLowerCase())) {
+      setError(`Source "${trimmed}" already exists`)
+      return
+    }
+    setSavingSource(true)
+    setError(null)
+    try {
+      const cur = await fetch('/api/workspace/settings').then((r) => r.json()).catch(() => ({}))
+      const currentSettings = (cur?.settings && typeof cur.settings === 'object') ? cur.settings : {}
+      const nextCustom = [...customSources, trimmed]
+      const res = await fetch('/api/workspace/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { ...currentSettings, customSources: nextCustom } }),
+      })
+      if (!res.ok) throw new Error('Failed to save source')
+      onCustomSourcesChanged(nextCustom)
+      setSource(trimmed)
+      setAddingSource(false)
+      setNewSourceName('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save source')
+    } finally {
+      setSavingSource(false)
+    }
+  }
 
   if (!open) return null
 
@@ -845,6 +925,7 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, onCrea
           candidateEmail: email,
           candidatePhone: phone,
           pipelineStatus: stageId,
+          source,
         }),
       })
       if (!res.ok) {
@@ -943,6 +1024,52 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, onCrea
                 >
                   {stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">Source</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  >
+                    {BUILTIN_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                    {customSources.length > 0 && (
+                      <optgroup label="Custom">
+                        {customSources.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </optgroup>
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => { setAddingSource(true); setNewSourceName('') }}
+                    title="Add custom source"
+                    className="w-9 h-9 flex items-center justify-center rounded-[10px] border border-surface-border text-grey-50 hover:text-ink hover:bg-surface-light"
+                  >
+                    +
+                  </button>
+                </div>
+                {addingSource && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newSourceName}
+                      onChange={(e) => setNewSourceName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); addCustomSource() }
+                        else if (e.key === 'Escape') { setAddingSource(false); setNewSourceName('') }
+                      }}
+                      placeholder="e.g. Career Fair"
+                      className="flex-1 px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                    />
+                    <Button type="button" variant="secondary" size="sm" onClick={() => { setAddingSource(false); setNewSourceName('') }}>Cancel</Button>
+                    <Button type="button" size="sm" disabled={!newSourceName.trim() || savingSource} onClick={addCustomSource}>
+                      {savingSource ? 'Saving…' : 'Add'}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <p className="text-[11px] text-grey-35">

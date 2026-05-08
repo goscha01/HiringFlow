@@ -158,6 +158,7 @@ export async function POST(request: NextRequest) {
     candidateEmail?: string | null
     candidatePhone?: string | null
     pipelineStatus?: string | null
+    source?: string | null
   } | null
 
   if (!body || typeof body.flowId !== 'string' || !body.flowId) {
@@ -180,6 +181,9 @@ export async function POST(request: NextRequest) {
   const email = trim(body.candidateEmail)
   const phone = trim(body.candidatePhone)
   const pipelineStatus = trim(body.pipelineStatus)
+  // source defaults to 'manual' (recruiter-created); the modal can pass any
+  // built-in source id ('indeed', 'facebook', …) or a custom workspace label.
+  const source = trim(body.source) ?? 'manual'
 
   if (!name && !email && !phone) {
     return NextResponse.json({ error: 'At least one of name, email, or phone is required' }, { status: 400 })
@@ -193,7 +197,7 @@ export async function POST(request: NextRequest) {
       candidateEmail: email,
       candidatePhone: phone,
       pipelineStatus,
-      source: 'manual',
+      source,
     },
     select: { id: true },
   })
