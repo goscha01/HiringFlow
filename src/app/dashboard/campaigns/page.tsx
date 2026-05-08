@@ -51,6 +51,10 @@ export default function CampaignsPage() {
   const [adBody, setAdBody] = useState('')
   const [adCta, setAdCta] = useState('')
   const [showAdCopy, setShowAdCopy] = useState(true)
+  // Duplicate modal
+  const [duplicatingAd, setDuplicatingAd] = useState<Ad | null>(null)
+  const [duplicateName, setDuplicateName] = useState('')
+  const [duplicating, setDuplicating] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -98,18 +102,30 @@ export default function CampaignsPage() {
     await fetch(`/api/ads/${id}`, { method: 'DELETE' }); refresh()
   }
 
-  const duplicateAd = async (ad: Ad) => {
+  const openDuplicate = (ad: Ad) => {
+    setDuplicatingAd(ad)
+    setDuplicateName(`${ad.name} (copy)`)
+  }
+
+  const confirmDuplicate = async () => {
+    if (!duplicatingAd || !duplicateName.trim()) return
+    setDuplicating(true)
     const res = await fetch('/api/ads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: `${ad.name} (copy)`,
-        source: ad.source,
-        campaign: ad.campaign,
-        flowId: ad.flowId,
+        name: duplicateName.trim(),
+        source: duplicatingAd.source,
+        campaign: duplicatingAd.campaign,
+        flowId: duplicatingAd.flowId,
       }),
     })
-    if (res.ok) refresh()
+    setDuplicating(false)
+    if (res.ok) {
+      setDuplicatingAd(null)
+      setDuplicateName('')
+      refresh()
+    }
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
@@ -231,7 +247,7 @@ export default function CampaignsPage() {
                           {copiedId === ad.id ? 'Copied!' : 'Copy Link'}
                         </button>
                         <button onClick={() => openEdit(ad)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
-                        <button onClick={() => duplicateAd(ad)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
+                        <button onClick={() => openDuplicate(ad)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
                         <button onClick={() => deleteAd(ad.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
                       </td>
                     </tr>
@@ -401,6 +417,30 @@ export default function CampaignsPage() {
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={save} disabled={saving || !name.trim() || !flowId} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editingAd ? 'Save Changes' : 'Create Ad'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Modal */}
+      {duplicatingAd && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => !duplicating && setDuplicatingAd(null)}>
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[440px]" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold text-grey-15 mb-2">Duplicate Ad</h2>
+            <p className="text-sm text-grey-40 mb-4">Create a copy of <span className="font-medium text-grey-20">{duplicatingAd.name}</span> with a new tracked link.</p>
+            <label className="block text-sm font-medium text-grey-20 mb-1.5">New ad name</label>
+            <input
+              type="text"
+              value={duplicateName}
+              onChange={(e) => setDuplicateName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmDuplicate() }}
+              placeholder="e.g. Indeed Cleaner Ad - Miami (copy)"
+              className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              autoFocus
+            />
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setDuplicatingAd(null)} disabled={duplicating} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={confirmDuplicate} disabled={duplicating || !duplicateName.trim()} className="btn-primary flex-1 disabled:opacity-50">{duplicating ? 'Duplicating...' : 'Duplicate'}</button>
             </div>
           </div>
         </div>
