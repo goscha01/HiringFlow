@@ -67,22 +67,43 @@ export function BookingRulesEditor({ value, onChange }: Props) {
   return (
     <div className="space-y-4 border border-surface-border rounded-[10px] p-4 bg-surface-light/40">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <NumberField label="Duration (min)" value={rules.durationMinutes} min={5} max={480}
+        <NumberField
+          label="Duration (min)"
+          tooltip="How long each interview slot is. e.g. 30 means a candidate booking 9:00 takes the recruiter from 9:00 to 9:30."
+          value={rules.durationMinutes} min={5} max={480}
           onChange={(v) => update({ durationMinutes: v })} />
-        <NumberField label="Slot interval (min)" value={rules.slotIntervalMinutes} min={5} max={480}
+        <NumberField
+          label="Slot interval (min)"
+          tooltip="How often a new slot starts on the picker grid. 30 → 9:00, 9:30, 10:00... Set this equal to Duration for back-to-back, no-overlap slots."
+          value={rules.slotIntervalMinutes} min={5} max={480}
           onChange={(v) => update({ slotIntervalMinutes: v })} />
-        <NumberField label="Buffer before (min)" value={rules.bufferBeforeMinutes} min={0} max={480}
+        <NumberField
+          label="Buffer before (min)"
+          tooltip="Padding the candidate must leave BEFORE any existing busy event. e.g. busy 14:00–15:00 with buffer-before 30 → no slot can end after 13:30."
+          value={rules.bufferBeforeMinutes} min={0} max={480}
           onChange={(v) => update({ bufferBeforeMinutes: v })} />
-        <NumberField label="Buffer after (min)" value={rules.bufferAfterMinutes} min={0} max={480}
+        <NumberField
+          label="Buffer after (min)"
+          tooltip="Padding AFTER any busy event before another slot can start. e.g. busy 14:00–15:00 with buffer-after 15 → no slot can start before 15:15."
+          value={rules.bufferAfterMinutes} min={0} max={480}
           onChange={(v) => update({ bufferAfterMinutes: v })} />
-        <NumberField label="Min notice (hours)" value={rules.minNoticeHours} min={0} max={720}
+        <NumberField
+          label="Min notice (hours)"
+          tooltip="How far in advance candidates must book. e.g. 2 means no slots within the next 2 hours, so candidates can't book a meeting starting in 5 minutes."
+          value={rules.minNoticeHours} min={0} max={720}
           onChange={(v) => update({ minNoticeHours: v })} />
-        <NumberField label="Max days out" value={rules.maxDaysOut} min={1} max={365}
+        <NumberField
+          label="Max days out"
+          tooltip="Furthest a candidate can book ahead. 14 = picker only shows the next 14 days."
+          value={rules.maxDaysOut} min={1} max={365}
           onChange={(v) => update({ maxDaysOut: v })} />
       </div>
 
       <div>
-        <div className="eyebrow mb-2">Working hours (workspace timezone)</div>
+        <div className="eyebrow mb-2 flex items-center gap-1.5">
+          Working hours (workspace timezone)
+          <InfoIcon tooltip="The window each weekday when slots can be generated, in your workspace's timezone. Click a day name to toggle it off entirely. Add multiple ranges for split days (e.g. 09:00–12:00 and 13:00–17:00 to skip lunch)." />
+        </div>
         <div className="space-y-1.5">
           {WEEKDAYS.map(({ key, label }) => {
             const ranges = rules.workingHours[key]
@@ -148,10 +169,13 @@ export function BookingRulesEditor({ value, onChange }: Props) {
   )
 }
 
-function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+function NumberField({ label, tooltip, value, min, max, onChange }: { label: string; tooltip?: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   return (
     <label className="block">
-      <span className="eyebrow block mb-1">{label}</span>
+      <span className="eyebrow block mb-1 flex items-center gap-1">
+        {label}
+        {tooltip && <InfoIcon tooltip={tooltip} />}
+      </span>
       <input
         type="number"
         min={min}
@@ -164,6 +188,35 @@ function NumberField({ label, value, min, max, onChange }: { label: string; valu
         className="w-full px-2 py-1.5 border border-surface-border rounded-[6px] text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/40"
       />
     </label>
+  )
+}
+
+function InfoIcon({ tooltip }: { tooltip: string }) {
+  return (
+    <span
+      className="relative inline-flex items-center group cursor-help align-middle"
+      tabIndex={0}
+      role="img"
+      aria-label="Help"
+    >
+      <svg
+        className="w-3.5 h-3.5 text-grey-50 hover:text-[color:var(--brand-primary)] transition-colors"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        viewBox="0 0 24 24"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8h.01M11 12h1v4h1" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span
+        className="invisible group-hover:visible group-focus:visible opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-64 px-3 py-2 rounded-md bg-[#262626] text-white text-[12px] leading-snug normal-case font-normal tracking-normal shadow-lg pointer-events-none"
+        style={{ letterSpacing: 'normal' }}
+      >
+        {tooltip}
+        <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-[5px] border-transparent border-t-[#262626]" />
+      </span>
+    </span>
   )
 }
 

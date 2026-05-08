@@ -144,7 +144,7 @@ export default function SchedulingPage() {
           <div className="flex items-end justify-between mb-3">
             <div>
               <Eyebrow size="xs" className="mb-0.5">Booking links</Eyebrow>
-              <div className="text-[15px] font-semibold text-ink">Calendly configurations</div>
+              <div className="text-[15px] font-semibold text-ink">Scheduling configurations</div>
             </div>
             <div className="font-mono text-[11px] text-grey-35">{configs.length} total</div>
           </div>
@@ -153,8 +153,8 @@ export default function SchedulingPage() {
             <Card padding={40} className="text-center">
               <Eyebrow size="xs" className="mb-2">Nothing yet</Eyebrow>
               <h2 className="text-[18px] font-semibold text-ink mb-1.5">No scheduling links yet</h2>
-              <p className="text-grey-35 mb-4 text-[13px]">Add your Calendly booking link to start scheduling candidates.</p>
-              <Button size="sm" onClick={openCreate}>+ Add Calendly link</Button>
+              <p className="text-grey-35 mb-4 text-[13px]">Add a booking link — paste a Calendly URL or use the built-in slot picker.</p>
+              <Button size="sm" onClick={openCreate}>+ Add link</Button>
             </Card>
           ) : (
             <Card padding={0} className="overflow-hidden">
@@ -176,11 +176,19 @@ export default function SchedulingPage() {
                   {configs.map((c) => (
                     <tr key={c.id} className="border-b border-surface-divider last:border-0 hover:bg-surface-light">
                       <td className="px-4 py-3 font-medium text-ink">{c.name}</td>
-                      <td className="px-4 py-3"><Badge tone="info">{c.provider}</Badge></td>
+                      <td className="px-4 py-3">
+                        {c.useBuiltInScheduler
+                          ? <Badge tone="brand">Built-in</Badge>
+                          : <Badge tone="info">{c.provider}</Badge>}
+                      </td>
                       <td className="px-4 py-3 max-w-[260px] truncate">
-                        <a href={c.schedulingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-grey-35 hover:text-ink underline">
-                          {c.schedulingUrl.replace(/^https?:\/\//, '')}
-                        </a>
+                        {c.useBuiltInScheduler ? (
+                          <span className="font-mono text-[11px] text-grey-35">In-app slot picker</span>
+                        ) : (
+                          <a href={c.schedulingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-grey-35 hover:text-ink underline">
+                            {c.schedulingUrl.replace(/^https?:\/\//, '')}
+                          </a>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-mono text-ink">{c._count.events}</td>
                       <td className="px-4 py-3">
