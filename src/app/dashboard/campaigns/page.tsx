@@ -10,6 +10,9 @@ interface Picture { id: string; url: string; filename: string; displayName?: str
 interface Ad {
   id: string; name: string; source: string; campaign: string | null
   slug: string; isActive: boolean; flowId: string; imageUrl: string | null
+  placementUrl: string | null
+  headline: string | null; bodyText: string | null
+  requirements: string | null; benefits: string | null; callToAction: string | null
   flow: Flow; createdAt: string; _count: { sessions: number }
 }
 
@@ -51,7 +54,11 @@ export default function CampaignsPage() {
   const [adHeadline, setAdHeadline] = useState('')
   const [adBody, setAdBody] = useState('')
   const [adCta, setAdCta] = useState('')
+  const [adRequirements, setAdRequirements] = useState('')
+  const [adBenefits, setAdBenefits] = useState('')
   const [showAdCopy, setShowAdCopy] = useState(true)
+  // Placement URL (where the ad was posted — Telegram/Facebook group, etc.)
+  const [placementUrl, setPlacementUrl] = useState('')
   // Duplicate modal
   const [duplicatingAd, setDuplicatingAd] = useState<Ad | null>(null)
   const [duplicateName, setDuplicateName] = useState('')
@@ -101,20 +108,31 @@ export default function CampaignsPage() {
   const loadAdCopyDefaults = (src: string) => {
     const d = DEFAULT_AD_COPY[src] || DEFAULT_AD_COPY._default
     setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
+    setAdRequirements(d.requirements); setAdBenefits(d.benefits)
   }
 
   const openCreate = () => {
     setEditingAd(null); setName(''); setSource('indeed'); setCampaign(''); setFlowId(flows[0]?.id || '')
     setImageUrl(null); setImageError(null); setShowLibrary(false)
     setSelectedTemplateId('__default__')
+    setPlacementUrl('')
     const d = DEFAULT_AD_COPY.indeed
     setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
+    setAdRequirements(d.requirements); setAdBenefits(d.benefits)
     setShowAdCopy(true); setShowModal(true)
   }
   const openEdit = (ad: Ad) => {
     setEditingAd(ad); setName(ad.name); setSource(ad.source); setCampaign(ad.campaign || ''); setFlowId(ad.flowId)
     setImageUrl(ad.imageUrl); setImageError(null); setShowLibrary(false)
     setSelectedTemplateId('__default__')
+    setPlacementUrl(ad.placementUrl || '')
+    // Load saved copy if present, otherwise fall back to source defaults
+    const d = DEFAULT_AD_COPY[ad.source] || DEFAULT_AD_COPY._default
+    setAdHeadline(ad.headline ?? d.headline)
+    setAdBody(ad.bodyText ?? d.body)
+    setAdCta(ad.callToAction ?? d.cta)
+    setAdRequirements(ad.requirements ?? d.requirements)
+    setAdBenefits(ad.benefits ?? d.benefits)
     setShowModal(true)
   }
 
@@ -191,7 +209,15 @@ export default function CampaignsPage() {
   const save = async () => {
     if (!name.trim() || !flowId) return
     setSaving(true)
-    const payload = { name, source, campaign, flowId, imageUrl }
+    const payload = {
+      name, source, campaign, flowId, imageUrl,
+      placementUrl: placementUrl.trim() || null,
+      headline: adHeadline,
+      bodyText: adBody,
+      requirements: adRequirements,
+      benefits: adBenefits,
+      callToAction: adCta,
+    }
     if (editingAd) {
       await fetch(`/api/ads/${editingAd.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     } else {
@@ -261,6 +287,12 @@ export default function CampaignsPage() {
         campaign: duplicatingAd.campaign,
         flowId: duplicatingAd.flowId,
         imageUrl: duplicatingAd.imageUrl,
+        placementUrl: duplicatingAd.placementUrl,
+        headline: duplicatingAd.headline,
+        bodyText: duplicatingAd.bodyText,
+        requirements: duplicatingAd.requirements,
+        benefits: duplicatingAd.benefits,
+        callToAction: duplicatingAd.callToAction,
       }),
     })
     setDuplicating(false)
@@ -280,14 +312,14 @@ export default function CampaignsPage() {
 
   const [copiedTextId, setCopiedTextId] = useState<string | null>(null)
   const copyAdText = async (ad: Ad) => {
-    // Prefer a saved template matching this ad's source, otherwise fall back to source default copy
+    // Prefer copy saved on the ad itself; fall back to a matching template; finally to source defaults
     const tpl = adTemplates.find(t => t.source === ad.source) || adTemplates.find(t => t.source === 'general')
     const d = DEFAULT_AD_COPY[ad.source] || DEFAULT_AD_COPY._default
-    const headline = tpl?.headline || d.headline
-    const body = tpl?.bodyText || d.body
-    const requirements = tpl?.requirements ?? d.requirements
-    const benefits = tpl?.benefits ?? d.benefits
-    const cta = tpl?.callToAction || d.cta
+    const headline = ad.headline || tpl?.headline || d.headline
+    const body = ad.bodyText || tpl?.bodyText || d.body
+    const requirements = ad.requirements ?? tpl?.requirements ?? d.requirements
+    const benefits = ad.benefits ?? tpl?.benefits ?? d.benefits
+    const cta = ad.callToAction || tpl?.callToAction || d.cta
     const link = `${baseUrl}/a/${ad.slug}`
 
     const parts: string[] = []
@@ -399,7 +431,21 @@ export default function CampaignsPage() {
                         )}
                       </td>
                       <td className="px-5 py-4">
-                        <div className="text-sm font-medium text-grey-15">{ad.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-grey-15">{ad.name}</span>
+                          {ad.placementUrl && (
+                            <a
+                              href={ad.placementUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Open placement: ${ad.placementUrl}`}
+                              className="text-grey-40 hover:text-brand-500"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                            </a>
+                          )}
+                        </div>
                         <div className="text-xs text-grey-50 mt-0.5">{new Date(ad.createdAt).toLocaleDateString()}</div>
                       </td>
                       <td className="px-5 py-4">
@@ -549,6 +595,18 @@ export default function CampaignsPage() {
                 <input type="text" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="e.g. Q1 Hiring, Miami Market" className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Placement URL (optional)</label>
+                <input
+                  type="url"
+                  value={placementUrl}
+                  onChange={(e) => setPlacementUrl(e.target.value)}
+                  placeholder="https://t.me/yourgroup or https://www.facebook.com/groups/..."
+                  className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <p className="text-xs text-grey-50 mt-1">Where you posted this ad — Telegram group, Facebook group, Indeed listing, etc. Just for your reference.</p>
+              </div>
+
               {/* Picture */}
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Picture (optional)</label>
@@ -606,7 +664,11 @@ export default function CampaignsPage() {
                       setSelectedTemplateId(val)
                       if (val === '__default__') { loadAdCopyDefaults(source); return }
                       const t = adTemplates.find(t => t.id === val)
-                      if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdCta(t.callToAction || ''); if (t.source !== 'general') setSource(t.source) }
+                      if (t) {
+                        setAdHeadline(t.headline); setAdBody(t.bodyText); setAdCta(t.callToAction || '')
+                        setAdRequirements(t.requirements || ''); setAdBenefits(t.benefits || '')
+                        if (t.source !== 'general') setSource(t.source)
+                      }
                     }}
                     className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
@@ -624,6 +686,16 @@ export default function CampaignsPage() {
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Body</label>
                     <textarea value={adBody} onChange={(e) => setAdBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Requirements (optional)</label>
+                      <textarea value={adRequirements} onChange={(e) => setAdRequirements(e.target.value)} rows={3} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-grey-40 mb-1">Benefits (optional)</label>
+                      <textarea value={adBenefits} onChange={(e) => setAdBenefits(e.target.value)} rows={3} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Call to Action</label>
