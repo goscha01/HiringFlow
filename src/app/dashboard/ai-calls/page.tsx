@@ -9,6 +9,24 @@ const TRAINING_NAV = [
   { href: '/dashboard/ai-calls', label: 'AI Calls' },
 ]
 
+// Always-on guards for the evaluator prompt. The section editor below only manages
+// MANDATORY/PRICING/PROFESSIONALISM/CRITICAL/SCORING/FEEDBACK — these two blocks
+// MUST be emitted on every save or evaluations break (role inversion + unparseable
+// rationale).
+const EVALUATION_PREAMBLE = `**WHO YOU EVALUATE — READ FIRST:**
+This is a training simulation. The AI agent in this conversation roleplays as a CUSTOMER calling a cleaning service. The human user is the DISPATCHER/STAFF MEMBER being trained. You MUST evaluate the human user (the dispatcher), NOT the AI agent. In the transcript, the dispatcher being scored is labeled as "user". All criteria below describe behaviors the dispatcher (the human) is expected to perform.`
+
+const OUTPUT_FORMAT_FOOTER = `**OUTPUT FORMAT — REQUIRED:**
+Your rationale MUST begin with the lines below, in this exact order, using these exact headers. Bullets must start with "- ". Do not output any other format.
+
+Score: <N>/100 (<Excellent | Good | Needs Improvement | Requires Retraining>)
+
+Areas Done Well:
+- <one short sentence per item>
+
+Areas for Improvement:
+- <one short sentence per item>`
+
 interface Agent { agent_id: string; name: string }
 interface Candidate { id: string; name: string; agentId: string; conversationIds: string[]; createdAt: string }
 interface Conversation {
@@ -214,7 +232,7 @@ export default function AICallsPage() {
   }
 
   const buildPrompt = () => {
-    let p = ''
+    let p = EVALUATION_PREAMBLE
     const addSection = (title: string, items: string[]) => {
       const filtered = items.filter(i => i.trim())
       if (filtered.length === 0) return
@@ -226,6 +244,7 @@ export default function AICallsPage() {
     addSection('CRITICAL ERRORS (-5 points each)', criticalItems)
     addSection('SCORING', scoringItems)
     if (feedbackText.trim()) p += `\n\n**FEEDBACK:**\n${feedbackText}`
+    p += `\n\n${OUTPUT_FORMAT_FOOTER}`
     return p.trim()
   }
 
