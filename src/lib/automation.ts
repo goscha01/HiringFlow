@@ -958,6 +958,8 @@ export async function executeStep(
 
   let meetingTime = ''
   let meetingLink = ''
+  let rescheduleLink = ''
+  let cancelLink = ''
   let recordingLink = ''
   let transcriptLink = ''
   let recordingStatusNote = ''
@@ -968,6 +970,7 @@ export async function executeStep(
     select: {
       id: true, meetingUri: true, scheduledStart: true, recordingState: true,
       transcriptState: true, driveRecordingFileId: true, driveTranscriptFileId: true,
+      schedulingConfigId: true,
     },
   }).catch(() => null)
 
@@ -987,6 +990,28 @@ export async function executeStep(
     const d = interviewMeeting.scheduledStart
     if (d) meetingTime = formatMeetingTime(d)
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'https://www.hirefunnel.app'
+    // Issue reschedule + cancel links if the meeting was created via a
+    // built-in scheduler config. External-provider configs (Calendly etc.)
+    // don't accept our reschedule endpoint, so leave the tokens blank for them.
+    if (interviewMeeting.schedulingConfigId && d) {
+      try {
+        const cfg = await prisma.schedulingConfig.findUnique({
+          where: { id: interviewMeeting.schedulingConfigId },
+          select: { useBuiltInScheduler: true },
+        })
+        if (cfg?.useBuiltInScheduler) {
+          const { issueBookingToken } = await import('./scheduling/booking-links')
+          // Tokens expire 1h before the meeting starts — no changes after meeting begins.
+          const cutoff = new Date(d.getTime() - 60 * 60_000)
+          const reTok = issueBookingToken({ sessionId, configId: interviewMeeting.schedulingConfigId, purpose: 'reschedule', expiresAt: cutoff })
+          const caTok = issueBookingToken({ sessionId, configId: interviewMeeting.schedulingConfigId, purpose: 'cancel', expiresAt: cutoff })
+          rescheduleLink = `${appUrl}/book/${interviewMeeting.schedulingConfigId}/reschedule?t=${encodeURIComponent(reTok)}`
+          cancelLink = `${appUrl}/book/${interviewMeeting.schedulingConfigId}/cancel?t=${encodeURIComponent(caTok)}`
+        }
+      } catch (err) {
+        console.error('[Automation] Failed to issue reschedule/cancel tokens:', err)
+      }
+    }
     if (interviewMeeting.recordingState === 'ready' && interviewMeeting.driveRecordingFileId) {
       try {
         const { signArtifactToken } = await import('./meet/pubsub-jwt')
@@ -1042,6 +1067,8 @@ export async function executeStep(
     certn_link: certnLink,
     meeting_time: meetingTime,
     meeting_link: meetingLink,
+    reschedule_link: rescheduleLink,
+    cancel_link: cancelLink,
     recording_link: recordingLink,
     transcript_link: transcriptLink,
     recording_status_note: recordingStatusNote,

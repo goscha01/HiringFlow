@@ -887,20 +887,32 @@ model AutomationExecution {
 // ============ SCHEDULING ============
 
 model SchedulingConfig {
-  id              String            @id @default(uuid())
-  workspaceId     String            @map("workspace_id")
-  workspace       Workspace         @relation(fields: [workspaceId], references: [id])
-  createdById     String            @map("created_by_id")
-  name            String
-  provider        String            @default("calendly")
-  schedulingUrl   String            @map("scheduling_url")
-  isDefault       Boolean           @default(false) @map("is_default")
-  isActive        Boolean           @default(true) @map("is_active")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  automationRules AutomationRule[]
-  automationSteps AutomationStep[]  @relation("StepSchedulingConfig")
-  events          SchedulingEvent[]
+  id                   String            @id @default(uuid())
+  workspaceId          String            @map("workspace_id")
+  workspace            Workspace         @relation(fields: [workspaceId], references: [id])
+  createdById          String            @map("created_by_id")
+  name                 String
+  provider             String            @default("calendly")
+  schedulingUrl        String            @map("scheduling_url")
+  // When true, the candidate redirect lands on the in-app HireFunnel booking
+  // page (slot picker backed by Google FreeBusy). When false, the candidate
+  // is 302'd to the pasted external URL (Calendly/Cal.com/etc.). Per-config
+  // so a workspace can run both side-by-side.
+  useBuiltInScheduler  Boolean           @default(false) @map("use_built_in_scheduler")
+  // Validated via parseBookingRules (src/lib/scheduling/booking-rules.ts).
+  // Shape: { durationMinutes, bufferBeforeMinutes, bufferAfterMinutes,
+  // minNoticeHours, maxDaysOut, slotIntervalMinutes, workingHours }.
+  bookingRules         Json?             @map("booking_rules")
+  // Optional override of GoogleIntegration.calendarId for FreeBusy/insert.
+  // Defaults (null) to the integration's calendar.
+  calendarId           String?           @map("calendar_id")
+  isDefault            Boolean           @default(false) @map("is_default")
+  isActive             Boolean           @default(true) @map("is_active")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  automationRules      AutomationRule[]
+  automationSteps      AutomationStep[]  @relation("StepSchedulingConfig")
+  events               SchedulingEvent[]
 
   @@map("scheduling_configs")
 }

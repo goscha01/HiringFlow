@@ -67,11 +67,25 @@ export async function GET(request: NextRequest) {
 
     // Await startWatch — fire-and-forget breaks in Vercel serverless (function
     // returns → outstanding promises killed before Google API calls complete).
+    //
+    // In dev (http://localhost) Google rejects the watch because webhook URLs
+    // must be HTTPS. The watch is only used for incoming push notifications
+    // when events change outside HireFunnel; the booking flow we own does not
+    // depend on it. Treat HTTPS rejection as a soft warning so devs can finish
+    // the connect flow without ngrok.
     try {
       await startWatch(workspaceId)
     } catch (err: any) {
-      console.error('[Google] startWatch failed after connect:', err?.message)
-      return NextResponse.redirect(new URL(`${redirectBase}&status=error&msg=${encodeURIComponent('Connected, but could not set up calendar watch: ' + (err?.message || 'unknown'))}`, url.origin))
+      const msg = err?.message || 'unknown'
+      const isLocalHttpsLimitation = /must be HTTPS/i.test(msg) || /webhookUrlNotHttps/i.test(msg)
+      console.error('[Google] startWatch failed after connect:', msg)
+      if (isLocalHttpsLimitation) {
+        // Connection itself succeeded; downgrade to success so the dashboard
+        // doesn't scare the dev with a fake-looking error.
+        // Continue past the watch step.
+      } else {
+        return NextResponse.redirect(new URL(`${redirectBase}&status=error&msg=${encodeURIComponent('Connected, but could not set up calendar watch: ' + msg)}`, url.origin))
+      }
     }
 
     if (hasMeetScopes(grantedScopes) && !globalKillswitchActive()) {

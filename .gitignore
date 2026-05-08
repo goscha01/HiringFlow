@@ -28,6 +28,10 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.diagnose
+
+# Claude Code runtime
+.claude/scheduled_tasks.lock
 
 # Vercel
 .vercel
@@ -44,3 +48,6 @@ public/uploads/*
 !public/uploads/.gitkeep
 
 .vercel
+
+# Claude Code per-machine settings (may contain DB URLs / secrets)
+.claude/settings.local.json

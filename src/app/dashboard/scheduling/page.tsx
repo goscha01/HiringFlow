@@ -9,10 +9,14 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Badge, Button, Card, Eyebrow, PageHeader } from '@/components/design'
+import { BookingRulesEditor } from './_BookingRulesEditor'
+import { defaultBookingRules, parseBookingRulesOrDefault, type BookingRules } from '@/lib/scheduling/booking-rules'
 
 interface SchedulingConfig {
   id: string; name: string; provider: string; schedulingUrl: string
   isDefault: boolean; isActive: boolean; createdAt: string; updatedAt: string
+  useBuiltInScheduler: boolean
+  bookingRules: unknown
   _count: { events: number }
 }
 interface Meeting {
@@ -55,7 +59,10 @@ export default function SchedulingPage() {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [isDefault, setIsDefault] = useState(false)
+  const [useBuiltIn, setUseBuiltIn] = useState(false)
+  const [bookingRules, setBookingRules] = useState<BookingRules>(defaultBookingRules())
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => { refresh() }, [])
 
@@ -70,21 +77,39 @@ export default function SchedulingPage() {
   }
 
   const openCreate = () => {
-    setEditing(null); setName(''); setUrl(''); setIsDefault(configs.length === 0); setShowModal(true)
+    setEditing(null); setName(''); setUrl(''); setIsDefault(configs.length === 0)
+    setUseBuiltIn(false); setBookingRules(defaultBookingRules()); setSaveError(null)
+    setShowModal(true)
   }
   const openEdit = (c: SchedulingConfig) => {
-    setEditing(c); setName(c.name); setUrl(c.schedulingUrl); setIsDefault(c.isDefault); setShowModal(true)
+    setEditing(c); setName(c.name); setUrl(c.schedulingUrl); setIsDefault(c.isDefault)
+    setUseBuiltIn(!!c.useBuiltInScheduler)
+    setBookingRules(parseBookingRulesOrDefault(c.bookingRules))
+    setSaveError(null)
+    setShowModal(true)
   }
   const save = async () => {
-    if (!name.trim() || !url.trim()) return
+    setSaveError(null)
+    if (!name.trim()) return setSaveError('Name is required')
+    if (!useBuiltIn && !url.trim()) return setSaveError('External URL is required when not using built-in scheduler')
     setSaving(true)
-    const body = { name, schedulingUrl: url, isDefault }
-    if (editing) {
-      await fetch(`/api/scheduling/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    } else {
-      await fetch('/api/scheduling', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const body: Record<string, unknown> = {
+      name,
+      schedulingUrl: useBuiltIn ? (url || 'in-app') : url,
+      isDefault,
+      useBuiltInScheduler: useBuiltIn,
     }
-    setSaving(false); setShowModal(false); refresh()
+    if (useBuiltIn) body.bookingRules = bookingRules
+    const r = editing
+      ? await fetch(`/api/scheduling/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      : await fetch('/api/scheduling', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    setSaving(false)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      setSaveError(d.message || d.error || 'Save failed')
+      return
+    }
+    setShowModal(false); refresh()
   }
   const toggle = async (c: SchedulingConfig) => {
     await fetch(`/api/scheduling/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: !c.isActive }) })
@@ -253,7 +278,7 @@ export default function SchedulingPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl border border-surface-border shadow-raised p-7 w-full max-w-[560px]" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-xl border border-surface-border shadow-raised p-7 w-full max-w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <Eyebrow size="xs" className="mb-1.5">{editing ? 'Edit' : 'New'}</Eyebrow>
             <h2 className="text-[20px] font-semibold text-ink mb-5">{editing ? 'Edit scheduling link' : 'Add scheduling link'}</h2>
             <div className="space-y-4">
@@ -261,14 +286,29 @@ export default function SchedulingPage() {
                 <div className="eyebrow mb-1.5">Name</div>
                 <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. General Interview" className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-ink text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
               </div>
-              <div>
-                <div className="eyebrow mb-1.5">Provider</div>
-                <div className="px-3 py-2 border border-surface-border rounded-[10px] bg-surface-light text-grey-35 text-[13px]">Calendly</div>
-              </div>
-              <div>
-                <div className="eyebrow mb-1.5">Calendly URL</div>
-                <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://calendly.com/your-name/interview" className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-ink text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
-              </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => setUseBuiltIn(!useBuiltIn)}
+                  className="w-10 h-5 rounded-full transition-colors relative"
+                  style={{ background: useBuiltIn ? 'var(--brand-primary)' : '#D1CFCA' }}
+                  aria-pressed={useBuiltIn}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${useBuiltIn ? 'left-5' : 'left-0.5'}`} />
+                </button>
+                <span className="text-[13px] text-ink">Use built-in scheduler (HireFunnel-hosted slot picker)</span>
+              </label>
+
+              {!useBuiltIn ? (
+                <div>
+                  <div className="eyebrow mb-1.5">External booking URL (Calendly / Cal.com / etc.)</div>
+                  <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://calendly.com/your-name/interview" className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-ink text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
+                </div>
+              ) : (
+                <BookingRulesEditor value={bookingRules} onChange={setBookingRules} />
+              )}
+
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <button
                   type="button"
@@ -282,9 +322,10 @@ export default function SchedulingPage() {
                 <span className="text-[13px] text-ink">Set as default scheduling link</span>
               </label>
             </div>
+            {saveError && <div className="mt-3 text-[12px] text-[color:var(--danger-fg)]">{saveError}</div>}
             <div className="flex gap-2 mt-6 justify-end">
               <Button variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
-              <Button onClick={save} disabled={saving || !name.trim() || !url.trim()}>
+              <Button onClick={save} disabled={saving || !name.trim()}>
                 {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
               </Button>
             </div>

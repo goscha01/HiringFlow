@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { MANUAL_MEETING_NUDGE_TEMPLATE_NAME } from '@/lib/email-templates-seed'
 
 interface Template { id: string; name: string; subject: string; bodyHtml: string; bodyText: string | null; isActive: boolean; updatedAt: string }
 
-const VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{source}}', '{{ad_name}}']
+const VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_link}}', '{{meeting_time}}', '{{source}}', '{{ad_name}}']
 
 export default function EmailTemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([])
@@ -105,8 +106,15 @@ export default function EmailTemplatesPage() {
                 <textarea value={bodyHtml} onChange={(e) => setBodyHtml(e.target.value)} rows={10} placeholder="<p>Hi {{candidate_name}},</p>" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-grey-20 mb-1.5">Plain Text (optional)</label>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">
+                  {name === MANUAL_MEETING_NUDGE_TEMPLATE_NAME ? 'Plain text / SMS body' : 'Plain Text (optional)'}
+                </label>
                 <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={4} placeholder="Hi {{candidate_name}}, ..." className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                {name === MANUAL_MEETING_NUDGE_TEMPLATE_NAME && (
+                  <p className="mt-1.5 text-xs text-grey-40">
+                    For this template, the plain-text field is also sent as the SMS body when a recruiter clicks <span className="font-medium text-grey-20">Send reminder</span> on the candidate page (and the candidate has a phone on file). Keep it short.
+                  </p>
+                )}
               </div>
               {/* Available variables */}
               <div className="bg-surface rounded-[8px] p-4">

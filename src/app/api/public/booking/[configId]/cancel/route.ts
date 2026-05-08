@@ -1,0 +1,66 @@
+/**
+ * POST /api/public/booking/[configId]/cancel
+ *
+ * Public — auth via signed `t` token (purpose='cancel'). Deletes the
+ * candidate's calendar event in Google. The webhook handler picks up the
+ * deletion and logs `meeting_cancelled` + cancels pending reminder
+ * automations. We log here too as a defensive belt-and-suspenders.
+ */
+
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { verifyBookingToken } from '@/lib/scheduling/booking-links'
+import { deleteCalendarEvent } from '@/lib/google'
+import { logSchedulingEvent } from '@/lib/scheduling'
+
+export async function POST(request: NextRequest, { params }: { params: { configId: string } }) {
+  const body = await request.json().catch(() => ({})) as { t?: string; reason?: string }
+
+  const verified = verifyBookingToken(body.t)
+  if (!verified.ok) {
+    return NextResponse.json({ error: 'invalid_token', reason: verified.reason }, { status: 401 })
+  }
+  if (verified.payload.purpose !== 'cancel') {
+    return NextResponse.json({ error: 'wrong_purpose' }, { status: 401 })
+  }
+  if (verified.payload.configId !== params.configId) {
+    return NextResponse.json({ error: 'config_mismatch' }, { status: 401 })
+  }
+
+  // Find the most recent active interview meeting for this session.
+  const meeting = await prisma.interviewMeeting.findFirst({
+    where: {
+      sessionId: verified.payload.sessionId,
+      scheduledStart: { gt: new Date() },
+    },
+    orderBy: { scheduledStart: 'asc' },
+    select: { id: true, googleCalendarEventId: true, workspaceId: true },
+  })
+  if (!meeting) {
+    return NextResponse.json({ error: 'no_meeting_to_cancel' }, { status: 404 })
+  }
+
+  if (meeting.googleCalendarEventId) {
+    try {
+      await deleteCalendarEvent(meeting.workspaceId, meeting.googleCalendarEventId)
+    } catch (err) {
+      console.error('[cancel] deleteCalendarEvent failed:', err)
+      // Continue — log the cancel locally even if Google delete failed,
+      // so the candidate's pipeline state moves.
+    }
+  }
+
+  await logSchedulingEvent({
+    sessionId: verified.payload.sessionId,
+    schedulingConfigId: params.configId,
+    eventType: 'meeting_cancelled',
+    metadata: {
+      interviewMeetingId: meeting.id,
+      source: 'built_in_scheduler',
+      cancelledBy: 'candidate',
+      reason: body.reason || null,
+    },
+  }).catch((err) => console.error('[cancel] logSchedulingEvent failed:', err))
+
+  return NextResponse.json({ ok: true })
+}

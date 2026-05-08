@@ -21,8 +21,12 @@ export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
-  const { name, schedulingUrl, isDefault } = await request.json()
-  if (!name || !schedulingUrl) return NextResponse.json({ error: 'name and schedulingUrl required' }, { status: 400 })
+  const { name, schedulingUrl, isDefault, useBuiltInScheduler } = await request.json()
+  if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 })
+  // Built-in scheduler doesn't need an external URL; placeholder is fine.
+  if (!useBuiltInScheduler && !schedulingUrl) {
+    return NextResponse.json({ error: 'schedulingUrl required for external providers' }, { status: 400 })
+  }
 
   // If setting as default, clear existing defaults
   if (isDefault) {
@@ -38,8 +42,9 @@ export async function POST(request: NextRequest) {
       createdById: ws.userId,
       name,
       provider: 'calendly',
-      schedulingUrl,
+      schedulingUrl: schedulingUrl || 'in-app',
       isDefault: !!isDefault,
+      useBuiltInScheduler: !!useBuiltInScheduler,
     },
   })
 

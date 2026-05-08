@@ -14,10 +14,12 @@ import {
 // after, "pick a new time"). Uses a dedicated, editable email template
 // scoped to the workspace so recruiters can tweak the copy.
 //
-// SMS is sent in addition to email when the candidate has a phone number,
-// because the candidate is presumably away from email at this moment. The
-// SMS body is hardcoded for now — making it editable would mean adding a
-// new "manual nudge" rule type, which felt heavy for a single button.
+// SMS is sent in addition to email when the candidate has a phone number.
+// Both channels share the same template row: bodyHtml is the email body,
+// and bodyText is the SMS body (also used as the email's plain-text alt).
+// Recruiters edit both from the Email Templates page → "Meeting nudge —
+// join now". Hardcoded fallback below is used only if a recruiter has
+// blanked the bodyText field on a pre-existing template row.
 
 const DEFAULT_SMS_BODY = "Hi {{candidate_name}}, we're on the call waiting for you. Join: {{meeting_link}}"
 
@@ -35,6 +37,7 @@ async function getOrCreateNudgeTemplate(workspaceId: string, userId: string) {
       name: seed.name,
       subject: seed.subject,
       bodyHtml: seed.bodyHtml,
+      bodyText: seed.bodyText ?? null,
     },
   })
 }
@@ -118,12 +121,18 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
   if (session.candidatePhone) {
     const normalized = normalizeToE164(session.candidatePhone)
     if (normalized) {
+      // Prefer the recruiter-editable bodyText for SMS copy; fall back to
+      // the hardcoded default only when the template row exists but
+      // bodyText was blanked out.
+      const smsTemplate = (template.bodyText && template.bodyText.trim().length > 0)
+        ? template.bodyText
+        : DEFAULT_SMS_BODY
       try {
         await sendSms({
           candidateId: session.id,
           workspaceId: ws.workspaceId,
           to: normalized,
-          body: renderTemplate(DEFAULT_SMS_BODY, variables),
+          body: renderTemplate(smsTemplate, variables),
         })
         smsResult = { success: true }
       } catch (err) {
