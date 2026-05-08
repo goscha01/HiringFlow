@@ -186,10 +186,12 @@ export default function CampaignsPage() {
     setTplSaving(false)
     if (saved) {
       await refreshTemplates()
-      // Apply the saved template to the ad copy fields and select it
+      // Apply the saved template to the ad copy fields and select it. The
+      // ad's source is independent of the template's source — picking a
+      // Telegram template for a Facebook ad shouldn't flip the ad to Telegram.
       setSelectedTemplateId(saved.id)
       setAdHeadline(saved.headline); setAdBody(saved.bodyText); setAdCta(saved.callToAction || '')
-      if (saved.source !== 'general') setSource(saved.source)
+      setAdRequirements(saved.requirements || ''); setAdBenefits(saved.benefits || '')
       setTemplateEditorOpen(false)
     }
   }
@@ -676,7 +678,6 @@ export default function CampaignsPage() {
                       if (t) {
                         setAdHeadline(t.headline); setAdBody(t.bodyText); setAdCta(t.callToAction || '')
                         setAdRequirements(t.requirements || ''); setAdBenefits(t.benefits || '')
-                        if (t.source !== 'general') setSource(t.source)
                       }
                     }}
                     className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
