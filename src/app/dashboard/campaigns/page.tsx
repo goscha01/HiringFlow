@@ -278,6 +278,32 @@ export default function CampaignsPage() {
     setCopiedId(id); setTimeout(() => setCopiedId(null), 2000)
   }
 
+  const [copiedTextId, setCopiedTextId] = useState<string | null>(null)
+  const copyAdText = async (ad: Ad) => {
+    // Prefer a saved template matching this ad's source, otherwise fall back to source default copy
+    const tpl = adTemplates.find(t => t.source === ad.source) || adTemplates.find(t => t.source === 'general')
+    const d = DEFAULT_AD_COPY[ad.source] || DEFAULT_AD_COPY._default
+    const headline = tpl?.headline || d.headline
+    const body = tpl?.bodyText || d.body
+    const requirements = tpl?.requirements ?? d.requirements
+    const benefits = tpl?.benefits ?? d.benefits
+    const cta = tpl?.callToAction || d.cta
+    const link = `${baseUrl}/a/${ad.slug}`
+
+    const parts: string[] = []
+    if (headline) parts.push(headline)
+    if (body) parts.push(body)
+    if (requirements && requirements.trim()) parts.push(`Requirements:\n${requirements}`)
+    if (benefits && benefits.trim()) parts.push(`What we offer:\n${benefits}`)
+    if (cta && cta.trim()) parts.push(cta)
+    parts.push(`Apply: ${link}`)
+    try {
+      await navigator.clipboard.writeText(parts.join('\n\n'))
+      setCopiedTextId(ad.id)
+      setTimeout(() => setCopiedTextId(null), 2000)
+    } catch {}
+  }
+
   // Compute stats
   const totalSessions = ads.reduce((sum, a) => sum + a._count.sessions, 0)
   const activeAds = ads.filter(a => a.isActive).length
@@ -398,6 +424,9 @@ export default function CampaignsPage() {
                         <Link href={`/dashboard/campaigns/preview/${ad.id}`} className="text-xs text-purple-500 hover:text-purple-600 font-medium">Preview</Link>
                         <button onClick={() => copyLink(ad.slug, ad.id)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">
                           {copiedId === ad.id ? 'Copied!' : 'Copy Link'}
+                        </button>
+                        <button onClick={() => copyAdText(ad)} className="text-xs text-brand-500 hover:text-brand-600 font-medium" title="Copy headline + body + CTA + link — paste into Telegram, Facebook, etc.">
+                          {copiedTextId === ad.id ? 'Copied!' : 'Copy Text'}
                         </button>
                         <button onClick={() => openEdit(ad)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
                         <button onClick={() => openDuplicate(ad)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>

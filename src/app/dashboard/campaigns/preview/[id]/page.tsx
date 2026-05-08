@@ -30,6 +30,24 @@ const SOURCE_STYLES: Record<string, { bg: string; accent: string; logo: string; 
   _default: { bg: '#F7F7F8', accent: '#FF9500', logo: '#FF9500', name: 'Job Board' },
 }
 
+function buildAdText(opts: {
+  headline: string
+  body: string
+  requirements?: string
+  benefits?: string
+  cta?: string
+  link: string
+}): string {
+  const parts: string[] = []
+  if (opts.headline) parts.push(opts.headline)
+  if (opts.body) parts.push(opts.body)
+  if (opts.requirements && opts.requirements.trim()) parts.push(`Requirements:\n${opts.requirements}`)
+  if (opts.benefits && opts.benefits.trim()) parts.push(`What we offer:\n${opts.benefits}`)
+  if (opts.cta && opts.cta.trim()) parts.push(opts.cta)
+  parts.push(`Apply: ${opts.link}`)
+  return parts.join('\n\n')
+}
+
 export default function AdPreviewPage() {
   const params = useParams()
   const id = params.id as string
@@ -37,6 +55,7 @@ export default function AdPreviewPage() {
   const [templates, setTemplates] = useState<AdTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('__default__')
   const [loading, setLoading] = useState(true)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -81,6 +100,23 @@ export default function AdPreviewPage() {
             <option value="__default__">Default {ad.source} copy</option>
             {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
+          <button
+            onClick={async () => {
+              const text = buildAdText({
+                headline: copy.headline,
+                body: copy.body,
+                requirements: copy.requirements,
+                benefits: copy.benefits,
+                cta: copy.cta,
+                link: trackedLink,
+              })
+              try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch {}
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-[8px] transition-colors ${copied ? 'bg-green-100 text-green-700' : 'bg-brand-500 text-white hover:bg-brand-600'}`}
+            title="Copy headline + body + CTA + link as plain text — ready to paste into Telegram, Facebook, etc."
+          >
+            {copied ? 'Copied!' : 'Copy ad text'}
+          </button>
         </div>
       </div>
 
