@@ -230,7 +230,10 @@ export default function CampaignsPage() {
     } else {
       await fetch('/api/ads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     }
-    setSaving(false); setShowModal(false); refresh()
+    // Refresh BEFORE closing the modal so subsequent clicks (e.g. Duplicate)
+    // see the just-saved fields, not the pre-save snapshot.
+    await refresh()
+    setSaving(false); setShowModal(false)
   }
 
   const uploadImage = async (file: File) => {
@@ -306,12 +309,12 @@ export default function CampaignsPage() {
         callToAction: duplicatingAd.callToAction ?? tpl?.callToAction ?? d.cta,
       }),
     })
-    setDuplicating(false)
     if (res.ok) {
+      await refresh()
       setDuplicatingAd(null)
       setDuplicateName('')
-      refresh()
     }
+    setDuplicating(false)
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
