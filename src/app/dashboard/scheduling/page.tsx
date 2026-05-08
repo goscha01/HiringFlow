@@ -126,6 +126,29 @@ export default function SchedulingPage() {
     if (!confirm('Delete this scheduling config?')) return
     await fetch(`/api/scheduling/${id}`, { method: 'DELETE' }); refresh()
   }
+  const preview = async (id: string) => {
+    const r = await fetch(`/api/scheduling/${id}/preview-token`, { method: 'POST' })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok || !d.url) {
+      alert(d.message || d.error || 'Could not create preview link')
+      return
+    }
+    window.open(d.url, '_blank', 'noopener,noreferrer')
+  }
+  const copyPreview = async (id: string) => {
+    const r = await fetch(`/api/scheduling/${id}/preview-token`, { method: 'POST' })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok || !d.url) {
+      alert(d.message || d.error || 'Could not create preview link')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(d.url)
+      alert('Preview link copied (expires in 5 minutes)')
+    } catch {
+      prompt('Copy this preview link:', d.url)
+    }
+  }
 
   if (loading) return <div className="py-14 text-center font-mono text-[11px] uppercase text-grey-35" style={{ letterSpacing: '0.1em' }}>Loading…</div>
 
@@ -181,9 +204,31 @@ export default function SchedulingPage() {
                           ? <Badge tone="brand">Built-in</Badge>
                           : <Badge tone="info">{c.provider}</Badge>}
                       </td>
-                      <td className="px-4 py-3 max-w-[260px] truncate">
+                      <td className="px-4 py-3 max-w-[300px]">
                         {c.useBuiltInScheduler ? (
-                          <span className="font-mono text-[11px] text-grey-35">In-app slot picker</span>
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              onClick={() => preview(c.id)}
+                              className="text-[11px] text-[color:var(--brand-primary)] hover:underline font-medium"
+                              title="Open the candidate slot picker in a new tab (5-min preview link)"
+                            >
+                              Preview
+                            </button>
+                            <span className="text-grey-40 text-xs">·</span>
+                            <button
+                              onClick={() => copyPreview(c.id)}
+                              className="text-[11px] text-grey-35 hover:text-ink"
+                              title="Copy a 5-minute preview link to share for testing"
+                            >
+                              Copy link
+                            </button>
+                            <span
+                              className="text-[10px] text-grey-50 italic"
+                              title="The actual link sent to candidates is generated per-session in automation emails as {{schedule_link}}"
+                            >
+                              (per-candidate)
+                            </span>
+                          </div>
                         ) : (
                           <a href={c.schedulingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-grey-35 hover:text-ink underline">
                             {c.schedulingUrl.replace(/^https?:\/\//, '')}
