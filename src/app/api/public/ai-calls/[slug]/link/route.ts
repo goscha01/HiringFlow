@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+interface ElevenLabsConvSummary {
+  conversation_id: string
+  status: string
+  start_time_unix_secs: number
+  call_duration_secs: number
+  message_count: number
+  call_successful: string | null
+  transcript_summary: string | null
+}
+
 // POST — candidate reports a conversation ID to link to their name
 export async function POST(request: NextRequest, { params }: { params: { slug: string } }) {
   const { candidateName, conversationId } = await request.json()
@@ -25,44 +35,88 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   return NextResponse.json({ success: true })
 }
 
-// GET — get conversations for a specific candidate name
+// GET — get conversations for a specific candidate name. Auto-links any unassigned
+// conversations that started after this candidate was created (mirrors the dashboard's
+// `viewCandidateConvs` logic), so candidates see their results without admin intervention.
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
   const name = request.nextUrl.searchParams.get('name')
 
   const platformKey = await prisma.platformSetting.findUnique({ where: { key: 'elevenlabs_api_key' } })
   if (!platformKey?.value) return NextResponse.json({ error: 'Not configured' }, { status: 400 })
 
-  // If name provided, find candidate and fetch only their conversations
+  // If name provided, find candidate, auto-link new conversations, then return their list
   if (name) {
     const candidate = await prisma.aICallCandidate.findFirst({
       where: { name, agentId: params.slug },
       orderBy: { createdAt: 'desc' },
     })
 
-    if (candidate && candidate.conversationIds.length > 0) {
-      // Fetch detail for each conversation and normalize to list format
-      const convDetails = await Promise.all(
-        candidate.conversationIds.map(async (cid) => {
-          const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${cid}`, {
-            headers: { 'xi-api-key': platformKey.value },
-          })
-          if (!r.ok) return null
-          const d = await r.json()
-          return {
-            conversation_id: d.conversation_id,
-            status: d.status,
-            start_time_unix_secs: d.metadata?.start_time_unix_secs || Math.floor(new Date(d.metadata?.created_at || 0).getTime() / 1000),
-            call_duration_secs: d.call_duration_secs || 0,
-            message_count: d.transcript?.length || 0,
-            call_successful: d.analysis?.call_successful || null,
-            transcript_summary: d.analysis?.transcript_summary || null,
-          }
-        })
+    if (!candidate) return NextResponse.json({ conversations: [] })
+
+    // Pull all agent conversations from ElevenLabs to look for unassigned ones
+    const listRes = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${params.slug}&page_size=100`,
+      { headers: { 'xi-api-key': platformKey.value } },
+    )
+    const allConvs: ElevenLabsConvSummary[] = listRes.ok
+      ? ((await listRes.json()).conversations || [])
+      : []
+
+    // Find every conversation already assigned to any candidate in this workspace+agent
+    const workspaceCandidates = await prisma.aICallCandidate.findMany({
+      where: { workspaceId: candidate.workspaceId, agentId: params.slug },
+    })
+    const assignedIds = new Set(workspaceCandidates.flatMap(c => c.conversationIds))
+    const candidateCreatedSec = Math.floor(new Date(candidate.createdAt).getTime() / 1000)
+
+    // Auto-link unassigned conversations that started after this candidate was created.
+    // Skip a conversation if another candidate was created between this candidate and the
+    // conversation's start (the conversation is more likely the later candidate's).
+    const newlyLinked: string[] = []
+    for (const conv of allConvs) {
+      if (assignedIds.has(conv.conversation_id)) continue
+      if (conv.start_time_unix_secs < candidateCreatedSec - 60) continue
+      const otherCreatedBetween = workspaceCandidates.some(c =>
+        c.id !== candidate.id &&
+        Math.floor(new Date(c.createdAt).getTime() / 1000) > candidateCreatedSec &&
+        Math.floor(new Date(c.createdAt).getTime() / 1000) <= conv.start_time_unix_secs
       )
-      return NextResponse.json({ conversations: convDetails.filter(Boolean) })
+      if (otherCreatedBetween) continue
+      newlyLinked.push(conv.conversation_id)
+      assignedIds.add(conv.conversation_id)
     }
 
-    return NextResponse.json({ conversations: [] })
+    let conversationIds = candidate.conversationIds
+    if (newlyLinked.length > 0) {
+      conversationIds = [...candidate.conversationIds, ...newlyLinked]
+      await prisma.aICallCandidate.update({
+        where: { id: candidate.id },
+        data: { conversationIds },
+      })
+    }
+
+    if (conversationIds.length === 0) return NextResponse.json({ conversations: [] })
+
+    // Fetch detail for each linked conversation and normalize to list format
+    const convDetails = await Promise.all(
+      conversationIds.map(async (cid) => {
+        const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${cid}`, {
+          headers: { 'xi-api-key': platformKey.value },
+        })
+        if (!r.ok) return null
+        const d = await r.json()
+        return {
+          conversation_id: d.conversation_id,
+          status: d.status,
+          start_time_unix_secs: d.metadata?.start_time_unix_secs || Math.floor(new Date(d.metadata?.created_at || 0).getTime() / 1000),
+          call_duration_secs: d.call_duration_secs || 0,
+          message_count: d.transcript?.length || 0,
+          call_successful: d.analysis?.call_successful || null,
+          transcript_summary: d.analysis?.transcript_summary || null,
+        }
+      })
+    )
+    return NextResponse.json({ conversations: convDetails.filter(Boolean) })
   }
 
   // No name — return all conversations (for backward compat)
