@@ -4,17 +4,15 @@
  * Two modes:
  *  - With ?t=<token>: per-candidate flow. Token is verified server-side and
  *    the slot picker is rendered with the candidate's prefilled info.
- *  - Without ?t=: anonymous global-link flow. Renders the IntakeForm to
- *    collect name/email; on submit /start mints a token and the page
- *    reloads with that token.
+ *  - Without ?t=: anonymous global-link flow (Calendly-style). Calendar +
+ *    slots render immediately; name/email is collected in the same confirm
+ *    step that runs after the candidate picks a slot.
  */
 
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { verifyBookingToken } from '@/lib/scheduling/booking-links'
-import { parseBookingRulesOrDefault } from '@/lib/scheduling/booking-rules'
 import { BookingClient } from './BookingClient'
-import { IntakeForm } from './_IntakeForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +22,6 @@ interface PageProps {
 }
 
 export default async function BookPage({ params, searchParams }: PageProps) {
-  // Common: load the config; reject if it doesn't exist or isn't built-in.
   const config = await prisma.schedulingConfig.findUnique({
     where: { id: params.configId },
     select: {
@@ -32,7 +29,6 @@ export default async function BookPage({ params, searchParams }: PageProps) {
       name: true,
       isActive: true,
       useBuiltInScheduler: true,
-      bookingRules: true,
       workspace: {
         select: { name: true, logoUrl: true, senderName: true, timezone: true },
       },
@@ -40,21 +36,26 @@ export default async function BookPage({ params, searchParams }: PageProps) {
   })
   if (!config || !config.isActive || !config.useBuiltInScheduler) return notFound()
 
-  // ── Anonymous flow ──
+  // Anonymous flow: render the picker without prefilled candidate info; the
+  // confirm step asks for name/email and the booking endpoint creates the
+  // session inline.
   if (!searchParams.t) {
-    const rules = parseBookingRulesOrDefault(config.bookingRules)
     return (
-      <IntakeForm
+      <BookingClient
         configId={params.configId}
+        token=""
+        candidateName={null}
+        candidateEmail={null}
+        candidatePhone={null}
         workspaceName={config.workspace.name}
         workspaceLogo={config.workspace.logoUrl}
         configName={config.name}
-        durationMinutes={rules.durationMinutes}
+        anonymous
       />
     )
   }
 
-  // ── Tokened flow (per-candidate or post-intake) ──
+  // Tokened (per-candidate) flow.
   const verified = verifyBookingToken(searchParams.t)
   if (!verified.ok) return notFound()
   if (verified.payload.purpose !== 'book') return notFound()

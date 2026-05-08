@@ -21,6 +21,8 @@ interface Props {
   configName: string
   mode?: 'book' | 'reschedule'
   currentMeetingStartUtc?: string | null
+  /** Public global-link mode — no token in URL. Confirm step collects name/email. */
+  anonymous?: boolean
 }
 
 const DAYS_VISIBLE_DESKTOP = 3
@@ -54,7 +56,10 @@ export function BookingClient(props: Props) {
     async function load() {
       setLoading(true); setLoadError(null)
       try {
-        const r = await fetch(`/api/public/booking/${props.configId}/availability?t=${encodeURIComponent(props.token)}`)
+        const url = props.anonymous
+          ? `/api/public/booking/${props.configId}/availability`
+          : `/api/public/booking/${props.configId}/availability?t=${encodeURIComponent(props.token)}`
+        const r = await fetch(url)
         const data = await r.json()
         if (!r.ok) throw new Error(data.error || 'Failed to load availability')
         if (!cancelled) setAvailability(data)
@@ -112,6 +117,8 @@ export function BookingClient(props: Props) {
 
   async function handleConfirm() {
     if (!selectedSlot) return
+    if (props.anonymous && !name.trim()) { setSubmitError('Please enter your name'); return }
+    if (props.anonymous && !email.trim()) { setSubmitError('Please enter your email'); return }
     setSubmitting(true); setSubmitError(null)
     try {
       const endpoint = isReschedule
@@ -120,7 +127,9 @@ export function BookingClient(props: Props) {
       const payload = isReschedule
         ? { t: props.token, slotStartUtc: selectedSlot.startUtc }
         : {
-            t: props.token,
+            // No t in anonymous mode — server creates the session from
+            // candidateName/Email/Phone instead.
+            ...(props.anonymous ? {} : { t: props.token }),
             slotStartUtc: selectedSlot.startUtc,
             candidateName: name || null,
             candidateEmail: email || null,

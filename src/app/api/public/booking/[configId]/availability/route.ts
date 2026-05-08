@@ -1,11 +1,17 @@
 /**
  * GET /api/public/booking/[configId]/availability
  *
- * Public — auth via signed `t` token (purpose='book'). Returns slot
- * candidates in UTC plus the rules summary needed to render the picker.
+ * Public. Two modes:
+ *   - `t` query param present: verify signed booking token (per-candidate
+ *     flow from automation emails). Token is rate-limited per-token.
+ *   - no `t`: anonymous global-link flow. Rate-limited per-IP. Used by the
+ *     Calendly-style public booking page where visitors browse slots
+ *     before identifying themselves.
+ *
+ * Either way, only built-in active configs are allowed.
  *
  * Query params:
- *   t       — signed booking token (required)
+ *   t       — signed booking token (optional)
  *   from    — ISO timestamp (optional; defaults to nowUtc)
  *   to      — ISO timestamp (optional; defaults to from + maxDaysOut)
  */
@@ -17,18 +23,18 @@ import { parseBookingRulesOrDefault } from '@/lib/scheduling/booking-rules'
 import { getBusyIntervals } from '@/lib/scheduling/free-busy'
 import { computeAvailableSlots } from '@/lib/scheduling/slot-computer'
 
-// Per-token rate limiter (in-memory). 30 req/min/token. Resets every 60s
-// rolling — good enough for a public picker page that fires ~3 requests
-// per candidate visit (initial + tz change + week scroll).
+// Per-key rate limiter (in-memory). 30 req/min. Same shape used for both
+// the per-token (authoritative candidate flow) and per-IP (anonymous)
+// modes — the key just differs.
 const rateBuckets = new Map<string, { count: number; resetAt: number }>()
-function rateLimitOk(token: string): boolean {
+function rateLimitOk(key: string, max = 30): boolean {
   const now = Date.now()
-  const cur = rateBuckets.get(token)
+  const cur = rateBuckets.get(key)
   if (!cur || now >= cur.resetAt) {
-    rateBuckets.set(token, { count: 1, resetAt: now + 60_000 })
+    rateBuckets.set(key, { count: 1, resetAt: now + 60_000 })
     return true
   }
-  if (cur.count >= 30) return false
+  if (cur.count >= max) return false
   cur.count++
   return true
 }
@@ -37,19 +43,28 @@ export async function GET(request: NextRequest, { params }: { params: { configId
   const url = new URL(request.url)
   const t = url.searchParams.get('t')
 
-  const verified = verifyBookingToken(t)
-  if (!verified.ok) {
-    return NextResponse.json({ error: 'invalid_token', reason: verified.reason }, { status: 401 })
-  }
-  if (verified.payload.purpose !== 'book') {
-    return NextResponse.json({ error: 'wrong_purpose' }, { status: 401 })
-  }
-  if (verified.payload.configId !== params.configId) {
-    return NextResponse.json({ error: 'config_mismatch' }, { status: 401 })
-  }
-
-  if (!rateLimitOk(t!)) {
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+  // ── Auth + rate limiting ──
+  if (t) {
+    const verified = verifyBookingToken(t)
+    if (!verified.ok) {
+      return NextResponse.json({ error: 'invalid_token', reason: verified.reason }, { status: 401 })
+    }
+    if (verified.payload.purpose !== 'book') {
+      return NextResponse.json({ error: 'wrong_purpose' }, { status: 401 })
+    }
+    if (verified.payload.configId !== params.configId) {
+      return NextResponse.json({ error: 'config_mismatch' }, { status: 401 })
+    }
+    if (!rateLimitOk(`tok:${t}`)) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+    }
+  } else {
+    // Anonymous flow: rate limit per IP. Cheaper bucket (30/min/IP) is fine
+    // since each unique IP only browses for a few minutes.
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+    if (!rateLimitOk(`ip:${ip}:${params.configId}`)) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+    }
   }
 
   const config = await prisma.schedulingConfig.findUnique({

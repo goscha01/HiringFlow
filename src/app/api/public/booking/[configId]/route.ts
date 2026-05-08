@@ -30,22 +30,44 @@ export async function POST(request: NextRequest, { params }: { params: { configI
     notes?: string | null
   }
 
-  const verified = verifyBookingToken(body.t)
-  if (!verified.ok) {
-    return NextResponse.json({ error: 'invalid_token', reason: verified.reason }, { status: 401 })
-  }
-  if (verified.payload.purpose !== 'book') {
-    return NextResponse.json({ error: 'wrong_purpose' }, { status: 401 })
-  }
-  if (verified.payload.configId !== params.configId) {
-    return NextResponse.json({ error: 'config_mismatch' }, { status: 401 })
-  }
   if (!body.slotStartUtc) {
     return NextResponse.json({ error: 'slotStartUtc required' }, { status: 400 })
   }
   const slotStart = new Date(body.slotStartUtc)
   if (isNaN(slotStart.getTime())) {
     return NextResponse.json({ error: 'invalid_slot' }, { status: 400 })
+  }
+
+  // Two modes:
+  //  - With token: per-candidate flow (existing). Token must verify and
+  //    bind to an existing session.
+  //  - Without token: anonymous public-link flow. Caller must supply
+  //    candidateName + candidateEmail; we create a session inline.
+  let sessionId: string
+  let isAnonymous = false
+
+  if (body.t) {
+    const verified = verifyBookingToken(body.t)
+    if (!verified.ok) {
+      return NextResponse.json({ error: 'invalid_token', reason: verified.reason }, { status: 401 })
+    }
+    if (verified.payload.purpose !== 'book') {
+      return NextResponse.json({ error: 'wrong_purpose' }, { status: 401 })
+    }
+    if (verified.payload.configId !== params.configId) {
+      return NextResponse.json({ error: 'config_mismatch' }, { status: 401 })
+    }
+    sessionId = verified.payload.sessionId
+  } else {
+    isAnonymous = true
+    const name = (body.candidateName || '').trim()
+    const email = (body.candidateEmail || '').trim()
+    if (!name) return NextResponse.json({ error: 'name_required' }, { status: 400 })
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ error: 'invalid_email' }, { status: 400 })
+    }
+    // sessionId resolved below after we've loaded the config (need workspaceId).
+    sessionId = ''
   }
 
   const config = await prisma.schedulingConfig.findUnique({
@@ -64,10 +86,62 @@ export async function POST(request: NextRequest, { params }: { params: { configI
     return NextResponse.json({ error: 'config_not_found' }, { status: 404 })
   }
 
+  // Anonymous-mode session creation: now that we have the workspace, find a
+  // flow to attach to and either reuse a recent public_booking session for
+  // the same email or create a new one.
+  if (isAnonymous) {
+    const flow = await prisma.flow.findFirst({
+      where: { workspaceId: config.workspaceId },
+      orderBy: [{ isPublished: 'desc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    })
+    if (!flow) {
+      return NextResponse.json({
+        error: 'no_flow_available',
+        message: 'Workspace must have at least one flow before public bookings are possible',
+      }, { status: 409 })
+    }
+    const email = (body.candidateEmail || '').trim()
+    const name = (body.candidateName || '').trim()
+    const phone = (body.candidatePhone || '').trim()
+    const recentSession = await prisma.session.findFirst({
+      where: {
+        workspaceId: config.workspaceId,
+        candidateEmail: email,
+        source: 'public_booking',
+        startedAt: { gt: new Date(Date.now() - 60 * 60_000) },
+      },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true },
+    })
+    if (recentSession) {
+      sessionId = recentSession.id
+      // Refresh name/phone if changed.
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: { candidateName: name, candidatePhone: phone || null },
+      })
+    } else {
+      const created = await prisma.session.create({
+        data: {
+          workspaceId: config.workspaceId,
+          flowId: flow.id,
+          candidateName: name,
+          candidateEmail: email,
+          candidatePhone: phone || null,
+          source: 'public_booking',
+          pipelineStatus: 'training_completed',
+        },
+        select: { id: true },
+      })
+      sessionId = created.id
+    }
+  }
+
   // Idempotency: returning duplicate within 5 min as success.
   const recent = await prisma.schedulingEvent.findFirst({
     where: {
-      sessionId: verified.payload.sessionId,
+      sessionId,
       eventType: 'meeting_scheduled',
       createdAt: { gt: new Date(Date.now() - 5 * 60_000) },
     },
@@ -119,22 +193,26 @@ export async function POST(request: NextRequest, { params }: { params: { configI
     return NextResponse.json({ error: 'slot_unavailable' }, { status: 409 })
   }
 
-  // Update session contact info if the candidate filled in fresh details.
-  const updates: Record<string, string> = {}
-  if (body.candidateName && body.candidateName.trim()) updates.candidateName = body.candidateName.trim()
-  if (body.candidateEmail && body.candidateEmail.trim()) updates.candidateEmail = body.candidateEmail.trim()
-  if (body.candidatePhone && body.candidatePhone.trim()) updates.candidatePhone = body.candidatePhone.trim()
-  if (Object.keys(updates).length > 0) {
-    await prisma.session.update({
-      where: { id: verified.payload.sessionId },
-      data: updates,
-    }).catch((err) => console.error('[booking] session update failed:', err))
+  // For per-candidate (tokened) flow, update session contact info if the
+  // candidate filled in fresh details. Anonymous flow already wrote these
+  // when creating the session above.
+  if (!isAnonymous) {
+    const updates: Record<string, string> = {}
+    if (body.candidateName && body.candidateName.trim()) updates.candidateName = body.candidateName.trim()
+    if (body.candidateEmail && body.candidateEmail.trim()) updates.candidateEmail = body.candidateEmail.trim()
+    if (body.candidatePhone && body.candidatePhone.trim()) updates.candidatePhone = body.candidatePhone.trim()
+    if (Object.keys(updates).length > 0) {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: updates,
+      }).catch((err) => console.error('[booking] session update failed:', err))
+    }
   }
 
   try {
     const result = await bookInterview({
       workspaceId: config.workspaceId,
-      sessionId: verified.payload.sessionId,
+      sessionId,
       scheduledAt: slotStart,
       durationMinutes: rules.durationMinutes,
       // Default to ON — bookInterview's selectRecorder gates this on the
@@ -153,10 +231,10 @@ export async function POST(request: NextRequest, { params }: { params: { configI
     // changes after the meeting starts).
     const cutoff = new Date(slotStart.getTime() - 60 * 60_000)
     const rescheduleToken = issueBookingToken({
-      sessionId: verified.payload.sessionId, configId: params.configId, purpose: 'reschedule', expiresAt: cutoff,
+      sessionId, configId: params.configId, purpose: 'reschedule', expiresAt: cutoff,
     })
     const cancelToken = issueBookingToken({
-      sessionId: verified.payload.sessionId, configId: params.configId, purpose: 'cancel', expiresAt: cutoff,
+      sessionId, configId: params.configId, purpose: 'cancel', expiresAt: cutoff,
     })
 
     return NextResponse.json({
