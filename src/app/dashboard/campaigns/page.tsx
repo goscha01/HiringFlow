@@ -82,7 +82,18 @@ export default function CampaignsPage() {
       fetch('/api/ads').then(r => r.json()),
       fetch('/api/flows').then(r => r.json()),
       fetch('/api/ad-templates').then(r => r.json()).catch(() => []),
-    ]).then(([a, f, t]) => { setAds(a); setFlows(f); setAdTemplates(t); setLoading(false) })
+    ]).then(async ([a, f, t]) => {
+      setAds(a); setFlows(f); setLoading(false)
+      // Auto-seed starter templates the first time this workspace opens the page
+      if (Array.isArray(t) && t.length === 0) {
+        const seeded = await fetch('/api/ad-templates/seed', { method: 'POST' })
+        if (seeded.ok) {
+          const r2 = await fetch('/api/ad-templates')
+          if (r2.ok) { setAdTemplates(await r2.json()); return }
+        }
+      }
+      setAdTemplates(t)
+    })
   }, [])
 
   const refresh = async () => { const r = await fetch('/api/ads'); if (r.ok) setAds(await r.json()) }
