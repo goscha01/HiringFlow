@@ -297,9 +297,18 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                   </div>
                 )}
                 {m.transcriptState === 'ready' && m.driveTranscriptFileId && (
-                  <div className="mt-1">
+                  <div className="mt-1 flex items-center gap-3">
                     <a href={`/api/interview-meetings/${m.id}/transcript`} className="text-xs text-primary hover:underline" target="_blank" rel="noopener noreferrer">
                       View transcript
+                    </a>
+                    <span className="text-grey-40 text-xs">·</span>
+                    <a
+                      href={`https://drive.google.com/file/d/${m.driveTranscriptFileId}/view`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Open in Drive
                     </a>
                   </div>
                 )}
