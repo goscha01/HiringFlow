@@ -222,7 +222,7 @@ export function BookingClient(props: Props) {
   return (
     <Shell {...props}>
       <div className="grid lg:grid-cols-[280px_320px_1fr] gap-0 min-h-[640px]">
-        {/* Left column — host info */}
+        {/* Left column — host info (+ candidate form in anonymous mode) */}
         <aside className="px-8 py-8 border-r border-[#E5E7EB]">
           <div className="flex items-center gap-2.5 mb-5">
             <Avatar logoUrl={props.workspaceLogo} name={props.workspaceName} />
@@ -261,6 +261,44 @@ export function BookingClient(props: Props) {
               </span>
             </div>
           </div>
+
+          {props.anonymous && !loading && !loadError && (
+            <div className="mt-7 pt-6 border-t border-[#E5E7EB]">
+              <h2 className="text-[14px] font-semibold text-[#262626] mb-3">Your details</h2>
+              <div className="space-y-3">
+                <InlineField label="Name *" value={name} onChange={setName} />
+                <InlineField label="Email *" type="email" value={email} onChange={setEmail} />
+                <InlineField label="Phone (optional)" value={phone} onChange={setPhone} />
+                <div>
+                  <label className="text-[12px] text-[#444] block mb-1">Notes (optional)</label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    className="w-full px-2.5 py-1.5 border border-[#E5E7EB] rounded-md text-[13px] text-[#262626] focus:outline-none focus:border-[#FF9500]"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5">
+                {selectedSlot ? (
+                  <div className="text-[12px] text-[#262626] bg-[#F7F7F8] rounded-md px-2.5 py-2 mb-3">
+                    {formatSlotFull(new Date(selectedSlot.startUtc), tz, availability?.rules.durationMinutes ?? 30)}
+                  </div>
+                ) : (
+                  <div className="text-[12px] text-[#888] mb-3">Pick a time on the right →</div>
+                )}
+                {submitError && <div className="text-[12px] text-red-600 mb-2">{submitError}</div>}
+                <button
+                  onClick={handleConfirm}
+                  disabled={!selectedSlot || !name.trim() || !email.trim() || submitting}
+                  className="w-full bg-[#FF9500] text-white py-2.5 rounded-md text-[13px] font-medium hover:bg-[#E68500] transition-colors disabled:opacity-50"
+                >
+                  {submitting ? 'Booking…' : 'Confirm booking'}
+                </button>
+              </div>
+            </div>
+          )}
         </aside>
 
         {/* Middle column — month calendar */}
@@ -273,23 +311,27 @@ export function BookingClient(props: Props) {
               setMonthAnchor={setMonthAnchor}
               slotsByDay={slotsByDay}
               selectedDayKey={selectedDayKey}
-              onSelectDay={(k) => { setSelectedDayKey(k); setSelectedSlot(null); setView('pick') }}
+              onSelectDay={(k) => { setSelectedDayKey(k); setSelectedSlot(null); if (!props.anonymous) setView('pick') }}
               todayKey={todayKey}
               maxDaysOut={availability?.rules.maxDaysOut ?? 14}
             />
           )}
         </div>
 
-        {/* Right column — slot picker / confirm */}
+        {/* Right column — slot picker (always shows slots in anonymous; flips to confirm only in tokened/reschedule) */}
         <div className="px-8 py-8 min-w-0">
           {loading && <div className="text-[#888] text-[13px]">Loading times…</div>}
-          {!loading && !loadError && view === 'pick' && (
+          {!loading && !loadError && (props.anonymous || view === 'pick') && (
             <SlotColumns
               visibleDayKeys={visibleDayKeys}
               selectedDayKey={selectedDayKey}
               slotsByDay={slotsByDay}
               tz={tz}
-              onPickSlot={(s) => { setSelectedSlot(s); setView(isReschedule ? 'confirm' : 'confirm') }}
+              selectedSlotStartUtc={selectedSlot?.startUtc}
+              onPickSlot={(s) => {
+                setSelectedSlot(s)
+                if (!props.anonymous) setView('confirm')
+              }}
               shiftBy={(n) => {
                 if (!selectedDayKey) return
                 const next = addDays(parseDayKey(selectedDayKey), n)
@@ -298,7 +340,7 @@ export function BookingClient(props: Props) {
               }}
             />
           )}
-          {view === 'confirm' && selectedSlot && (
+          {!props.anonymous && view === 'confirm' && selectedSlot && (
             <ConfirmStep
               slot={selectedSlot}
               tz={tz}
@@ -447,7 +489,7 @@ function MonthCalendar({
 }
 
 function SlotColumns({
-  visibleDayKeys, selectedDayKey, slotsByDay, tz, onPickSlot, shiftBy,
+  visibleDayKeys, selectedDayKey, slotsByDay, tz, onPickSlot, shiftBy, selectedSlotStartUtc,
 }: {
   visibleDayKeys: string[]
   selectedDayKey: string | null
@@ -455,6 +497,7 @@ function SlotColumns({
   tz: string
   onPickSlot: (s: SlotDto) => void
   shiftBy: (n: number) => void
+  selectedSlotStartUtc?: string
 }) {
   if (!selectedDayKey || visibleDayKeys.length === 0) {
     return <div className="text-[#888] text-[13px]">Pick a day on the calendar to see times.</div>
@@ -492,15 +535,22 @@ function SlotColumns({
               </div>
               <div className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
                 {slots.length === 0 && <div className="text-center text-[12px] text-[#BBB] pt-3">—</div>}
-                {slots.map((s) => (
-                  <button
-                    key={s.startUtc}
-                    onClick={() => onPickSlot(s)}
-                    className="w-full py-2 rounded-md border border-[#E5E7EB] text-[13px] text-[#262626] font-medium hover:border-[#FF9500] transition-colors"
-                  >
-                    {formatTime(new Date(s.startUtc), tz)}
-                  </button>
-                ))}
+                {slots.map((s) => {
+                  const isSel = selectedSlotStartUtc === s.startUtc
+                  return (
+                    <button
+                      key={s.startUtc}
+                      onClick={() => onPickSlot(s)}
+                      className={`w-full py-2 rounded-md border text-[13px] font-medium transition-colors ${
+                        isSel
+                          ? 'border-[#FF9500] bg-[#FF9500] text-white'
+                          : 'border-[#E5E7EB] text-[#262626] hover:border-[#FF9500]'
+                      }`}
+                    >
+                      {formatTime(new Date(s.startUtc), tz)}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )
@@ -551,6 +601,20 @@ function ConfirmStep({
           {submitting ? (isReschedule ? 'Rescheduling…' : 'Booking…') : (isReschedule ? 'Confirm reschedule' : 'Confirm booking')}
         </button>
       </div>
+    </div>
+  )
+}
+
+function InlineField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+  return (
+    <div>
+      <label className="text-[12px] text-[#444] block mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-2.5 py-1.5 border border-[#E5E7EB] rounded-md text-[13px] text-[#262626] focus:outline-none focus:border-[#FF9500]"
+      />
     </div>
   )
 }
