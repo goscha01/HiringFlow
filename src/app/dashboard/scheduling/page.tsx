@@ -24,6 +24,8 @@ interface Meeting {
   metadata: { scheduledAt?: string; meetingUrl?: string; notes?: string; source?: string } | null
   session: { id: string; candidateName: string | null; candidateEmail: string | null }
   schedulingConfig: { id: string; name: string } | null
+  scheduledStart: string | null
+  scheduledEnd: string | null
   noShow?: boolean
   recording: {
     enabled: boolean
@@ -207,15 +209,24 @@ export default function SchedulingPage() {
         <section>
           {(() => {
             const now = Date.now()
-            const withWhen = meetings.map(m => ({
-              m,
-              when: m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt),
-            }))
+            // A meeting is "Upcoming" until it ends — not just until it starts —
+            // so a 4pm meeting still shows in Upcoming at 4:15pm. Use
+            // scheduledEnd from the InterviewMeeting row when present; fall
+            // back to scheduledAt + 60min for legacy rows without an IM record.
+            const withWhen = meetings.map(m => {
+              const start = m.scheduledStart
+                ? new Date(m.scheduledStart)
+                : (m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt))
+              const end = m.scheduledEnd
+                ? new Date(m.scheduledEnd)
+                : new Date(start.getTime() + 60 * 60_000)
+              return { m, when: start, end }
+            })
             const upcoming = withWhen
-              .filter(x => x.when.getTime() >= now)
+              .filter(x => x.end.getTime() >= now)
               .sort((a, b) => a.when.getTime() - b.when.getTime())
             const past = withWhen
-              .filter(x => x.when.getTime() < now)
+              .filter(x => x.end.getTime() < now)
               .sort((a, b) => b.when.getTime() - a.when.getTime())
             const visible = meetingsTab === 'upcoming' ? upcoming : past
 

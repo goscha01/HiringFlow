@@ -66,6 +66,8 @@ export async function GET() {
         select: {
           id: true,
           googleCalendarEventId: true,
+          scheduledStart: true,
+          scheduledEnd: true,
           recordingEnabled: true,
           recordingState: true,
           recordingProvider: true,
@@ -105,6 +107,8 @@ export async function GET() {
       metadata: e.metadata,
       session: e.session,
       schedulingConfig: e.schedulingConfig,
+      scheduledStart: im?.scheduledStart ?? null,
+      scheduledEnd: im?.scheduledEnd ?? null,
       noShow: im ? noShowSet.has(im.id) : false,
       recording: im
         ? {
