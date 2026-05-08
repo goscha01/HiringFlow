@@ -7,6 +7,10 @@ import Link from 'next/link'
 interface Ad {
   id: string; name: string; source: string; campaign: string | null
   slug: string; isActive: boolean
+  templateId: string | null
+  headline: string | null; bodyText: string | null
+  requirements: string | null; benefits: string | null; callToAction: string | null
+  imageUrl: string | null
   flow: { id: string; name: string; slug: string; isPublished: boolean }
 }
 interface AdTemplate {
@@ -53,7 +57,10 @@ export default function AdPreviewPage() {
   const id = params.id as string
   const [ad, setAd] = useState<Ad | null>(null)
   const [templates, setTemplates] = useState<AdTemplate[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('__default__')
+  // '__saved__' = use the ad's persisted copy. Default to that whenever the ad
+  // has any copy of its own; only fall back to the source default for legacy
+  // rows with all-null copy fields.
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('__saved__')
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
 
@@ -61,7 +68,17 @@ export default function AdPreviewPage() {
     Promise.all([
       fetch(`/api/ads/${id}`).then(r => r.ok ? r.json() : null),
       fetch('/api/ad-templates').then(r => r.json()).catch(() => []),
-    ]).then(([a, t]) => { setAd(a); setTemplates(t); setLoading(false) })
+    ]).then(([a, t]) => {
+      setAd(a)
+      setTemplates(t)
+      setLoading(false)
+      // If the ad has no saved copy at all, default the picker to its templateId
+      // (if any) or the source default.
+      if (a) {
+        const hasSavedCopy = !!(a.headline || a.bodyText || a.callToAction || a.requirements || a.benefits)
+        if (!hasSavedCopy) setSelectedTemplateId(a.templateId || '__default__')
+      }
+    })
   }, [id])
 
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
@@ -71,17 +88,28 @@ export default function AdPreviewPage() {
   const trackedLink = `${baseUrl}/a/${ad.slug}`
   const style = SOURCE_STYLES[ad.source] || SOURCE_STYLES._default
 
-  // Resolve copy from template or default
+  // Resolve copy: '__saved__' uses the ad's own fields, '__default__' uses the
+  // source-default copy, anything else looks up the named template. Anywhere a
+  // field is missing we fall back to the source default for that single field.
+  const sourceDefault = DEFAULT_COPY[ad.source] || DEFAULT_COPY._default
   let copy: { headline: string; body: string; requirements: string; benefits: string; cta: string }
-  if (selectedTemplateId !== '__default__') {
+  if (selectedTemplateId === '__saved__') {
+    copy = {
+      headline: ad.headline || sourceDefault.headline,
+      body: ad.bodyText || sourceDefault.body,
+      requirements: ad.requirements || '',
+      benefits: ad.benefits || '',
+      cta: ad.callToAction || sourceDefault.cta,
+    }
+  } else if (selectedTemplateId !== '__default__') {
     const t = templates.find(t => t.id === selectedTemplateId)
     if (t) {
       copy = { headline: t.headline, body: t.bodyText, requirements: t.requirements || '', benefits: t.benefits || '', cta: t.callToAction || '' }
     } else {
-      copy = DEFAULT_COPY[ad.source] || DEFAULT_COPY._default
+      copy = sourceDefault
     }
   } else {
-    copy = DEFAULT_COPY[ad.source] || DEFAULT_COPY._default
+    copy = sourceDefault
   }
 
   return (
@@ -97,6 +125,7 @@ export default function AdPreviewPage() {
             onChange={(e) => setSelectedTemplateId(e.target.value)}
             className="px-3 py-2 text-sm border border-surface-border rounded-[8px] text-grey-15"
           >
+            <option value="__saved__">Saved copy{ad.templateId ? ` (${templates.find(t => t.id === ad.templateId)?.name || 'template'})` : ''}</option>
             <option value="__default__">Default {ad.source} copy</option>
             {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
