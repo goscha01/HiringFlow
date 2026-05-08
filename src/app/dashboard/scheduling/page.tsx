@@ -204,31 +204,9 @@ export default function SchedulingPage() {
                           ? <Badge tone="brand">Built-in</Badge>
                           : <Badge tone="info">{c.provider}</Badge>}
                       </td>
-                      <td className="px-4 py-3 max-w-[300px]">
+                      <td className="px-4 py-3 max-w-[360px]">
                         {c.useBuiltInScheduler ? (
-                          <div className="flex items-center gap-2.5">
-                            <button
-                              onClick={() => preview(c.id)}
-                              className="text-[11px] text-[color:var(--brand-primary)] hover:underline font-medium"
-                              title="Open the candidate slot picker in a new tab (5-min preview link)"
-                            >
-                              Preview
-                            </button>
-                            <span className="text-grey-40 text-xs">·</span>
-                            <button
-                              onClick={() => copyPreview(c.id)}
-                              className="text-[11px] text-grey-35 hover:text-ink"
-                              title="Copy a 5-minute preview link to share for testing"
-                            >
-                              Copy link
-                            </button>
-                            <span
-                              className="text-[10px] text-grey-50 italic"
-                              title="The actual link sent to candidates is generated per-session in automation emails as {{schedule_link}}"
-                            >
-                              (per-candidate)
-                            </span>
-                          </div>
+                          <BuiltInUrlCell configId={c.id} onCopyPreview={() => copyPreview(c.id)} onPreview={() => preview(c.id)} />
                         ) : (
                           <a href={c.schedulingUrl} target="_blank" rel="noopener noreferrer" className="font-mono text-[11px] text-grey-35 hover:text-ink underline">
                             {c.schedulingUrl.replace(/^https?:\/\//, '')}
@@ -439,6 +417,71 @@ export default function SchedulingPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function BuiltInUrlCell({ configId, onPreview, onCopyPreview }: { configId: string; onPreview: () => void; onCopyPreview: () => void }) {
+  const [copied, setCopied] = useState(false)
+  const publicUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/book/${configId}`
+    : `/book/${configId}`
+  const display = publicUrl.replace(/^https?:\/\//, '')
+
+  const copyPublic = async () => {
+    try {
+      await navigator.clipboard.writeText(publicUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      prompt('Copy this public booking link:', publicUrl)
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <a
+          href={publicUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-[11px] text-grey-35 hover:text-ink underline truncate"
+          title="Public booking link — anyone can use this to book a meeting"
+        >
+          {display}
+        </a>
+        <button
+          onClick={copyPublic}
+          className="text-[11px] text-[color:var(--brand-primary)] hover:underline shrink-0"
+          title="Copy public link to clipboard"
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+      <div className="flex items-center gap-2.5 text-[11px]">
+        <span
+          className="text-grey-50"
+          title="Public link — visitors enter their name + email and pick a slot. A new candidate session is created on each booking."
+        >
+          Public link
+        </span>
+        <span className="text-grey-40">·</span>
+        <button
+          onClick={onPreview}
+          className="text-grey-35 hover:text-ink"
+          title="Open the candidate slot picker as if you were a logged-in candidate"
+        >
+          Preview as candidate
+        </button>
+        <span className="text-grey-40">·</span>
+        <button
+          onClick={onCopyPreview}
+          className="text-grey-35 hover:text-ink"
+          title="Copy a 5-minute candidate-bound preview link"
+        >
+          Copy preview
+        </button>
+      </div>
     </div>
   )
 }
