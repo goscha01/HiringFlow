@@ -40,7 +40,7 @@ interface Candidate {
   dispositionReason: CandidateDispositionReason | null
   stalledAt: string | null; lostAt: string | null; hiredAt: string | null
   startedAt: string; finishedAt: string | null
-  source: string | null; answerCount: number; submissionCount: number
+  source: string | null; addedManually: boolean; answerCount: number; submissionCount: number
   trainingStatus: string | null; trainingCompletedAt: string | null
   schedulingEvents: number; lastSchedulingEvent: string | null
   flow: { id: string; name: string } | null
@@ -739,6 +739,14 @@ export default function CandidatesPage() {
                                 Rebook
                               </span>
                             )}
+                            {c.addedManually && (
+                              <span
+                                title="Added manually by a recruiter (did not self-apply through a flow)"
+                                className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium"
+                              >
+                                Manual
+                              </span>
+                            )}
                             {c.rejectionReason && (
                               <span
                                 title={c.rejectionReason}
@@ -850,6 +858,7 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, custom
   const [phone, setPhone] = useState('')
   const [stageId, setStageId] = useState(stages[0]?.id ?? 'new')
   const [source, setSource] = useState<string>('manual')
+  const [sourceNote, setSourceNote] = useState('')
   const [addingSource, setAddingSource] = useState(false)
   const [newSourceName, setNewSourceName] = useState('')
   const [savingSource, setSavingSource] = useState(false)
@@ -864,6 +873,7 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, custom
     setPhone('')
     setStageId(stages[0]?.id ?? 'new')
     setSource('manual')
+    setSourceNote('')
     setAddingSource(false)
     setNewSourceName('')
     setError(null)
@@ -926,6 +936,7 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, custom
           candidatePhone: phone,
           pipelineStatus: stageId,
           source,
+          sourceNote,
         }),
       })
       if (!res.ok) {
@@ -1070,6 +1081,22 @@ function NewCandidateModal({ open, onClose, flows, stages, defaultFlowId, custom
                     </Button>
                   </div>
                 )}
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-ink mb-1">
+                  Where did this lead come from? <span className="text-grey-35 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={sourceNote}
+                  onChange={(e) => setSourceNote(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Referred by Maria, met at the trades expo on Apr 28"
+                  className="w-full px-3 py-2 border border-surface-border rounded-[10px] text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40 resize-none"
+                />
+                <p className="mt-1 text-[11px] text-grey-35">
+                  Saved as an internal note on the candidate.
+                </p>
               </div>
 
               <p className="text-[11px] text-grey-35">

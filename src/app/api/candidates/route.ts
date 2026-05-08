@@ -132,6 +132,7 @@ export async function GET(request: NextRequest) {
     startedAt: s.startedAt,
     finishedAt: s.finishedAt,
     source: s.source,
+    addedManually: s.addedManually,
     flow: s.flow,
     ad: s.ad,
     answerCount: s.answers.length,
@@ -159,6 +160,7 @@ export async function POST(request: NextRequest) {
     candidatePhone?: string | null
     pipelineStatus?: string | null
     source?: string | null
+    sourceNote?: string | null
   } | null
 
   if (!body || typeof body.flowId !== 'string' || !body.flowId) {
@@ -184,6 +186,7 @@ export async function POST(request: NextRequest) {
   // source defaults to 'manual' (recruiter-created); the modal can pass any
   // built-in source id ('indeed', 'facebook', …) or a custom workspace label.
   const source = trim(body.source) ?? 'manual'
+  const sourceNote = trim(body.sourceNote)
 
   if (!name && !email && !phone) {
     return NextResponse.json({ error: 'At least one of name, email, or phone is required' }, { status: 400 })
@@ -198,9 +201,31 @@ export async function POST(request: NextRequest) {
       candidatePhone: phone,
       pipelineStatus,
       source,
+      // addedManually is independent of `source` — recruiter may pick
+      // 'indeed' for analytics but the row was still created by hand.
+      addedManually: true,
     },
     select: { id: true },
   })
+
+  // Persist the recruiter's lead-origin comment as a regular CandidateNote
+  // (recruiter-only, surfaces in the candidate detail Notes panel). Avoids a
+  // separate column for what is essentially free-form context.
+  if (sourceNote) {
+    const author = await prisma.user.findUnique({
+      where: { id: ws.userId },
+      select: { name: true, email: true },
+    })
+    await prisma.candidateNote.create({
+      data: {
+        sessionId: created.id,
+        workspaceId: ws.workspaceId,
+        authorId: ws.userId,
+        authorName: author?.name || author?.email || null,
+        body: `Lead origin: ${sourceNote}`,
+      },
+    })
+  }
 
   return NextResponse.json({ id: created.id }, { status: 201 })
 }

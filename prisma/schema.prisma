@@ -433,6 +433,10 @@ model Session {
   ad                   Ad?                   @relation(fields: [adId], references: [id])
   campaign             String?
   source               String?
+  // True when the candidate was created via the "Add candidate" modal
+  // (recruiter-entered) rather than self-applying through a flow. Distinct
+  // from `source`, which is now user-selectable (Indeed/Facebook/custom).
+  addedManually        Boolean               @default(false) @map("added_manually")
   answers              SessionAnswer[]
   submissions          CandidateSubmission[]
   trainingEnrollments  TrainingEnrollment[]

@@ -91,7 +91,7 @@ interface CandidateDetail {
   status: CandidateStatus | null
   dispositionReason: CandidateDispositionReason | null
   stalledAt: string | null; lostAt: string | null; hiredAt: string | null
-  source: string | null; campaign: string | null
+  source: string | null; campaign: string | null; addedManually: boolean
   rejectionReason: string | null; rejectionReasonAt: string | null
   flow: { id: string; name: string; slug: string } | null
   lastStep: { id: string; title: string; stepOrder: number; stepType: string; questionType: string } | null
@@ -1049,7 +1049,17 @@ export default function CandidateDetailPage() {
       {/* Info cards */}
       <div className={`grid grid-cols-2 ${latestMeetingUrl ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-3 mb-6`}>
         <div className="bg-white rounded-[8px] border border-surface-border p-4">
-          <div className="text-xs text-grey-40 mb-1">Source</div>
+          <div className="text-xs text-grey-40 mb-1 flex items-center gap-1.5">
+            <span>Source</span>
+            {candidate.addedManually && (
+              <span
+                title="Added manually by a recruiter (did not self-apply through a flow)"
+                className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium normal-case"
+              >
+                Manual
+              </span>
+            )}
+          </div>
           <div className="text-sm font-medium text-grey-15 capitalize">{candidate.ad?.source || candidate.source || 'Direct'}</div>
           {candidate.ad && <div className="text-xs text-grey-40 mt-0.5 truncate" title={candidate.ad.name}>{candidate.ad.name}</div>}
           {candidate.campaign && (

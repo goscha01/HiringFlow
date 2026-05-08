@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Button, Card, Eyebrow, PageHeader, Stat } from '@/components/design'
 
@@ -59,6 +59,10 @@ export default function CampaignsPage() {
   const [showAdCopy, setShowAdCopy] = useState(true)
   // Placement URL (where the ad was posted — Telegram/Facebook group, etc.)
   const [placementUrl, setPlacementUrl] = useState('')
+  // Tracks whether a mousedown started on the backdrop. Without this, a drag
+  // selection that began inside the modal and released over the backdrop fires
+  // the backdrop's onClick and closes the modal.
+  const backdropMouseDownTarget = useRef<EventTarget | null>(null)
   // Duplicate modal
   const [duplicatingAd, setDuplicatingAd] = useState<Ad | null>(null)
   const [duplicateName, setDuplicateName] = useState('')
@@ -278,6 +282,9 @@ export default function CampaignsPage() {
   const confirmDuplicate = async () => {
     if (!duplicatingAd || !duplicateName.trim()) return
     setDuplicating(true)
+    // For older ads without saved copy, fall back: matching template → source default
+    const tpl = adTemplates.find(t => t.source === duplicatingAd.source) || adTemplates.find(t => t.source === 'general')
+    const d = DEFAULT_AD_COPY[duplicatingAd.source] || DEFAULT_AD_COPY._default
     const res = await fetch('/api/ads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -288,11 +295,11 @@ export default function CampaignsPage() {
         flowId: duplicatingAd.flowId,
         imageUrl: duplicatingAd.imageUrl,
         placementUrl: duplicatingAd.placementUrl,
-        headline: duplicatingAd.headline,
-        bodyText: duplicatingAd.bodyText,
-        requirements: duplicatingAd.requirements,
-        benefits: duplicatingAd.benefits,
-        callToAction: duplicatingAd.callToAction,
+        headline: duplicatingAd.headline ?? tpl?.headline ?? d.headline,
+        bodyText: duplicatingAd.bodyText ?? tpl?.bodyText ?? d.body,
+        requirements: duplicatingAd.requirements ?? tpl?.requirements ?? d.requirements,
+        benefits: duplicatingAd.benefits ?? tpl?.benefits ?? d.benefits,
+        callToAction: duplicatingAd.callToAction ?? tpl?.callToAction ?? d.cta,
       }),
     })
     setDuplicating(false)
@@ -824,8 +831,18 @@ export default function CampaignsPage() {
 
       {/* Duplicate Modal */}
       {duplicatingAd && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => !duplicating && setDuplicatingAd(null)}>
-          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[440px]" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50"
+          onMouseDown={(e) => { backdropMouseDownTarget.current = e.target }}
+          onMouseUp={(e) => {
+            // Only close if both mousedown and mouseup happened on the backdrop itself
+            if (!duplicating && e.target === e.currentTarget && backdropMouseDownTarget.current === e.currentTarget) {
+              setDuplicatingAd(null)
+            }
+            backdropMouseDownTarget.current = null
+          }}
+        >
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[440px]" onMouseDown={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-semibold text-grey-15 mb-2">Duplicate Ad</h2>
             <p className="text-sm text-grey-40 mb-4">Create a copy of <span className="font-medium text-grey-20">{duplicatingAd.name}</span> with a new tracked link.</p>
             <label className="block text-sm font-medium text-grey-20 mb-1.5">New ad name</label>
