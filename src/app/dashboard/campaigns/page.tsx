@@ -10,7 +10,7 @@ interface Picture { id: string; url: string; filename: string; displayName?: str
 interface Ad {
   id: string; name: string; source: string; campaign: string | null
   slug: string; isActive: boolean; flowId: string; imageUrl: string | null
-  placementUrl: string | null
+  placementUrl: string | null; templateId: string | null
   headline: string | null; bodyText: string | null
   requirements: string | null; benefits: string | null; callToAction: string | null
   flow: Flow; createdAt: string; _count: { sessions: number }
@@ -128,7 +128,7 @@ export default function CampaignsPage() {
   const openEdit = (ad: Ad) => {
     setEditingAd(ad); setName(ad.name); setSource(ad.source); setCampaign(ad.campaign || ''); setFlowId(ad.flowId)
     setImageUrl(ad.imageUrl); setImageError(null); setShowLibrary(false)
-    setSelectedTemplateId('__default__')
+    setSelectedTemplateId(ad.templateId || '__default__')
     setPlacementUrl(ad.placementUrl || '')
     // Load saved copy if present, otherwise fall back to source defaults
     const d = DEFAULT_AD_COPY[ad.source] || DEFAULT_AD_COPY._default
@@ -216,6 +216,7 @@ export default function CampaignsPage() {
     const payload = {
       name, source, campaign, flowId, imageUrl,
       placementUrl: placementUrl.trim() || null,
+      templateId: selectedTemplateId === '__default__' ? null : selectedTemplateId,
       headline: adHeadline,
       bodyText: adBody,
       requirements: adRequirements,
@@ -295,6 +296,7 @@ export default function CampaignsPage() {
         flowId: duplicatingAd.flowId,
         imageUrl: duplicatingAd.imageUrl,
         placementUrl: duplicatingAd.placementUrl,
+        templateId: duplicatingAd.templateId,
         headline: duplicatingAd.headline ?? tpl?.headline ?? d.headline,
         bodyText: duplicatingAd.bodyText ?? tpl?.bodyText ?? d.body,
         requirements: duplicatingAd.requirements ?? tpl?.requirements ?? d.requirements,
