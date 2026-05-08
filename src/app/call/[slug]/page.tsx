@@ -8,7 +8,15 @@ interface Conversation {
   conversation_id: string; status: string; start_time_unix_secs: number
   call_duration_secs: number; message_count: number; call_successful: string | null
   transcript_summary: string | null
+  evaluation_score?: number | null
+  evaluation_total?: number | null
+  evaluation_label?: string | null
 }
+
+const scoreColor = (v: number) =>
+  v >= 90 ? 'text-green-600' : v >= 80 ? 'text-blue-600' : v >= 70 ? 'text-yellow-600' : 'text-red-600'
+const scoreBadge = (v: number) =>
+  v >= 90 ? 'bg-green-100 text-green-700' : v >= 80 ? 'bg-blue-100 text-blue-700' : v >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
 
 interface ConversationDetail {
   conversation_id: string; status: string; call_duration_secs: number
@@ -246,11 +254,20 @@ export default function CandidateCallPage() {
                     >
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-sm font-medium text-[#262626]">Call {callCards.length - i}</span>
-                        <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
-                          c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                          c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                          'bg-gray-100 text-[#8A8A8C]'
-                        }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                        {typeof c.evaluation_score === 'number' ? (
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-bold ${scoreColor(c.evaluation_score)}`}>{c.evaluation_score}/{c.evaluation_total || 100}</span>
+                            {c.evaluation_label && (
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${scoreBadge(c.evaluation_score)}`}>{c.evaluation_label}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
+                            c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
+                            c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
+                            'bg-gray-100 text-[#8A8A8C]'
+                          }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                        )}
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-[#8A8A8C]">{formatDuration(c.call_duration_secs)} &middot; {formatDate(c.start_time_unix_secs)}</span>
@@ -300,11 +317,20 @@ export default function CandidateCallPage() {
                             <div className="text-xs text-[#8A8A8C]">{formatDate(c.start_time_unix_secs)}</div>
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
-                              c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                              c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                              'bg-gray-100 text-[#8A8A8C]'
-                            }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                            {typeof c.evaluation_score === 'number' ? (
+                              <div className="flex items-center gap-2">
+                                <span className={`text-base font-bold ${scoreColor(c.evaluation_score)}`}>{c.evaluation_score}/{c.evaluation_total || 100}</span>
+                                {c.evaluation_label && (
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${scoreBadge(c.evaluation_score)}`}>{c.evaluation_label}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
+                                c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
+                                c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
+                                'bg-gray-100 text-[#8A8A8C]'
+                              }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-sm text-[#262626] text-right">{formatDuration(c.call_duration_secs)}</td>
                         </tr>

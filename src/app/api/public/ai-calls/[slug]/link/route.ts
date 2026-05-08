@@ -11,6 +11,22 @@ interface ElevenLabsConvSummary {
   transcript_summary: string | null
 }
 
+// Mirrors the call page's score parser so the cards/list can render the numeric
+// score without re-fetching the full conversation detail.
+function parseScore(rationale: string): { value: number; total: number; label: string } | null {
+  if (!rationale) return null
+  const m =
+    rationale.match(/Score:\s*(\d+)\s*\/\s*(\d+)\s*\(\s*([^)]+?)\s*\)/) ||
+    rationale.match(/(\d+)\s*\/\s*100\s*\(\s*([^)]+?)\s*\)/) ||
+    rationale.match(/(\d+)\s*\/\s*100/)
+  if (!m) return null
+  const value = parseInt(m[1])
+  if (m[3]) return { value, total: parseInt(m[2]), label: m[3].trim() }
+  if (m[2] && isNaN(parseInt(m[2]))) return { value, total: 100, label: m[2].trim() }
+  const label = value >= 90 ? 'Excellent' : value >= 80 ? 'Good' : value >= 70 ? 'Needs Improvement' : 'Requires Retraining'
+  return { value, total: parseInt(m[2]) || 100, label }
+}
+
 // POST — candidate reports a conversation ID to link to their name
 export async function POST(request: NextRequest, { params }: { params: { slug: string } }) {
   const { candidateName, conversationId } = await request.json()
@@ -105,6 +121,8 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
         })
         if (!r.ok) return null
         const d = await r.json()
+        const rationale = (Object.values(d.analysis?.evaluation_criteria_results || {})[0] as { rationale?: string } | undefined)?.rationale || ''
+        const score = parseScore(rationale)
         return {
           conversation_id: d.conversation_id,
           status: d.status,
@@ -113,6 +131,9 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
           message_count: d.transcript?.length || 0,
           call_successful: d.analysis?.call_successful || null,
           transcript_summary: d.analysis?.transcript_summary || null,
+          evaluation_score: score?.value ?? null,
+          evaluation_total: score?.total ?? null,
+          evaluation_label: score?.label ?? null,
         }
       })
     )
