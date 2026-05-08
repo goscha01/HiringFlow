@@ -127,7 +127,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
           conversation_id: d.conversation_id,
           status: d.status,
           start_time_unix_secs: d.metadata?.start_time_unix_secs || Math.floor(new Date(d.metadata?.created_at || 0).getTime() / 1000),
-          call_duration_secs: d.call_duration_secs || 0,
+          call_duration_secs: d.metadata?.call_duration_secs || d.call_duration_secs || 0,
           message_count: d.transcript?.length || 0,
           call_successful: d.analysis?.call_successful || null,
           transcript_summary: d.analysis?.transcript_summary || null,

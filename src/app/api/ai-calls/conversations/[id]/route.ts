@@ -20,5 +20,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: `ElevenLabs API error: ${res.status}` }, { status: res.status })
   }
 
-  return NextResponse.json(await res.json())
+  const data = await res.json()
+  // ElevenLabs detail nests call_duration_secs under metadata; lift it for clients
+  // that read it at the top level.
+  return NextResponse.json({
+    ...data,
+    call_duration_secs: data.metadata?.call_duration_secs ?? data.call_duration_secs ?? 0,
+  })
 }

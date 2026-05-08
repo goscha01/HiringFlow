@@ -17,7 +17,13 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
       headers: { 'xi-api-key': platformKey.value },
     })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch' }, { status: res.status })
-    return NextResponse.json(await res.json())
+    const data = await res.json()
+    // ElevenLabs detail nests call_duration_secs under metadata; lift it for clients
+    // that read it at the top level (e.g. the call page detail panel).
+    return NextResponse.json({
+      ...data,
+      call_duration_secs: data.metadata?.call_duration_secs ?? data.call_duration_secs ?? 0,
+    })
   }
 
   // List all conversations for this agent
