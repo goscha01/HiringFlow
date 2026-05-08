@@ -98,7 +98,7 @@ export default function SchedulingPage() {
     setSaving(true)
     const body: Record<string, unknown> = {
       name,
-      schedulingUrl: useBuiltIn ? (url || 'in-app') : url,
+      schedulingUrl: useBuiltIn ? '' : url,
       isDefault,
       useBuiltInScheduler: useBuiltIn,
     }
