@@ -190,12 +190,50 @@ export async function fireMeetingRescheduledAutomations(sessionId: string) {
  *     other triggers (meeting_scheduled, meeting_started, etc.) — handled
  *     by reScheduleMeetingRelativeSteps.
  *
- * Already-sent steps stay sent (the upsert in dispatchStep skips them).
+ * Already-sent meeting-relative reminders are detached (stepId set to null)
+ * so they're preserved as audit history but the unique constraint
+ * `[stepId, sessionId, channel]` no longer blocks fresh executions for the
+ * NEW meeting time. Without this, every reschedule after the first reminder
+ * fired would silently skip re-queuing — candidates only got reminders for
+ * their first meeting time.
  */
 export async function rescheduleBeforeMeetingReminders(sessionId: string, newScheduledStart: Date) {
   await cancelBeforeMeetingReminders(sessionId)
+  await detachSentMeetingRelativeExecutions(sessionId)
   await scheduleBeforeMeetingReminders(sessionId, newScheduledStart)
   await reScheduleMeetingRelativeSteps(sessionId)
+}
+
+/**
+ * Orphan already-sent meeting-relative executions (timingMode in
+ * {before_meeting, after_meeting}) for a given session by setting their
+ * stepId to null. This preserves the row as audit history while freeing
+ * up the [stepId, sessionId, channel] unique key for fresh executions
+ * against a new meeting time.
+ *
+ * `before_meeting`-triggered rules ALSO have their executions detached
+ * because their dispatch logic computes the fire time against the latest
+ * InterviewMeeting.scheduledStart and the upsert otherwise short-circuits.
+ */
+async function detachSentMeetingRelativeExecutions(sessionId: string) {
+  const candidates = await prisma.automationExecution.findMany({
+    where: {
+      sessionId,
+      status: 'sent',
+      stepId: { not: null },
+      OR: [
+        { step: { timingMode: { in: ['before_meeting', 'after_meeting'] } } },
+        { automationRule: { triggerType: 'before_meeting' } },
+      ],
+    },
+    select: { id: true },
+  })
+  if (candidates.length === 0) return
+  await prisma.automationExecution.updateMany({
+    where: { id: { in: candidates.map((c) => c.id) } },
+    data: { stepId: null },
+  })
+  console.log(`[Automation] Detached ${candidates.length} sent meeting-relative executions for re-queue (session ${sessionId})`)
 }
 
 /**
