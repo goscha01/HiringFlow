@@ -18,6 +18,16 @@ const scoreColor = (v: number) =>
 const scoreBadge = (v: number) =>
   v >= 90 ? 'bg-green-100 text-green-700' : v >= 80 ? 'bg-blue-100 text-blue-700' : v >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
 
+// ElevenLabs returns 'success' | 'failure' | 'unknown' for call_successful.
+// 'unknown' = transcript too thin to grade (e.g. candidate disconnected before
+// the dispatcher said anything). null = evaluation still pending.
+const statusPill = (callSuccessful: string | null | undefined) => {
+  if (callSuccessful === 'success') return { label: 'Passed', className: 'bg-green-100 text-green-700' }
+  if (callSuccessful === 'failure') return { label: 'Failed', className: 'bg-red-100 text-red-600' }
+  if (callSuccessful === 'unknown') return { label: 'Not Finished', className: 'bg-amber-100 text-amber-700' }
+  return { label: 'Pending', className: 'bg-gray-100 text-[#8A8A8C]' }
+}
+
 interface ConversationDetail {
   conversation_id: string; status: string; call_duration_secs: number
   transcript: Array<{ role: string; message: string; time_in_call_secs: number }>
@@ -261,13 +271,10 @@ export default function CandidateCallPage() {
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${scoreBadge(c.evaluation_score)}`}>{c.evaluation_label}</span>
                             )}
                           </div>
-                        ) : (
-                          <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
-                            c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                            c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                            'bg-gray-100 text-[#8A8A8C]'
-                          }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
-                        )}
+                        ) : (() => {
+                          const pill = statusPill(c.call_successful)
+                          return <span className={`text-sm px-3 py-1 rounded-full font-semibold ${pill.className}`}>{pill.label}</span>
+                        })()}
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-[#8A8A8C]">{formatDuration(c.call_duration_secs)} &middot; {formatDate(c.start_time_unix_secs)}</span>
@@ -324,13 +331,10 @@ export default function CandidateCallPage() {
                                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${scoreBadge(c.evaluation_score)}`}>{c.evaluation_label}</span>
                                 )}
                               </div>
-                            ) : (
-                              <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
-                                c.call_successful === 'success' ? 'bg-green-100 text-green-700' :
-                                c.call_successful === 'failure' ? 'bg-red-100 text-red-600' :
-                                'bg-gray-100 text-[#8A8A8C]'
-                              }`}>{c.call_successful === 'success' ? 'Passed' : c.call_successful === 'failure' ? 'Failed' : 'Pending'}</span>
-                            )}
+                            ) : (() => {
+                              const pill = statusPill(c.call_successful)
+                              return <span className={`text-sm px-3 py-1 rounded-full font-semibold ${pill.className}`}>{pill.label}</span>
+                            })()}
                           </td>
                           <td className="px-4 py-3 text-sm text-[#262626] text-right">{formatDuration(c.call_duration_secs)}</td>
                         </tr>
@@ -396,9 +400,10 @@ export default function CandidateCallPage() {
                               )}
                               <div>
                                 {score && <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${score.value >= 90 ? 'bg-green-100 text-green-700' : score.value >= 80 ? 'bg-blue-100 text-blue-700' : score.value >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{score.label}</span>}
-                                <span className={`text-sm px-3 py-1 rounded-full font-semibold ${score ? 'ml-1.5' : ''} ${callResult === 'success' ? 'bg-green-100 text-green-700' : callResult === 'failure' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-[#8A8A8C]'}`}>
-                                  {callResult === 'success' ? 'Passed' : callResult === 'failure' ? 'Failed' : 'Pending'}
-                                </span>
+                                {(() => {
+                                  const pill = statusPill(callResult)
+                                  return <span className={`text-sm px-3 py-1 rounded-full font-semibold ${score ? 'ml-1.5' : ''} ${pill.className}`}>{pill.label}</span>
+                                })()}
                               </div>
                             </div>
 
