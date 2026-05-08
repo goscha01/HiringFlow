@@ -277,6 +277,15 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
                         Download recording
                       </a>
                       <span className="text-grey-40 text-xs">·</span>
+                      <a
+                        href={`https://drive.google.com/file/d/${m.driveRecordingFileId}/view`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline"
+                      >
+                        Open in Drive
+                      </a>
+                      <span className="text-grey-40 text-xs">·</span>
                       <button
                         onClick={() => removeRecording(m.id)}
                         disabled={removingRecording === m.id}
