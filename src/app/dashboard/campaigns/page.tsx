@@ -63,6 +63,19 @@ export default function CampaignsPage() {
   const [showLibrary, setShowLibrary] = useState(false)
   const [pictures, setPictures] = useState<Picture[]>([])
   const [picturesLoading, setPicturesLoading] = useState(false)
+  // Template selection + editor
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('__default__')
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState<AdTemplateItem | null>(null)
+  const [tplName, setTplName] = useState('')
+  const [tplSource, setTplSource] = useState('general')
+  const [tplHeadline, setTplHeadline] = useState('')
+  const [tplBody, setTplBody] = useState('')
+  const [tplRequirements, setTplRequirements] = useState('')
+  const [tplBenefits, setTplBenefits] = useState('')
+  const [tplCta, setTplCta] = useState('')
+  const [tplSaving, setTplSaving] = useState(false)
+  const [tplDeleting, setTplDeleting] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -82,6 +95,7 @@ export default function CampaignsPage() {
   const openCreate = () => {
     setEditingAd(null); setName(''); setSource('indeed'); setCampaign(''); setFlowId(flows[0]?.id || '')
     setImageUrl(null); setImageError(null); setShowLibrary(false)
+    setSelectedTemplateId('__default__')
     const d = DEFAULT_AD_COPY.indeed
     setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
     setShowAdCopy(true); setShowModal(true)
@@ -89,7 +103,78 @@ export default function CampaignsPage() {
   const openEdit = (ad: Ad) => {
     setEditingAd(ad); setName(ad.name); setSource(ad.source); setCampaign(ad.campaign || ''); setFlowId(ad.flowId)
     setImageUrl(ad.imageUrl); setImageError(null); setShowLibrary(false)
+    setSelectedTemplateId('__default__')
     setShowModal(true)
+  }
+
+  const refreshTemplates = async () => {
+    const r = await fetch('/api/ad-templates')
+    if (r.ok) setAdTemplates(await r.json())
+  }
+
+  const openTemplateNew = () => {
+    setEditingTemplate(null)
+    setTplName(''); setTplSource(source || 'general')
+    setTplHeadline(adHeadline); setTplBody(adBody); setTplCta(adCta)
+    setTplRequirements(''); setTplBenefits('')
+    setTemplateEditorOpen(true)
+  }
+
+  const openTemplateEdit = () => {
+    const t = adTemplates.find(t => t.id === selectedTemplateId)
+    if (!t) return
+    setEditingTemplate(t)
+    setTplName(t.name); setTplSource(t.source)
+    setTplHeadline(t.headline); setTplBody(t.bodyText); setTplCta(t.callToAction || '')
+    setTplRequirements(t.requirements || ''); setTplBenefits(t.benefits || '')
+    setTemplateEditorOpen(true)
+  }
+
+  const saveTemplate = async () => {
+    if (!tplName.trim() || !tplHeadline.trim() || !tplBody.trim()) return
+    setTplSaving(true)
+    const payload = {
+      name: tplName.trim(),
+      source: tplSource,
+      headline: tplHeadline,
+      bodyText: tplBody,
+      requirements: tplRequirements || null,
+      benefits: tplBenefits || null,
+      callToAction: tplCta || null,
+    }
+    let saved: AdTemplateItem | null = null
+    if (editingTemplate) {
+      const res = await fetch(`/api/ad-templates/${editingTemplate.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (res.ok) saved = await res.json()
+    } else {
+      const res = await fetch('/api/ad-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (res.ok) saved = await res.json()
+    }
+    setTplSaving(false)
+    if (saved) {
+      await refreshTemplates()
+      // Apply the saved template to the ad copy fields and select it
+      setSelectedTemplateId(saved.id)
+      setAdHeadline(saved.headline); setAdBody(saved.bodyText); setAdCta(saved.callToAction || '')
+      if (saved.source !== 'general') setSource(saved.source)
+      setTemplateEditorOpen(false)
+    }
+  }
+
+  const deleteTemplate = async () => {
+    if (!editingTemplate) return
+    if (!confirm(`Delete template "${editingTemplate.name}"?`)) return
+    setTplDeleting(true)
+    const res = await fetch(`/api/ad-templates/${editingTemplate.id}`, { method: 'DELETE' })
+    setTplDeleting(false)
+    if (res.ok) {
+      await refreshTemplates()
+      if (selectedTemplateId === editingTemplate.id) {
+        setSelectedTemplateId('__default__')
+        loadAdCopyDefaults(source)
+      }
+      setTemplateEditorOpen(false)
+    }
   }
 
   const save = async () => {
@@ -454,11 +539,31 @@ export default function CampaignsPage() {
               {/* Ad Copy Section */}
               <div className="border-t border-surface-border pt-4">
                 <div className="mb-3">
-                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Ad Copy Template</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-grey-20">Ad Copy Template</label>
+                    <div className="flex gap-3 text-xs">
+                      <button
+                        type="button"
+                        onClick={openTemplateEdit}
+                        disabled={selectedTemplateId === '__default__'}
+                        className="text-brand-500 hover:text-brand-600 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Edit template
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openTemplateNew}
+                        className="text-brand-500 hover:text-brand-600 font-medium"
+                      >
+                        + New template
+                      </button>
+                    </div>
+                  </div>
                   <select
-                    defaultValue="__default__"
+                    value={selectedTemplateId}
                     onChange={(e) => {
                       const val = e.target.value
+                      setSelectedTemplateId(val)
                       if (val === '__default__') { loadAdCopyDefaults(source); return }
                       const t = adTemplates.find(t => t.id === val)
                       if (t) { setAdHeadline(t.headline); setAdBody(t.bodyText); setAdCta(t.callToAction || ''); if (t.source !== 'general') setSource(t.source) }
@@ -468,7 +573,7 @@ export default function CampaignsPage() {
                     <option value="__default__">Default — {SOURCES.find(s => s.value === source)?.label || source} template</option>
                     {adTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.source})</option>)}
                   </select>
-                  <p className="text-xs text-grey-50 mt-1">Pre-filled with recommended copy. Pick a saved template or edit below.</p>
+                  <p className="text-xs text-grey-50 mt-1">{adTemplates.length === 0 ? 'No saved templates yet — click "+ New template" to save your copy for reuse.' : 'Pick a saved template or edit below.'}</p>
                 </div>
 
                 <div className="space-y-3">
@@ -501,6 +606,67 @@ export default function CampaignsPage() {
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={save} disabled={saving || !name.trim() || !flowId} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editingAd ? 'Save Changes' : 'Create Ad'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template Editor Modal */}
+      {templateEditorOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[60]" onClick={() => !tplSaving && !tplDeleting && setTemplateEditorOpen(false)}>
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold text-grey-15 mb-5">{editingTemplate ? 'Edit Template' : 'New Template'}</h2>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Template name</label>
+                  <input type="text" value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="e.g. Indeed Cleaner — Miami" className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" autoFocus />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Source</label>
+                  <select value={tplSource} onChange={(e) => setTplSource(e.target.value)} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="general">General (any source)</option>
+                    {SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Headline</label>
+                <input type="text" value={tplHeadline} onChange={(e) => setTplHeadline(e.target.value)} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Body</label>
+                <textarea value={tplBody} onChange={(e) => setTplBody(e.target.value)} rows={5} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Requirements (optional)</label>
+                  <textarea value={tplRequirements} onChange={(e) => setTplRequirements(e.target.value)} rows={3} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">Benefits (optional)</label>
+                  <textarea value={tplBenefits} onChange={(e) => setTplBenefits(e.target.value)} rows={3} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Call to Action</label>
+                <input type="text" value={tplCta} onChange={(e) => setTplCta(e.target.value)} className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              {editingTemplate ? (
+                <button onClick={deleteTemplate} disabled={tplSaving || tplDeleting} className="text-sm text-red-500 hover:text-red-600 font-medium px-3 disabled:opacity-50">
+                  {tplDeleting ? 'Deleting…' : 'Delete'}
+                </button>
+              ) : <div className="flex-1" />}
+              <div className="flex-1" />
+              <button onClick={() => setTemplateEditorOpen(false)} disabled={tplSaving || tplDeleting} className="btn-secondary">Cancel</button>
+              <button onClick={saveTemplate} disabled={tplSaving || tplDeleting || !tplName.trim() || !tplHeadline.trim() || !tplBody.trim()} className="btn-primary disabled:opacity-50">
+                {tplSaving ? 'Saving…' : editingTemplate ? 'Save changes' : 'Create template'}
+              </button>
             </div>
           </div>
         </div>
