@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -151,9 +151,16 @@ export default function CandidateDetailPage() {
   // one rule at a time without dismissing the modal — keyed by ruleId.
   const [perRuleState, setPerRuleState] = useState<Record<string, { firing: boolean; result?: { ok: boolean; message: string } }>>({})
 
-  useEffect(() => {
-    fetch(`/api/candidates/${id}`).then(r => r.json()).then(d => { setCandidate(d); setLoading(false) })
+  const loadCandidate = useCallback(async () => {
+    const res = await fetch(`/api/candidates/${id}`)
+    const d = await res.json()
+    setCandidate(d)
+    setLoading(false)
   }, [id])
+
+  useEffect(() => {
+    loadCandidate().catch(() => setLoading(false))
+  }, [loadCandidate])
 
   useEffect(() => {
     fetch('/api/workspace/settings')
@@ -1087,7 +1094,7 @@ export default function CandidateDetailPage() {
       {/* Meet integration v2: in-app Google Meet scheduling (loosely coupled —
           the panel self-hides if the feature flag / scopes aren't active, so
           this never affects workspaces still on the Calendly flow) */}
-      <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} isRebook={candidate.isRebook} />
+      <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} isRebook={candidate.isRebook} onCandidateChanged={loadCandidate} />
 
       {/* Background check — Certn integration; self-hides gracefully if the
           workspace hasn't connected Certn yet (the order button just returns

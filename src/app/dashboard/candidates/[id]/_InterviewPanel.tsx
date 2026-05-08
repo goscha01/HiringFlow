@@ -54,7 +54,7 @@ function Spinner() {
   )
 }
 
-export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { candidateId: string; candidateEmail: string | null; isRebook?: boolean }) {
+export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandidateChanged }: { candidateId: string; candidateEmail: string | null; isRebook?: boolean; onCandidateChanged?: () => void }) {
   const [meetings, setMeetings] = useState<InterviewMeeting[] | null>(null)
   const [showDialog, setShowDialog] = useState(false)
   const [featureOn, setFeatureOn] = useState<boolean | null>(null)
@@ -183,13 +183,14 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook }: { cand
       const res = await fetch(`/api/interview-meetings/${meetingId}/mark-no-show`, { method: 'POST' })
       if (res.ok) {
         await load()
+        onCandidateChanged?.()
       } else {
         alert('Could not mark as no-show. Please retry.')
       }
     } finally {
       setMarkingNoShow(null)
     }
-  }, [load])
+  }, [load, onCandidateChanged])
 
   useEffect(() => {
     fetch('/api/integrations/google').then((r) => r.json()).then((d) => {
