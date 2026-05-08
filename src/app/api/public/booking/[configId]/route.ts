@@ -137,7 +137,11 @@ export async function POST(request: NextRequest, { params }: { params: { configI
       sessionId: verified.payload.sessionId,
       scheduledAt: slotStart,
       durationMinutes: rules.durationMinutes,
-      record: false,
+      // Default to ON — bookInterview's selectRecorder gates this on the
+      // workspace's recordingCapable flag, and a 403 from createSpace falls
+      // back to OFF gracefully. Without this, every self-booked meeting
+      // landed with autoRecording OFF regardless of capability.
+      record: true,
       notes: body.notes,
       attendeeEmail: body.candidateEmail,
       schedulingConfigId: config.id,

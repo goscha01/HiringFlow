@@ -53,6 +53,7 @@ function recordingBadge(m: Meeting): { tone: 'success' | 'info' | 'neutral' | 'w
 export default function SchedulingPage() {
   const [configs, setConfigs] = useState<SchedulingConfig[]>([])
   const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [meetingsTab, setMeetingsTab] = useState<'upcoming' | 'past'>('upcoming')
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<SchedulingConfig | null>(null)
@@ -204,35 +205,76 @@ export default function SchedulingPage() {
 
         {/* Scheduled Meetings */}
         <section>
-          <div className="flex items-end justify-between mb-3">
-            <div>
-              <Eyebrow size="xs" className="mb-0.5">Booked</Eyebrow>
-              <div className="text-[15px] font-semibold text-ink">Scheduled meetings</div>
-            </div>
-            <div className="font-mono text-[11px] text-grey-35">{meetings.length} total</div>
-          </div>
+          {(() => {
+            const now = Date.now()
+            const withWhen = meetings.map(m => ({
+              m,
+              when: m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt),
+            }))
+            const upcoming = withWhen
+              .filter(x => x.when.getTime() >= now)
+              .sort((a, b) => a.when.getTime() - b.when.getTime())
+            const past = withWhen
+              .filter(x => x.when.getTime() < now)
+              .sort((a, b) => b.when.getTime() - a.when.getTime())
+            const visible = meetingsTab === 'upcoming' ? upcoming : past
 
-          {meetings.length === 0 ? (
-            <Card padding={32} className="text-center text-[13px] text-grey-35">
-              No meetings logged yet. Use <span className="font-medium text-ink">Log meeting</span> on a candidate&apos;s page, or let Calendar sync pick them up automatically.
-            </Card>
-          ) : (
-            <Card padding={0} className="overflow-hidden">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr style={{ background: 'var(--surface-light, #FCFAF6)' }}>
-                    {['Candidate', 'When', 'Link', 'Recording', 'Config', 'Source'].map((h) => (
-                      <th key={h} className="px-4 py-2.5 font-mono text-[10px] uppercase text-grey-35 border-b border-surface-divider text-left" style={{ letterSpacing: '0.1em' }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {meetings.map((m) => {
-                    const when = m.metadata?.scheduledAt ? new Date(m.metadata.scheduledAt) : new Date(m.eventAt)
-                    const isPast = when.getTime() < Date.now()
+            return (
+              <>
+                <div className="flex items-end justify-between mb-3">
+                  <div>
+                    <Eyebrow size="xs" className="mb-0.5">Booked</Eyebrow>
+                    <div className="text-[15px] font-semibold text-ink">Scheduled meetings</div>
+                  </div>
+                  <div className="font-mono text-[11px] text-grey-35">{visible.length} of {meetings.length}</div>
+                </div>
+
+                <div className="flex gap-1 mb-3" role="tablist" aria-label="Scheduled meetings filter">
+                  {(['upcoming', 'past'] as const).map((t) => {
+                    const count = t === 'upcoming' ? upcoming.length : past.length
+                    const active = meetingsTab === t
                     return (
+                      <button
+                        key={t}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setMeetingsTab(t)}
+                        className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+                          active
+                            ? 'bg-ink text-white'
+                            : 'bg-transparent text-grey-35 hover:bg-surface-light hover:text-ink'
+                        }`}
+                      >
+                        {t === 'upcoming' ? 'Upcoming' : 'Past'}
+                        <span className={`ml-1.5 font-mono text-[10px] ${active ? 'opacity-70' : 'opacity-60'}`}>{count}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {meetings.length === 0 ? (
+                  <Card padding={32} className="text-center text-[13px] text-grey-35">
+                    No meetings logged yet. Use <span className="font-medium text-ink">Log meeting</span> on a candidate&apos;s page, or let Calendar sync pick them up automatically.
+                  </Card>
+                ) : visible.length === 0 ? (
+                  <Card padding={32} className="text-center text-[13px] text-grey-35">
+                    {meetingsTab === 'upcoming' ? 'No upcoming meetings.' : 'No past meetings yet.'}
+                  </Card>
+                ) : (
+                  <Card padding={0} className="overflow-hidden">
+                    <table className="w-full text-[13px]">
+                      <thead>
+                        <tr style={{ background: 'var(--surface-light, #FCFAF6)' }}>
+                          {['Candidate', 'When', 'Link', 'Recording', 'Config', 'Source'].map((h) => (
+                            <th key={h} className="px-4 py-2.5 font-mono text-[10px] uppercase text-grey-35 border-b border-surface-divider text-left" style={{ letterSpacing: '0.1em' }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visible.map(({ m, when }) => (
                       <tr key={m.id} className="border-b border-surface-divider last:border-0 hover:bg-surface-light">
                         <td className="px-4 py-3">
                           <Link href={`/dashboard/candidates/${m.session.id}`} className="font-medium text-ink hover:text-[color:var(--brand-primary)]">
@@ -244,7 +286,6 @@ export default function SchedulingPage() {
                         </td>
                         <td className="px-4 py-3 font-mono text-[12px] text-ink">
                           {when.toLocaleString()}
-                          {isPast && <span className="ml-2 text-[10px] text-grey-50 uppercase" style={{ letterSpacing: '0.08em' }}>past</span>}
                         </td>
                         <td className="px-4 py-3 max-w-[220px] truncate">
                           {m.metadata?.meetingUrl ? (
@@ -266,12 +307,14 @@ export default function SchedulingPage() {
                           </Badge>
                         </td>
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </Card>
-          )}
+                        ))}
+                      </tbody>
+                    </table>
+                  </Card>
+                )}
+              </>
+            )
+          })()}
         </section>
       </div>
 
