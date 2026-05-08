@@ -110,12 +110,13 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandid
         : `${body.rowCount} rows imported. Candidate not found — flagged as no-show.`
       setUploadResult((p) => ({ ...p, [meetingId]: { ok: true, text: summary } }))
       await load()
+      onCandidateChanged?.()
     } catch (err) {
       setUploadResult((p) => ({ ...p, [meetingId]: { ok: false, text: err instanceof Error ? err.message : 'Upload failed' } }))
     } finally {
       setUploadingFor(null)
     }
-  }, [load])
+  }, [load, onCandidateChanged])
 
   const removeRecording = useCallback(async (meetingId: string) => {
     if (!confirm('Remove this recording from the candidate profile? The video file will remain in your Google Drive — delete it from there if you also want it gone there.')) return
@@ -171,10 +172,11 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandid
 
       setCancelModal(null)
       load().catch(() => {})
+      onCandidateChanged?.()
     } finally {
       setCancelling(null)
     }
-  }, [candidateId, currentPipelineStatus, load])
+  }, [candidateId, currentPipelineStatus, load, onCandidateChanged])
 
   const markNoShow = useCallback(async (meetingId: string) => {
     if (!confirm('Mark this meeting as a no-show? The candidate will be moved to Rejected and the no-show follow-up automation (if configured) will run.')) return
@@ -383,7 +385,7 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandid
           candidateId={candidateId}
           candidateEmail={candidateEmail}
           onClose={() => setShowDialog(false)}
-          onScheduled={() => load()}
+          onScheduled={() => { load(); onCandidateChanged?.() }}
         />
       )}
 
@@ -391,7 +393,7 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandid
         <RescheduleInterviewDialog
           meeting={reschedulingFor}
           onClose={() => setReschedulingFor(null)}
-          onRescheduled={() => { setReschedulingFor(null); load() }}
+          onRescheduled={() => { setReschedulingFor(null); load(); onCandidateChanged?.() }}
         />
       )}
 
