@@ -91,7 +91,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
 
-  const { stageId } = await request.json().catch(() => ({})) as { stageId?: string }
+  // ruleId is optional — when set, fire only that one rule (still must be in
+  // the stage's matched set, so the UI can't fire arbitrary rules through
+  // this endpoint). When omitted, fall back to firing every matched rule.
+  const { stageId, ruleId } = await request.json().catch(() => ({})) as { stageId?: string; ruleId?: string }
   if (!stageId || typeof stageId !== 'string') {
     return NextResponse.json({ error: 'stageId is required' }, { status: 400 })
   }
@@ -102,12 +105,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { stageExists, rules } = await findMatchingRules({
+  const { stageExists, rules: matchedRules } = await findMatchingRules({
     workspaceId: ws.workspaceId,
     stageId,
     flowId: session.flowId,
   })
   if (!stageExists) return NextResponse.json({ error: 'Stage not found' }, { status: 404 })
+
+  const rules = ruleId
+    ? matchedRules.filter((r) => r.id === ruleId)
+    : matchedRules
+  if (ruleId && rules.length === 0) {
+    return NextResponse.json({ error: 'Rule not found for this stage' }, { status: 404 })
+  }
   if (rules.length === 0) return NextResponse.json({ fired: 0, results: [] })
 
   const results: Array<{ ruleId: string; name: string; ok: boolean; error?: string }> = []

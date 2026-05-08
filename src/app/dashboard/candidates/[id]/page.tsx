@@ -147,6 +147,9 @@ export default function CandidateDetailPage() {
     rules: Array<{ id: string; name: string; triggerType: string }>
     error?: string
   }>(null)
+  // Per-rule status for the "Run" button on each row. Lets the recruiter fire
+  // one rule at a time without dismissing the modal — keyed by ruleId.
+  const [perRuleState, setPerRuleState] = useState<Record<string, { firing: boolean; result?: { ok: boolean; message: string } }>>({})
 
   useEffect(() => {
     fetch(`/api/candidates/${id}`).then(r => r.json()).then(d => { setCandidate(d); setLoading(false) })
@@ -417,6 +420,7 @@ export default function CandidateDetailPage() {
   // user can see by name what's about to run before confirming.
   const openPreview = async () => {
     if (runningAutomations || activeStageRuleCount === 0) return
+    setPerRuleState({})
     setPreviewState({ loading: true, rules: [] })
     try {
       const res = await fetch(`/api/candidates/${id}/run-stage-automations?stageId=${encodeURIComponent(activeStage.id)}`)
@@ -458,6 +462,32 @@ export default function CandidateDetailPage() {
     } finally {
       setRunningAutomations(false)
       setTimeout(() => setAutomationToast(null), 6000)
+    }
+  }
+
+  // Fire a single rule from the preview modal. Same endpoint, same guards as
+  // runStageAutomations, just scoped to one ruleId. Keeps the modal open and
+  // shows per-row status so the recruiter can fire several individually.
+  const runSingleRule = async (ruleId: string) => {
+    if (perRuleState[ruleId]?.firing) return
+    setPerRuleState((s) => ({ ...s, [ruleId]: { firing: true } }))
+    try {
+      const res = await fetch(`/api/candidates/${id}/run-stage-automations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stageId: activeStage.id, ruleId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Failed to fire automation')
+      const failed = (data.results || []).filter((r: { ok: boolean }) => !r.ok)
+      if (failed.length > 0) {
+        setPerRuleState((s) => ({ ...s, [ruleId]: { firing: false, result: { ok: false, message: failed[0]?.error || 'Failed' } } }))
+      } else {
+        setPerRuleState((s) => ({ ...s, [ruleId]: { firing: false, result: { ok: true, message: 'Fired' } } }))
+        fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
+      }
+    } catch (err) {
+      setPerRuleState((s) => ({ ...s, [ruleId]: { firing: false, result: { ok: false, message: err instanceof Error ? err.message : 'Failed' } } }))
     }
   }
 
@@ -1232,23 +1262,42 @@ export default function CandidateDetailPage() {
                 <div className="py-6 text-center text-sm text-grey-40">No matching active rules.</div>
               ) : (
                 <ul className="divide-y divide-surface-divider rounded-[8px] border border-surface-border">
-                  {previewState.rules.map((r) => (
-                    <li key={r.id} className="px-4 py-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-grey-15 truncate">{r.name}</div>
-                        <div className="text-xs text-grey-40 mt-0.5">
-                          Trigger: {triggerLabels[r.triggerType] ?? r.triggerType}
+                  {previewState.rules.map((r) => {
+                    const rowState = perRuleState[r.id]
+                    const firing = rowState?.firing === true
+                    const result = rowState?.result
+                    return (
+                      <li key={r.id} className="px-4 py-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-grey-15 truncate">{r.name}</div>
+                          <div className="text-xs text-grey-40 mt-0.5">
+                            Trigger: {triggerLabels[r.triggerType] ?? r.triggerType}
+                          </div>
+                          {result && (
+                            <div className={`text-xs mt-1 ${result.ok ? 'text-green-700' : 'text-red-600'}`}>
+                              {result.ok ? '✓ ' : '✗ '}{result.message}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                      <Link
-                        href={`/dashboard/automations?rule=${r.id}`}
-                        target="_blank"
-                        className="text-xs text-brand-600 hover:underline shrink-0 mt-0.5"
-                      >
-                        View
-                      </Link>
-                    </li>
-                  ))}
+                        <div className="flex items-center gap-3 shrink-0 mt-0.5">
+                          <button
+                            onClick={() => runSingleRule(r.id)}
+                            disabled={firing || runningAutomations}
+                            className="text-xs px-2.5 py-1 rounded-[6px] bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {firing ? 'Firing…' : result?.ok ? 'Run again' : 'Run'}
+                          </button>
+                          <Link
+                            href={`/dashboard/automations?rule=${r.id}`}
+                            target="_blank"
+                            className="text-xs text-brand-600 hover:underline"
+                          >
+                            View
+                          </Link>
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>
