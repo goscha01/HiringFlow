@@ -413,7 +413,9 @@ export default function AICallsPage() {
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                  {candidates.map(c => (
+                  {candidates.map(c => {
+                    const candidatePageUrl = `${baseUrl}/call/${c.agentId}?name=${encodeURIComponent(c.name)}`
+                    return (
                     <button
                       key={c.id}
                       onClick={() => viewCandidateConvs(c)}
@@ -425,12 +427,29 @@ export default function AICallsPage() {
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-grey-40 font-medium">
                             {c.conversationIds.length} call{c.conversationIds.length !== 1 ? 's' : ''}
                           </span>
+                          <a
+                            href={candidatePageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title="Open candidate page"
+                            className="text-grey-50 hover:text-brand-500 ml-1 inline-flex items-center"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                          </a>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(candidatePageUrl) }}
+                            title="Copy candidate link"
+                            className="text-grey-50 hover:text-brand-500 ml-0.5 inline-flex items-center"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                          </button>
                           <button onClick={(e) => { e.stopPropagation(); deleteCandidate(c.id) }} className="text-xs text-grey-50 hover:text-red-500 ml-1">&times;</button>
                         </div>
                       </div>
                       <div className="text-xs text-grey-50 mt-1">Created {formatDateStr(c.createdAt)}</div>
                     </button>
-                  ))}
+                  )})}
                 </div>
               )}
 
