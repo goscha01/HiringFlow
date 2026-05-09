@@ -13,6 +13,7 @@ interface Ad {
   placementUrl: string | null; templateId: string | null
   headline: string | null; bodyText: string | null
   requirements: string | null; benefits: string | null; callToAction: string | null
+  notes: string | null
   flow: Flow; createdAt: string; _count: { sessions: number }
 }
 
@@ -59,6 +60,8 @@ export default function CampaignsPage() {
   const [showAdCopy, setShowAdCopy] = useState(true)
   // Placement URL (where the ad was posted — Telegram/Facebook group, etc.)
   const [placementUrl, setPlacementUrl] = useState('')
+  // Private internal notes — never published to candidates
+  const [notes, setNotes] = useState('')
   // Tracks whether a mousedown started on the backdrop. Without this, a drag
   // selection that began inside the modal and released over the backdrop fires
   // the backdrop's onClick and closes the modal.
@@ -120,6 +123,7 @@ export default function CampaignsPage() {
     setImageUrl(null); setImageError(null); setShowLibrary(false)
     setSelectedTemplateId('__default__')
     setPlacementUrl('')
+    setNotes('')
     const d = DEFAULT_AD_COPY.indeed
     setAdHeadline(d.headline); setAdBody(d.body); setAdCta(d.cta)
     setAdRequirements(d.requirements); setAdBenefits(d.benefits)
@@ -130,6 +134,7 @@ export default function CampaignsPage() {
     setImageUrl(ad.imageUrl); setImageError(null); setShowLibrary(false)
     setSelectedTemplateId(ad.templateId || '__default__')
     setPlacementUrl(ad.placementUrl || '')
+    setNotes(ad.notes || '')
     // Load saved copy if present, otherwise fall back to source defaults
     const d = DEFAULT_AD_COPY[ad.source] || DEFAULT_AD_COPY._default
     setAdHeadline(ad.headline ?? d.headline)
@@ -224,6 +229,7 @@ export default function CampaignsPage() {
       requirements: adRequirements,
       benefits: adBenefits,
       callToAction: adCta,
+      notes: notes.trim() || null,
     }
     if (editingAd) {
       await fetch(`/api/ads/${editingAd.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -307,6 +313,7 @@ export default function CampaignsPage() {
         requirements: duplicatingAd.requirements ?? tpl?.requirements ?? d.requirements,
         benefits: duplicatingAd.benefits ?? tpl?.benefits ?? d.benefits,
         callToAction: duplicatingAd.callToAction ?? tpl?.callToAction ?? d.cta,
+        notes: duplicatingAd.notes,
       }),
     })
     if (res.ok) {
@@ -619,6 +626,19 @@ export default function CampaignsPage() {
                   className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
                 <p className="text-xs text-grey-50 mt-1">Where you posted this ad — Telegram group, Facebook group, Indeed listing, etc. Just for your reference.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">
+                  Notes <span className="text-xs text-grey-50 font-normal">(private — never shown to candidates)</span>
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Internal reminders, A/B test details, who posted it, contact at the group, etc."
+                  className="w-full px-3 py-2.5 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
               </div>
 
               {/* Picture */}
