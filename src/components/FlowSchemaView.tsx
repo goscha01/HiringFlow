@@ -789,75 +789,86 @@ export default function FlowSchemaView({
     }
 
     // Step option connections + buttonConfig connections.
-    // Dedupe per (sourceStep, targetStep): if the same step has both an
-    // option AND a buttonConfig pointing to the same target, draw only
-    // ONE arrow instead of two overlapping ones. Same for two options
-    // pointing at the same target.
+    // 1) Dedupe within a single source step (button beats option for same
+    //    target; duplicate options to same target collapse to one).
+    // 2) Multiple inbound arrows that end at the same target step get
+    //    their Y endpoints fanned out so they don't visually overlap.
+    type Conn = {
+      sourceId: string
+      targetId: string
+      label: string
+      kind: 'option' | 'button'
+      optionId?: string
+    }
+    const allConnections: Conn[] = []
     for (const step of steps) {
-      const pos = positions[step.id]
-      if (!pos) continue
-      const out = getOutputPort(pos)
-
-      type Conn = {
-        targetId: string
-        label: string
-        kind: 'option' | 'button'
-        // Whichever of these is non-null determines what selection / hover
-        // hooks read for this arrow.
-        optionId?: string
-      }
       const byTarget = new Map<string, Conn>()
-
-      // Button connection takes the slot first
       const btnNext = (step as any).buttonConfig?.nextStepId
       if (btnNext && btnNext !== '__end__') {
         byTarget.set(btnNext, {
+          sourceId: step.id,
           targetId: btnNext,
           label: (step as any).buttonConfig?.text || 'Continue',
           kind: 'button',
         })
       }
-
-      // Options fill in the rest, but never replace an existing button entry
       for (const option of step.options) {
         if (!option.nextStepId || option.nextStepId === '__end__') continue
         if (byTarget.has(option.nextStepId)) continue
         byTarget.set(option.nextStepId, {
+          sourceId: step.id,
           targetId: option.nextStepId,
           label: option.optionText,
           kind: 'option',
           optionId: option.id,
         })
       }
+      byTarget.forEach((conn) => allConnections.push(conn))
+    }
 
-      byTarget.forEach((conn) => {
-        const targetPos = positions[conn.targetId]
-        if (!targetPos) return
-        const inp = getInputPort(targetPos)
-        const isSelected =
+    // Fan out inbound endpoints when more than one arrow targets the same step
+    const inboundCounts = new Map<string, number>()
+    allConnections.forEach((c) => {
+      inboundCounts.set(c.targetId, (inboundCounts.get(c.targetId) ?? 0) + 1)
+    })
+    const inboundIndex = new Map<string, number>()
+    const inboundSpread = 18
+
+    for (const conn of allConnections) {
+      const sourcePos = positions[conn.sourceId]
+      const targetPos = positions[conn.targetId]
+      if (!sourcePos || !targetPos) continue
+      const out = getOutputPort(sourcePos)
+      const inp = getInputPort(targetPos)
+      const total = inboundCounts.get(conn.targetId) ?? 1
+      const idx = inboundIndex.get(conn.targetId) ?? 0
+      inboundIndex.set(conn.targetId, idx + 1)
+      const yOff = total > 1 ? (idx - (total - 1) / 2) * inboundSpread : 0
+      const inpAdjY = inp.y + yOff
+
+      const isSelected =
+        conn.kind === 'button'
+          ? selectedArrow?.kind === 'button' && selectedArrow.stepId === conn.sourceId
+          : selectedArrow?.optionId === conn.optionId
+
+      drawConnection(ctx, out.x, out.y, inp.x, inpAdjY, conn.label, false, '#FF9500')
+
+      const ddx = Math.abs(inp.x - out.x)
+      const cpOff = Math.max(ddx * 0.5, 50)
+      const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
+      const midY = bezierPoint(out.y, out.y, inpAdjY, inpAdjY, 0.5)
+
+      if (isSelected) {
+        drawDragHandle(ctx, inp.x, inpAdjY)
+        drawDragHandle(ctx, out.x, out.y)
+        drawDeleteButton(ctx, midX, midY)
+      } else {
+        const portKey =
           conn.kind === 'button'
-            ? selectedArrow?.kind === 'button' && selectedArrow.stepId === step.id
-            : selectedArrow?.optionId === conn.optionId
-
-        drawConnection(ctx, out.x, out.y, inp.x, inp.y, conn.label, false, '#FF9500')
-
-        const ddx = Math.abs(inp.x - out.x)
-        const cpOff = Math.max(ddx * 0.5, 50)
-        const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-        const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
-
-        if (isSelected) {
-          drawDragHandle(ctx, inp.x, inp.y)
-          drawDragHandle(ctx, out.x, out.y)
-          drawDeleteButton(ctx, midX, midY)
-        } else {
-          const portKey =
-            conn.kind === 'button'
-              ? `__insert_btn_${step.id}`
-              : `__insert_opt_${conn.optionId}`
-          drawInsertButton(ctx, midX, midY, hoveredPort === portKey)
-        }
-      })
+            ? `__insert_btn_${conn.sourceId}`
+            : `__insert_opt_${conn.optionId}`
+        drawInsertButton(ctx, midX, midY, hoveredPort === portKey)
+      }
     }
 
     // End connections — from every reachable terminal step + any step
