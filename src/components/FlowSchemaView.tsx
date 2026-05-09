@@ -788,64 +788,76 @@ export default function FlowSchemaView({
       }
     }
 
-    // Step option connections + buttonConfig connections
+    // Step option connections + buttonConfig connections.
+    // Dedupe per (sourceStep, targetStep): if the same step has both an
+    // option AND a buttonConfig pointing to the same target, draw only
+    // ONE arrow instead of two overlapping ones. Same for two options
+    // pointing at the same target.
     for (const step of steps) {
       const pos = positions[step.id]
       if (!pos) continue
-
       const out = getOutputPort(pos)
 
-      // Draw buttonConfig connection to a specific step (not __end__, not null)
+      type Conn = {
+        targetId: string
+        label: string
+        kind: 'option' | 'button'
+        // Whichever of these is non-null determines what selection / hover
+        // hooks read for this arrow.
+        optionId?: string
+      }
+      const byTarget = new Map<string, Conn>()
+
+      // Button connection takes the slot first
       const btnNext = (step as any).buttonConfig?.nextStepId
       if (btnNext && btnNext !== '__end__') {
-        const targetPos = positions[btnNext]
-        if (targetPos) {
-          const inp = getInputPort(targetPos)
-          const isButtonSelected = selectedArrow?.kind === 'button' && selectedArrow.stepId === step.id
-          drawConnection(ctx, out.x, out.y, inp.x, inp.y, (step as any).buttonConfig?.text || 'Continue', false, '#FF9500')
-
-          const ddx = Math.abs(inp.x - out.x)
-          const cpOff = Math.max(ddx * 0.5, 50)
-          const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-          const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
-
-          if (isButtonSelected) {
-            drawDragHandle(ctx, inp.x, inp.y)
-            drawDragHandle(ctx, out.x, out.y)
-            drawDeleteButton(ctx, midX, midY)
-          } else {
-            // Always-visible "+" at midpoint; brighter when hovered.
-            const isPlusHovered = hoveredPort === `__insert_btn_${step.id}`
-            drawInsertButton(ctx, midX, midY, isPlusHovered)
-          }
-        }
+        byTarget.set(btnNext, {
+          targetId: btnNext,
+          label: (step as any).buttonConfig?.text || 'Continue',
+          kind: 'button',
+        })
       }
 
+      // Options fill in the rest, but never replace an existing button entry
       for (const option of step.options) {
-        if (!option.nextStepId) continue
-        const targetPos = positions[option.nextStepId]
-        if (!targetPos) continue
+        if (!option.nextStepId || option.nextStepId === '__end__') continue
+        if (byTarget.has(option.nextStepId)) continue
+        byTarget.set(option.nextStepId, {
+          targetId: option.nextStepId,
+          label: option.optionText,
+          kind: 'option',
+          optionId: option.id,
+        })
+      }
 
+      byTarget.forEach((conn) => {
+        const targetPos = positions[conn.targetId]
+        if (!targetPos) return
         const inp = getInputPort(targetPos)
-        const isArrowSelected = selectedArrow?.optionId === option.id
-        drawConnection(ctx, out.x, out.y, inp.x, inp.y, option.optionText, false, isArrowSelected ? '#FF9500' : undefined)
+        const isSelected =
+          conn.kind === 'button'
+            ? selectedArrow?.kind === 'button' && selectedArrow.stepId === step.id
+            : selectedArrow?.optionId === conn.optionId
+
+        drawConnection(ctx, out.x, out.y, inp.x, inp.y, conn.label, false, '#FF9500')
 
         const ddx = Math.abs(inp.x - out.x)
         const cpOff = Math.max(ddx * 0.5, 50)
         const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
         const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
 
-        // Draw drag handles + delete when selected, otherwise an always-
-        // visible "+" insert button (brighter when hovered)
-        if (isArrowSelected) {
+        if (isSelected) {
           drawDragHandle(ctx, inp.x, inp.y)
           drawDragHandle(ctx, out.x, out.y)
           drawDeleteButton(ctx, midX, midY)
         } else {
-          const isPlusHovered = hoveredPort === `__insert_opt_${option.id}`
-          drawInsertButton(ctx, midX, midY, isPlusHovered)
+          const portKey =
+            conn.kind === 'button'
+              ? `__insert_btn_${step.id}`
+              : `__insert_opt_${conn.optionId}`
+          drawInsertButton(ctx, midX, midY, hoveredPort === portKey)
         }
-      }
+      })
     }
 
     // End connections — from every reachable terminal step + any step
