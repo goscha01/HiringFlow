@@ -30,6 +30,10 @@ import {
   type CandidateDispositionReason,
   type CustomStatus,
 } from '@/lib/candidate-status'
+import {
+  BUILTIN_CANDIDATE_SOURCES,
+  normalizeCustomSources,
+} from '@/lib/sources'
 import { StageSettingsDrawer } from './_StageSettingsDrawer'
 import { StatusSettingsDrawer } from './_StatusSettingsDrawer'
 
@@ -94,35 +98,10 @@ function buildStatusTabs(customStatuses: CustomStatus[]): StatusTab[] {
   ]
 }
 
-// Built-in candidate sources offered in the "Add candidate" modal. Mirrors
-// the values used by Ad.source plus 'manual' (for recruiter-created rows).
-// Workspaces can extend this list via Workspace.settings.customSources;
-// custom entries are persisted as plain trimmed strings.
-const BUILTIN_SOURCES: Array<{ id: string; label: string }> = [
-  { id: 'manual',    label: 'Manual'    },
-  { id: 'indeed',    label: 'Indeed'    },
-  { id: 'facebook',  label: 'Facebook'  },
-  { id: 'craigslist',label: 'Craigslist'},
-  { id: 'google',    label: 'Google'    },
-  { id: 'linkedin',  label: 'LinkedIn'  },
-  { id: 'other',     label: 'Other'     },
-]
-function normalizeCustomSources(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return []
-  const out: string[] = []
-  const seen = new Set<string>()
-  const builtin = new Set(BUILTIN_SOURCES.map((s) => s.id))
-  for (const item of raw) {
-    if (typeof item !== 'string') continue
-    const t = item.trim()
-    if (!t) continue
-    const key = t.toLowerCase()
-    if (builtin.has(key) || seen.has(key)) continue
-    seen.add(key)
-    out.push(t)
-  }
-  return out
-}
+// Built-in sources used by the candidate "Add" modal and pipeline filter come
+// from the shared @/lib/sources module — same source of truth as the Ads
+// page (with 'manual' added for hand-created candidates).
+const BUILTIN_SOURCES = BUILTIN_CANDIDATE_SOURCES
 
 // Background tint for the disposition pill, keyed by the candidate's
 // current status. Pulls the existing rejection-pill (red) and adds amber

@@ -302,6 +302,82 @@ export default function CandidateDetailPage() {
     }
   }
 
+  // Profile editor — name / email / phone / flow. Opened from the pencil
+  // button next to the candidate name in the header. Flow change wipes the
+  // candidate's progress on the previous flow (lastStepId is cleared
+  // server-side); answers + submissions stay attached to their original
+  // step rows so the timeline still renders.
+  const [showProfileEditor, setShowProfileEditor] = useState(false)
+  const [profileDraft, setProfileDraft] = useState({
+    candidateName: '',
+    candidateEmail: '',
+    candidatePhone: '',
+    flowId: '',
+  })
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [flowsForPicker, setFlowsForPicker] = useState<Array<{ id: string; name: string }>>([])
+  const openProfileEditor = () => {
+    if (!candidate) return
+    setProfileDraft({
+      candidateName: candidate.candidateName ?? '',
+      candidateEmail: candidate.candidateEmail ?? '',
+      candidatePhone: candidate.candidatePhone ?? '',
+      flowId: candidate.flow?.id ?? '',
+    })
+    setProfileError(null)
+    setShowProfileEditor(true)
+    // Lazy-load the workspace's flows the first time the modal opens.
+    if (flowsForPicker.length === 0) {
+      fetch('/api/flows')
+        .then((r) => r.json())
+        .then((rows: Array<{ id: string; name: string }>) => {
+          setFlowsForPicker(rows.map((r) => ({ id: r.id, name: r.name })))
+        })
+        .catch(() => {})
+    }
+  }
+  const saveProfile = async () => {
+    if (!candidate) return
+    setSavingProfile(true)
+    setProfileError(null)
+    try {
+      const flowChanged = profileDraft.flowId && profileDraft.flowId !== candidate.flow?.id
+      const res = await fetch(`/api/candidates/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidateName: profileDraft.candidateName,
+          candidateEmail: profileDraft.candidateEmail,
+          candidatePhone: profileDraft.candidatePhone,
+          flowId: profileDraft.flowId || undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setProfileError(data?.error || 'Failed to save')
+        return
+      }
+      setShowProfileEditor(false)
+      // Flow change rewires lastStep / flowStepCount / sibling list, so go
+      // back to the source rather than try to merge the diff client-side.
+      if (flowChanged) {
+        await loadCandidate()
+      } else {
+        setCandidate((prev) => prev ? {
+          ...prev,
+          candidateName: data.candidateName ?? null,
+          candidateEmail: data.candidateEmail ?? null,
+          candidatePhone: data.candidatePhone ?? null,
+        } : null)
+      }
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   const [showReasonEditor, setShowReasonEditor] = useState(false)
   const [reasonDraft, setReasonDraft] = useState('')
   const openReasonEditor = () => {
@@ -623,7 +699,16 @@ export default function CandidateDetailPage() {
       <div className="flex items-center gap-4 mb-6">
         <Link href="/dashboard/candidates" className="text-grey-40 hover:text-grey-15">&larr; Back</Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-semibold text-grey-15">{candidate.candidateName || 'Anonymous'}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-grey-15">{candidate.candidateName || 'Anonymous'}</h1>
+            <button
+              onClick={openProfileEditor}
+              title="Edit candidate details"
+              className="text-grey-40 hover:text-grey-15 text-sm px-2 py-1 rounded-[8px] border border-surface-border hover:border-grey-35"
+            >
+              Edit
+            </button>
+          </div>
           <div className="flex items-center gap-3 mt-1 text-sm text-grey-40">
             {candidate.candidateEmail && <span>{candidate.candidateEmail}</span>}
             {candidate.candidatePhone && <span>{candidate.candidatePhone}</span>}
@@ -736,6 +821,94 @@ export default function CandidateDetailPage() {
                   Save
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profile editor — name / email / phone / flow. Flow change clears
+          the candidate's lastStep server-side so the progress card resets;
+          answers + submissions stay attached to their original steps. */}
+      {showProfileEditor && (
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4"
+          onClick={() => !savingProfile && setShowProfileEditor(false)}
+        >
+          <div
+            className="bg-white rounded-[12px] shadow-2xl w-full max-w-[480px] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-grey-15 mb-1">Edit candidate</h3>
+            <p className="text-xs text-grey-40 mb-4">Update the candidate&apos;s contact details or move them to a different flow.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-grey-35 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={profileDraft.candidateName}
+                  onChange={(e) => setProfileDraft((d) => ({ ...d, candidateName: e.target.value }))}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  placeholder="Full name"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-grey-35 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={profileDraft.candidateEmail}
+                  onChange={(e) => setProfileDraft((d) => ({ ...d, candidateEmail: e.target.value }))}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  placeholder="name@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-grey-35 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={profileDraft.candidatePhone}
+                  onChange={(e) => setProfileDraft((d) => ({ ...d, candidatePhone: e.target.value }))}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  placeholder="+1 555 123 4567"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-grey-35 mb-1">Flow</label>
+                <select
+                  value={profileDraft.flowId}
+                  onChange={(e) => setProfileDraft((d) => ({ ...d, flowId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-orange-500/40 bg-white"
+                >
+                  {flowsForPicker.length === 0 && candidate.flow && (
+                    <option value={candidate.flow.id}>{candidate.flow.name}</option>
+                  )}
+                  {flowsForPicker.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+                {profileDraft.flowId && profileDraft.flowId !== candidate.flow?.id && (
+                  <p className="mt-1 text-[11px] text-amber-700">Moving to a different flow resets the progress card. Existing answers and submissions stay on the timeline.</p>
+                )}
+              </div>
+            </div>
+            {profileError && (
+              <p className="mt-3 text-xs text-red-600">{profileError}</p>
+            )}
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowProfileEditor(false)}
+                disabled={savingProfile}
+                className="text-sm px-4 py-2 rounded-[8px] text-grey-40 hover:text-grey-15 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveProfile}
+                disabled={savingProfile}
+                className="text-sm px-4 py-2 rounded-[8px] bg-grey-15 text-white hover:bg-grey-30 font-medium disabled:opacity-50"
+              >
+                {savingProfile ? 'Saving…' : 'Save'}
+              </button>
             </div>
           </div>
         </div>

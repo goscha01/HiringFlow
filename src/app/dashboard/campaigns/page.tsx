@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { Button, Card, Eyebrow, PageHeader, Stat } from '@/components/design'
+import { BUILTIN_AD_SOURCES, normalizeCustomSources } from '@/lib/sources'
 
 interface Flow { id: string; name: string; slug: string; isPublished?: boolean }
 interface AdTemplateItem { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null }
@@ -17,18 +18,11 @@ interface Ad {
   flow: Flow; createdAt: string; _count: { sessions: number }
 }
 
-const SOURCES = [
-  { value: 'indeed', label: 'Indeed' },
-  { value: 'facebook', label: 'Facebook' },
-  { value: 'craigslist', label: 'Craigslist' },
-  { value: 'google', label: 'Google' },
-  { value: 'linkedin', label: 'LinkedIn' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'telegram', label: 'Telegram' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'other', label: 'Other' },
-]
+// Built-in source options come from the shared @/lib/sources module so the
+// Campaigns page and the Candidates page agree on the canonical list. The
+// per-workspace customSources array (loaded from Workspace.settings) is
+// merged in at render time.
+const SOURCES = BUILTIN_AD_SOURCES.map((s) => ({ value: s.id, label: s.label }))
 
 const DEFAULT_AD_COPY: Record<string, { headline: string; body: string; requirements: string; benefits: string; cta: string }> = {
   indeed: { headline: 'Now Hiring — Join Our Team!', body: 'We are looking for motivated team members to join our growing company.\n\nThis is a great opportunity for someone who wants to grow their career.', requirements: '- Must be authorized to work\n- Reliable transportation\n- Positive attitude', benefits: '- Competitive pay\n- Flexible schedule\n- Growth opportunities', cta: 'Apply now — takes less than 5 minutes!' },
@@ -90,13 +84,30 @@ export default function CampaignsPage() {
   const [tplCta, setTplCta] = useState('')
   const [tplSaving, setTplSaving] = useState(false)
   const [tplDeleting, setTplDeleting] = useState(false)
+  // Workspace-defined sources merged with the built-in list. Same Workspace
+  // settings.customSources value the Candidates page reads/writes.
+  const [customSources, setCustomSources] = useState<string[]>([])
+  // Inline "+" flow on the ad modal Source picker.
+  const [addingSource, setAddingSource] = useState(false)
+  const [newSourceName, setNewSourceName] = useState('')
+  const [savingSource, setSavingSource] = useState(false)
+  const [sourceError, setSourceError] = useState<string | null>(null)
+
+  // Final list rendered in the modal: built-ins + workspace customs.
+  const allSources = useMemo(
+    () => [...SOURCES, ...customSources.map((s) => ({ value: s, label: s }))],
+    [customSources]
+  )
 
   useEffect(() => {
     Promise.all([
       fetch('/api/ads').then(r => r.json()),
       fetch('/api/flows').then(r => r.json()),
       fetch('/api/ad-templates').then(r => r.json()).catch(() => []),
-    ]).then(async ([a, f, t]) => {
+      fetch('/api/workspace/settings').then(r => r.json()).catch(() => null),
+    ]).then(async ([a, f, t, ws]) => {
+      const settings = (ws?.settings as { customSources?: unknown } | null) ?? null
+      setCustomSources(normalizeCustomSources(settings?.customSources))
       setAds(a); setFlows(f); setLoading(false)
       // Auto-seed starter templates the first time this workspace opens the page
       if (Array.isArray(t) && t.length === 0) {
@@ -111,6 +122,43 @@ export default function CampaignsPage() {
   }, [])
 
   const refresh = async () => { const r = await fetch('/api/ads'); if (r.ok) setAds(await r.json()) }
+
+  // Persist a new workspace-level source. Round-trips current settings so we
+  // don't clobber other keys (funnelStages, customStatuses, etc.). After save
+  // the new source is selected and the inline form collapses.
+  const addCustomSource = async () => {
+    const trimmed = newSourceName.trim()
+    if (!trimmed || savingSource) return
+    const existing = new Set<string>([
+      ...BUILTIN_AD_SOURCES.map((s) => s.id),
+      ...customSources.map((s) => s.toLowerCase()),
+    ])
+    if (existing.has(trimmed.toLowerCase())) {
+      setSourceError(`Source "${trimmed}" already exists`)
+      return
+    }
+    setSavingSource(true)
+    setSourceError(null)
+    try {
+      const cur = await fetch('/api/workspace/settings').then((r) => r.json()).catch(() => ({}))
+      const currentSettings = (cur?.settings && typeof cur.settings === 'object') ? cur.settings : {}
+      const nextCustom = [...customSources, trimmed]
+      const res = await fetch('/api/workspace/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { ...currentSettings, customSources: nextCustom } }),
+      })
+      if (!res.ok) throw new Error('Failed to save source')
+      setCustomSources(nextCustom)
+      setSource(trimmed)
+      setAddingSource(false)
+      setNewSourceName('')
+    } catch (err) {
+      setSourceError(err instanceof Error ? err.message : 'Failed to save source')
+    } finally {
+      setSavingSource(false)
+    }
+  }
 
   const loadAdCopyDefaults = (src: string) => {
     const d = DEFAULT_AD_COPY[src] || DEFAULT_AD_COPY._default
@@ -370,16 +418,27 @@ export default function CampaignsPage() {
   const activeAds = ads.filter(a => a.isActive).length
   const sourcesUsed = new Set(ads.map(a => a.source)).size
 
-  // Sources breakdown
-  const sourceStats = SOURCES.map(s => {
-    const sourceAds = ads.filter(a => a.source === s.value)
-    return {
-      ...s,
-      adCount: sourceAds.length,
-      sessions: sourceAds.reduce((sum, a) => sum + a._count.sessions, 0),
-      active: sourceAds.filter(a => a.isActive).length,
+  // Sources breakdown — built up from the ads' actual source values so
+  // custom workspace sources appear in the table alongside built-ins.
+  const sourceStats = useMemo(() => {
+    const labelByValue = new Map<string, string>(allSources.map((s) => [s.value, s.label]))
+    const buckets = new Map<string, Ad[]>()
+    for (const a of ads) {
+      const key = a.source || 'other'
+      const arr = buckets.get(key)
+      if (arr) arr.push(a)
+      else buckets.set(key, [a])
     }
-  }).filter(s => s.adCount > 0).sort((a, b) => b.sessions - a.sessions)
+    return Array.from(buckets.entries())
+      .map(([value, sourceAds]) => ({
+        value,
+        label: labelByValue.get(value) ?? value,
+        adCount: sourceAds.length,
+        sessions: sourceAds.reduce((sum, a) => sum + a._count.sessions, 0),
+        active: sourceAds.filter((a) => a.isActive).length,
+      }))
+      .sort((a, b) => b.sessions - a.sessions)
+  }, [ads, allSources])
 
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
 
@@ -610,12 +669,52 @@ export default function CampaignsPage() {
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Source</label>
                 <div className="grid grid-cols-5 gap-1.5">
-                  {SOURCES.map(({ value, label }) => (
-                    <button key={value} onClick={() => { setSource(value); loadAdCopyDefaults(value) }} className={`py-1.5 text-xs rounded-[6px] border font-medium ${source === value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
+                  {allSources.map(({ value, label }) => (
+                    <button type="button" key={value} onClick={() => { setSource(value); loadAdCopyDefaults(value) }} className={`py-1.5 text-xs rounded-[6px] border font-medium ${source === value ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-surface-border text-grey-35 hover:bg-surface'}`}>
                       {label}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => { setAddingSource(true); setNewSourceName(''); setSourceError(null) }}
+                    title="Add custom source"
+                    className="py-1.5 text-xs rounded-[6px] border border-dashed border-surface-border text-grey-50 hover:bg-surface hover:text-grey-15 font-medium"
+                  >
+                    + Add
+                  </button>
                 </div>
+                {addingSource && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newSourceName}
+                      onChange={(e) => setNewSourceName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); addCustomSource() }
+                        else if (e.key === 'Escape') { setAddingSource(false); setNewSourceName(''); setSourceError(null) }
+                      }}
+                      placeholder="e.g. Career Fair"
+                      className="flex-1 px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setAddingSource(false); setNewSourceName(''); setSourceError(null) }}
+                      className="px-3 py-2 text-xs rounded-[6px] border border-surface-border text-grey-35 hover:bg-surface"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!newSourceName.trim() || savingSource}
+                      onClick={addCustomSource}
+                      className="px-3 py-2 text-xs rounded-[6px] bg-brand-500 text-white font-medium hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {savingSource ? 'Saving…' : 'Add'}
+                    </button>
+                  </div>
+                )}
+                {sourceError && <p className="text-xs text-red-500 mt-1">{sourceError}</p>}
                 <p className="text-xs text-grey-50 mt-1">Changing source loads recommended ad copy for that platform</p>
               </div>
 

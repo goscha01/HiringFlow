@@ -255,8 +255,22 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     rejectionReason?: string | null
     status?: string
     dispositionReason?: string | null
+    candidateName?: string | null
+    candidateEmail?: string | null
+    candidatePhone?: string | null
+    flowId?: string
   }
-  const { pipelineStatus, outcome, rejectionReason, status, dispositionReason } = body
+  const {
+    pipelineStatus,
+    outcome,
+    rejectionReason,
+    status,
+    dispositionReason,
+    candidateName,
+    candidateEmail,
+    candidatePhone,
+    flowId,
+  } = body
 
   const data: Record<string, unknown> = {}
   if (pipelineStatus !== undefined) data.pipelineStatus = pipelineStatus
@@ -266,6 +280,46 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const trimmed = typeof rejectionReason === 'string' ? rejectionReason.trim() : null
     data.rejectionReason = trimmed && trimmed.length > 0 ? trimmed : null
     data.rejectionReasonAt = trimmed && trimmed.length > 0 ? new Date() : null
+  }
+
+  // Profile edits — name / email / phone are nullable strings; empty string
+  // clears them. Trim whitespace on the way in so a stray space doesn't
+  // break the dedupe-by-email match used in the candidates list and inbound
+  // SMS lookup.
+  if (candidateName !== undefined) {
+    const trimmed = typeof candidateName === 'string' ? candidateName.trim() : null
+    data.candidateName = trimmed && trimmed.length > 0 ? trimmed : null
+  }
+  if (candidateEmail !== undefined) {
+    const trimmed = typeof candidateEmail === 'string' ? candidateEmail.trim() : null
+    if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      return NextResponse.json({ error: 'Invalid email address' }, { status: 400 })
+    }
+    data.candidateEmail = trimmed && trimmed.length > 0 ? trimmed : null
+  }
+  if (candidatePhone !== undefined) {
+    const trimmed = typeof candidatePhone === 'string' ? candidatePhone.trim() : null
+    data.candidatePhone = trimmed && trimmed.length > 0 ? trimmed : null
+  }
+  // Reassign to a different flow. The current `lastStepId` references a step
+  // in the old flow, which would dangle once flowId moves — clear it so the
+  // progress card resets cleanly. flowStepCount + lastStep are recomputed by
+  // GET on the next read.
+  if (flowId !== undefined) {
+    if (typeof flowId !== 'string' || !flowId) {
+      return NextResponse.json({ error: 'flowId is required' }, { status: 400 })
+    }
+    const flow = await prisma.flow.findFirst({
+      where: { id: flowId, workspaceId: ws.workspaceId },
+      select: { id: true },
+    })
+    if (!flow) {
+      return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
+    }
+    if (flow.id !== session.flowId) {
+      data.flowId = flow.id
+      data.lastStepId = null
+    }
   }
 
   if (status !== undefined) {
@@ -363,6 +417,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     stalledAt: updated.stalledAt,
     lostAt: updated.lostAt,
     hiredAt: updated.hiredAt,
+    candidateName: updated.candidateName,
+    candidateEmail: updated.candidateEmail,
+    candidatePhone: updated.candidatePhone,
+    flowId: updated.flowId,
   })
 }
 
