@@ -35,6 +35,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
+import { createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
 import { fireMeetingLifecycleAutomations } from '@/lib/automation'
@@ -121,12 +122,23 @@ function jsonResponse(status: number, body: Record<string, unknown>) {
 }
 
 export async function POST(request: NextRequest) {
-  // 1. Auth — shared bearer token. Missing env var = endpoint disabled.
-  const expected = process.env.MEET_EXTENSION_KEY
-  if (!expected) return jsonResponse(503, { error: 'extension_endpoint_disabled' })
+  // 1. Auth — workspace-scoped bearer token. Issued by
+  //    POST /api/integrations/extension/token, stored as SHA-256 hash.
   const auth = request.headers.get('authorization') || ''
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null
-  if (!token || token !== expected) return jsonResponse(401, { error: 'unauthorized' })
+  if (!token) return jsonResponse(401, { error: 'unauthorized' })
+  const tokenHash = createHash('sha256').update(token).digest('hex')
+  const tokenRow = await prisma.extensionToken.findUnique({
+    where: { tokenHash },
+    select: { id: true, workspaceId: true, revokedAt: true },
+  })
+  if (!tokenRow || tokenRow.revokedAt) return jsonResponse(401, { error: 'unauthorized' })
+  const tokenWorkspaceId = tokenRow.workspaceId
+  // Fire-and-forget lastUsedAt bump.
+  prisma.extensionToken.update({
+    where: { id: tokenRow.id },
+    data: { lastUsedAt: new Date() },
+  }).catch(() => {})
 
   // 2. Parse body.
   let body: ExtPayload
@@ -140,10 +152,11 @@ export async function POST(request: NextRequest) {
   if (!meetingCode) return jsonResponse(400, { error: 'meeting_code_required' })
   if (!Array.isArray(body.participants)) return jsonResponse(400, { error: 'participants_required' })
 
-  // 3. Match the meeting. Both `meetingCode` (dashed string `abc-defg-hij`)
-  //    and the URI form are accepted — we normalize on the way in.
+  // 3. Match the meeting. Scoped to the token's workspace so a token
+  //    issued by workspace A cannot post attendance for a meeting code
+  //    that happens to exist in workspace B.
   const meeting = await prisma.interviewMeeting.findFirst({
-    where: { meetingCode },
+    where: { meetingCode, workspaceId: tokenWorkspaceId },
     select: {
       id: true, workspaceId: true, sessionId: true,
       scheduledStart: true, scheduledEnd: true,

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { GoogleIntegrationCard } from './_GoogleIntegrationCard'
+import { AttendanceTrackerCard } from './_AttendanceTrackerCard'
 import { CertnIntegrationCard } from './_CertnIntegrationCard'
 import { SenderVerificationCard } from './_SenderVerificationCard'
 import { Badge, PageHeader, type BadgeTone } from '@/components/design'
@@ -300,6 +301,7 @@ export default function SettingsPage() {
       {tab === 'integrations' && (
         <div className="space-y-4 max-w-2xl">
           <GoogleIntegrationCard />
+          <AttendanceTrackerCard />
           <CertnIntegrationCard />
         </div>
       )}

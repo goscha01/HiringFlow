@@ -463,20 +463,27 @@ function AttendanceFallbackPanel({
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-surface-border bg-surface-weak p-4 text-sm">
-      <p className="font-medium text-grey-15">Attendance &amp; no-show detection</p>
-      <p className="mt-1 text-grey-40">
-        Recording is working. Attendance/no-show detection requires either Google Meet API attendance, a
-        readable extension export, or manual upload.
+    <details className="mt-4 rounded-lg border border-surface-border bg-surface-weak p-4 text-sm">
+      <summary className="cursor-pointer select-none">
+        <span className="font-medium text-grey-15">Other attendance options</span>
+        <span className="ml-2 text-xs text-grey-40">
+          Drive scan for third-party exports · Manual upload · Workspace Business+ Meet API
+        </span>
+      </summary>
+
+      <p className="mt-3 text-xs text-grey-40">
+        These are alternatives to the live HireFunnel Meet Tracker extension above. Use them if you can&apos;t
+        install the Chrome extension or if you want a backup signal source.
       </p>
 
-      <div className="mt-4 rounded-md bg-white border border-surface-border p-3">
+      <div className="mt-3 rounded-md bg-white border border-surface-border p-3">
         <label className="flex items-start justify-between gap-3 cursor-pointer">
           <span>
-            <span className="font-medium text-grey-15">Use attendance Chrome extension fallback</span>
+            <span className="font-medium text-grey-15">Third-party Drive export fallback</span>
             <span className="block text-xs text-grey-40 mt-0.5">
-              When enabled, we look in your connected Google Drive for attendance sheets exported by extensions like
-              &ldquo;Google Meet Attendance List&rdquo; and use them to flag attendance + no-shows automatically.
+              Look in your connected Google Drive for attendance sheets exported by third-party extensions like
+              &ldquo;Google Meet Attendance List&rdquo; and parse them to flag attendance + no-shows. Off by
+              default — only useful if you already use one of those extensions.
             </span>
           </span>
           <input
@@ -487,14 +494,6 @@ function AttendanceFallbackPanel({
             className="h-4 w-4 mt-0.5 shrink-0"
           />
         </label>
-
-        {/* State-specific copy */}
-        {!enabled && (
-          <p className="mt-3 text-xs text-grey-40">
-            Extension fallback is disabled. Attendance detection currently relies on Gemini Notes presence (proves
-            the meeting happened, not who attended) and on manual upload below.
-          </p>
-        )}
 
         {enabled && !sheetsScopeGranted && (
           <div className="mt-3 rounded-md bg-amber-50 border border-amber-200 p-3 text-xs">
@@ -514,30 +513,24 @@ function AttendanceFallbackPanel({
         )}
 
         {enabled && sheetsScopeGranted && (
-          <div className="mt-3 rounded-md bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900">
-            <p className="font-medium">Extension fallback active.</p>
-            <p className="mt-1 text-blue-800">
-              We scan your Drive around each meeting&apos;s scheduled window for attendance sheets. If your
-              extension exports to a different Google account, to local Downloads, or in a format we can&apos;t
-              read, that scan won&apos;t see anything — &ldquo;Extension ran, but no readable attendance export
-              was found in the connected Google Drive.&rdquo; In that case, use the manual upload option on the
-              candidate&apos;s detail page.
-            </p>
-          </div>
+          <p className="mt-3 text-xs text-grey-40">
+            We scan your Drive around each meeting&apos;s scheduled window for attendance sheets. If the third-party
+            extension exports to a different Google account or to local Downloads, that scan won&apos;t see
+            anything — fall back to manual upload below in that case.
+          </p>
         )}
       </div>
 
       <div className="mt-3 rounded-md bg-white border border-surface-border p-3 text-xs text-grey-40">
-        <p className="font-medium text-grey-15">Manual attendance upload is always available.</p>
+        <p className="font-medium text-grey-15">Manual attendance upload</p>
         <p className="mt-1">
           Open a candidate&apos;s detail page → past interview → &ldquo;Upload attendance file&rdquo; to import a
-          CSV or Google Sheets-exported file. We&apos;ll parse it and flag attendance/no-show automatically.
+          CSV or Google Sheets-exported file. Always available.
         </p>
       </div>
 
       <p className="mt-3 text-xs text-grey-40">
-        Plan-based upgrade (Workspace Business+) unlocks Google Meet API attendance and removes the need for
-        either path.{' '}
+        Workspace Business+ unlocks Google Meet API attendance natively and removes the need for any of these.{' '}
         <a
           href="https://workspace.google.com/pricing.html"
           target="_blank"
@@ -547,6 +540,6 @@ function AttendanceFallbackPanel({
           See Workspace pricing →
         </a>
       </p>
-    </div>
+    </details>
   )
 }
