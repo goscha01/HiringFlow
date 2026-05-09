@@ -15,8 +15,15 @@ export async function GET(request: NextRequest) {
   // that still maps to pipelineStatus (funnel stage id) — left intact so
   // existing query params keep working.
   const candidateStatusParam = request.nextUrl.searchParams.get('candidateStatus')
+  // Source filter — matches the kanban card's display logic
+  // (`ad.source || session.source`). When the candidate came through a flow
+  // ad, the ad's source wins; otherwise the session's own `source` (set by
+  // manual add or by ?source= URL param on flow entry) is used. Comma-list
+  // accepted to filter to multiple sources at once.
+  const sourceParam = request.nextUrl.searchParams.get('source')
 
   const where: Record<string, unknown> = { workspaceId: ws.workspaceId }
+  const andClauses: Record<string, unknown>[] = []
 
   if (status && status !== 'all') {
     where.pipelineStatus = status
@@ -30,11 +37,29 @@ export async function GET(request: NextRequest) {
     where.flowId = flowId
   }
   if (search) {
-    where.OR = [
-      { candidateName: { contains: search, mode: 'insensitive' } },
-      { candidateEmail: { contains: search, mode: 'insensitive' } },
-      { candidatePhone: { contains: search, mode: 'insensitive' } },
-    ]
+    andClauses.push({
+      OR: [
+        { candidateName: { contains: search, mode: 'insensitive' } },
+        { candidateEmail: { contains: search, mode: 'insensitive' } },
+        { candidatePhone: { contains: search, mode: 'insensitive' } },
+      ],
+    })
+  }
+  if (sourceParam && sourceParam !== 'all') {
+    const sources = sourceParam.split(',').map((s) => s.trim()).filter(Boolean)
+    if (sources.length > 0) {
+      const adMatch = sources.length === 1 ? { source: sources[0] } : { source: { in: sources } }
+      const sessionMatch = sources.length === 1 ? { source: sources[0] } : { source: { in: sources } }
+      andClauses.push({
+        OR: [
+          { ad: adMatch },
+          { adId: null, ...sessionMatch },
+        ],
+      })
+    }
+  }
+  if (andClauses.length > 0) {
+    where.AND = andClauses
   }
 
   const now = new Date()

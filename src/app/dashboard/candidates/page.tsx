@@ -152,6 +152,7 @@ export default function CandidatesPage() {
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
   const [loading, setLoading] = useState(true)
   const [flowFilter, setFlowFilter] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [dragging, setDragging] = useState<string | null>(null)
@@ -332,6 +333,7 @@ export default function CandidatesPage() {
     if (!opts?.silent) setLoading(true)
     const params = new URLSearchParams()
     if (flowFilter) params.set('flowId', flowFilter)
+    if (sourceFilter) params.set('source', sourceFilter)
     if (search) params.set('search', search)
     const tab = statusTabs.find((t) => t.key === statusTab)
     if (tab && tab.statuses) params.set('candidateStatus', tab.statuses.join(','))
@@ -340,10 +342,12 @@ export default function CandidatesPage() {
       .then((d: Candidate[]) => { setCandidates(d); setLoading(false) })
 
     // Counts for the tab pills — fetched separately with the SAME flow /
-    // search filters but no status filter, then bucketed client-side.
-    // Keeps every tab's badge accurate regardless of which tab is active.
+    // source / search filters but no status filter, then bucketed
+    // client-side. Keeps every tab's badge accurate regardless of which
+    // tab is active.
     const countParams = new URLSearchParams()
     if (flowFilter) countParams.set('flowId', flowFilter)
+    if (sourceFilter) countParams.set('source', sourceFilter)
     if (search) countParams.set('search', search)
     fetch(`/api/candidates?${countParams}`)
       .then((r) => r.json())
@@ -359,7 +363,7 @@ export default function CandidatesPage() {
         setStatusCounts(buckets)
       })
       .catch(() => {})
-  }, [flowFilter, search, statusTab, statusTabs, customStatuses])
+  }, [flowFilter, sourceFilter, search, statusTab, statusTabs, customStatuses])
 
   useEffect(() => { load() }, [load])
 
@@ -536,6 +540,20 @@ export default function CandidatesPage() {
           >
             <option value="">All flows</option>
             {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            title="Filter by candidate source (Indeed, Facebook, etc.)"
+          >
+            <option value="">All sources</option>
+            {BUILTIN_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            {customSources.length > 0 && (
+              <optgroup label="Custom">
+                {customSources.map((s) => <option key={s} value={s}>{s}</option>)}
+              </optgroup>
+            )}
           </select>
         </div>
 
