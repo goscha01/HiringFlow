@@ -62,6 +62,7 @@ type InteractionMode =
   | { type: 'idle' }
   | { type: 'panning'; startX: number; startY: number; panStartX: number; panStartY: number }
   | { type: 'dragging'; stepId: string; offsetX: number; offsetY: number; startScreenX: number; startScreenY: number }
+  | { type: 'dragging_group'; stepIds: string[]; offsets: Record<string, { x: number; y: number }> }
   | { type: 'connecting'; fromStepId: string; fromX: number; fromY: number; mouseX: number; mouseY: number }
   | { type: 'reconnecting'; optionId: string; fromStepId: string; fromX: number; fromY: number; mouseX: number; mouseY: number }
   | { type: 'reconnecting_source'; optionId: string; targetStepId: string; toX: number; toY: number; mouseX: number; mouseY: number }
@@ -1711,6 +1712,50 @@ export default function FlowSchemaView({
       }
     }
 
+    // Combined-pair bracket: clicking the dashed border (outside both cards)
+    // grabs the pair so they move together. We test only the OUTER edge of
+    // the bracket — the inside is taken by the cards' own drag handlers.
+    {
+      const bracketHit = (() => {
+        for (const step of steps) {
+          const partnerId = step.combinedWithId
+          if (!partnerId) continue
+          const pos1 = positions[step.id]
+          const pos2 = positions[partnerId]
+          if (!pos1 || !pos2) continue
+          const minX = Math.min(pos1.x, pos2.x) - 6
+          const minY = Math.min(pos1.y, pos2.y) - 6
+          const maxX = Math.max(pos1.x + NODE_W, pos2.x + NODE_W) + 6
+          const maxY = Math.max(pos1.y + NODE_H, pos2.y + NODE_H) + 6
+          // Inside the outer bracket?
+          if (cx < minX - 8 || cx > maxX + 8 || cy < minY - 8 || cy > maxY + 8) continue
+          // But OUTSIDE both cards (so we don't steal clicks meant for cards)
+          const insideCard1 =
+            cx >= pos1.x && cx <= pos1.x + NODE_W &&
+            cy >= pos1.y && cy <= pos1.y + NODE_H
+          const insideCard2 =
+            cx >= pos2.x && cx <= pos2.x + NODE_W &&
+            cy >= pos2.y && cy <= pos2.y + NODE_H
+          if (insideCard1 || insideCard2) continue
+          return { step, partnerId, pos1, pos2 }
+        }
+        return null
+      })()
+
+      if (bracketHit) {
+        setSelectedArrow(null)
+        setMode({
+          type: 'dragging_group',
+          stepIds: [bracketHit.step.id, bracketHit.partnerId],
+          offsets: {
+            [bracketHit.step.id]: { x: cx - bracketHit.pos1.x, y: cy - bracketHit.pos1.y },
+            [bracketHit.partnerId]: { x: cx - bracketHit.pos2.x, y: cy - bracketHit.pos2.y },
+          },
+        })
+        return
+      }
+    }
+
     // Clicking empty space deselects everything
     setSelectedArrow(null)
     setMode({
@@ -1741,6 +1786,19 @@ export default function FlowSchemaView({
           y: cy - mode.offsetY,
         },
       }))
+      return
+    }
+
+    if (mode.type === 'dragging_group') {
+      setPositions((prev) => {
+        const next = { ...prev }
+        for (const sid of mode.stepIds) {
+          const off = mode.offsets[sid]
+          if (!off) continue
+          next[sid] = { x: cx - off.x, y: cy - off.y }
+        }
+        return next
+      })
       return
     }
 
@@ -2067,7 +2125,7 @@ export default function FlowSchemaView({
 
   const getCursor = () => {
     if (mode.type === 'panning') return 'grabbing'
-    if (mode.type === 'dragging') return 'move'
+    if (mode.type === 'dragging' || mode.type === 'dragging_group') return 'move'
     if (mode.type === 'connecting' || (mode as any).type === 'connecting_reverse' || mode.type === 'reconnecting' || mode.type === 'reconnecting_source' || mode.type === 'reconnecting_button' || mode.type === 'reconnecting_button_source' || mode.type === 'reconnecting_start' || mode.type === 'reconnecting_end') return 'crosshair'
     if (hoveredPort === '__delete__' || hoveredPort === '__arrow_delete__') return 'pointer'
     if (hoveredPort === '__arrow__') return 'pointer'
