@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 
 interface Video {
   id: string
@@ -137,6 +137,7 @@ export default function FlowSchemaView({
   const [videoAspects, setVideoAspects] = useState<Record<string, number>>({}) // stepId -> width/height ratio
   const [pan, setPan] = useState({ x: 40, y: 40 })
   const [scale, setScale] = useState(1)
+  const [debugConnections, setDebugConnections] = useState(false)
   const [mode, setMode] = useState<InteractionMode>({ type: 'idle' })
   const [hoveredPort, setHoveredPort] = useState<string | null>(null)
   const [hoveredArrow, setHoveredArrow] = useState<
@@ -376,6 +377,73 @@ export default function FlowSchemaView({
     // real protection against re-firing for the same step.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStepId, positions])
+
+  // Build the canonical list of option/button connections once per steps
+  // change. Within a single source step, button beats option for the same
+  // target and duplicate options to the same target collapse to one.
+  // Connections from different source steps to the same target are KEPT
+  // (they're legitimately different paths) — visual fan-out handles them.
+  type Conn = {
+    sourceId: string
+    targetId: string
+    label: string
+    kind: 'option' | 'button'
+    optionId?: string
+  }
+  const allConnections = useMemo<Conn[]>(() => {
+    const result: Conn[] = []
+    for (const step of steps) {
+      const byTarget = new Map<string, Conn>()
+      const btnNext = (step as any).buttonConfig?.nextStepId
+      if (btnNext && btnNext !== '__end__') {
+        byTarget.set(btnNext, {
+          sourceId: step.id,
+          targetId: btnNext,
+          label: (step as any).buttonConfig?.text || 'Continue',
+          kind: 'button',
+        })
+      }
+      for (const option of step.options) {
+        if (!option.nextStepId || option.nextStepId === '__end__') continue
+        if (byTarget.has(option.nextStepId)) continue
+        byTarget.set(option.nextStepId, {
+          sourceId: step.id,
+          targetId: option.nextStepId,
+          label: option.optionText,
+          kind: 'option',
+          optionId: option.id,
+        })
+      }
+      byTarget.forEach((conn) => result.push(conn))
+    }
+    return result
+  }, [steps])
+
+  // Diagnostic log: dump every drawn connection with source/target titles
+  // and coordinates whenever the toggle is on or the data changes.
+  useEffect(() => {
+    if (!debugConnections) return
+    const titleFor = (id: string) => steps.find((s) => s.id === id)?.title ?? id.slice(0, 8)
+    const rows = allConnections.map((c) => ({
+      from: titleFor(c.sourceId),
+      to: titleFor(c.targetId),
+      kind: c.kind,
+      label: c.label,
+      sourceId: c.sourceId.slice(0, 8),
+      targetId: c.targetId.slice(0, 8),
+      optionId: c.optionId?.slice(0, 8) ?? '',
+      sourceXY: positions[c.sourceId]
+        ? `(${Math.round(positions[c.sourceId].x)}, ${Math.round(positions[c.sourceId].y)})`
+        : '?',
+      targetXY: positions[c.targetId]
+        ? `(${Math.round(positions[c.targetId].x)}, ${Math.round(positions[c.targetId].y)})`
+        : '?',
+    }))
+    // eslint-disable-next-line no-console
+    console.log(`[FlowSchemaView] ${rows.length} connections`)
+    // eslint-disable-next-line no-console
+    console.table(rows)
+  }, [debugConnections, allConnections, positions, steps])
 
   // Layout: preserve user-dragged positions across step edits.
   // Only recompute layout for newly-added IDs (insert/add); existing positions
@@ -773,10 +841,7 @@ export default function FlowSchemaView({
         const toY = firstPos.y + NODE_H / 2
         drawConnection(ctx, fromX, fromY, toX, toY, '', false, isStartArrowSelected ? '#FF9500' : '#FF9500')
 
-        const sddx = Math.abs(toX - fromX)
-        const scpOff = Math.max(sddx * 0.5, 50)
-        const sMidX = bezierPoint(fromX, fromX + scpOff, toX - scpOff, toX, 0.5)
-        const sMidY = bezierPoint(fromY, fromY, toY, toY, 0.5)
+        const [sMidX, sMidY] = bezierMid(fromX, fromY, toX, toY)
 
         if (isStartArrowSelected) {
           drawDragHandle(ctx, toX, toY)
@@ -788,44 +853,10 @@ export default function FlowSchemaView({
       }
     }
 
-    // Step option connections + buttonConfig connections.
-    // 1) Dedupe within a single source step (button beats option for same
-    //    target; duplicate options to same target collapse to one).
-    // 2) Multiple inbound arrows that end at the same target step get
-    //    their Y endpoints fanned out so they don't visually overlap.
-    type Conn = {
-      sourceId: string
-      targetId: string
-      label: string
-      kind: 'option' | 'button'
-      optionId?: string
-    }
-    const allConnections: Conn[] = []
-    for (const step of steps) {
-      const byTarget = new Map<string, Conn>()
-      const btnNext = (step as any).buttonConfig?.nextStepId
-      if (btnNext && btnNext !== '__end__') {
-        byTarget.set(btnNext, {
-          sourceId: step.id,
-          targetId: btnNext,
-          label: (step as any).buttonConfig?.text || 'Continue',
-          kind: 'button',
-        })
-      }
-      for (const option of step.options) {
-        if (!option.nextStepId || option.nextStepId === '__end__') continue
-        if (byTarget.has(option.nextStepId)) continue
-        byTarget.set(option.nextStepId, {
-          sourceId: step.id,
-          targetId: option.nextStepId,
-          label: option.optionText,
-          kind: 'option',
-          optionId: option.id,
-        })
-      }
-      byTarget.forEach((conn) => allConnections.push(conn))
-    }
-
+    // Connection arrows (option + button) come from `allConnections`,
+    // built in the useMemo above. Within a step the button beats the
+    // option to the same target; cross-step dupes are NOT removed.
+    //
     // Fan out at BOTH ends so multiple arrows from the same source or to
     // the same target don't visually stack. Outbound fan at the source's
     // OUT port, inbound fan at the target's IN port.
@@ -864,10 +895,7 @@ export default function FlowSchemaView({
 
       drawConnection(ctx, out.x, outAdjY, inp.x, inpAdjY, conn.label, false, '#FF9500')
 
-      const ddx = Math.abs(inp.x - out.x)
-      const cpOff = Math.max(ddx * 0.5, 50)
-      const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-      const midY = bezierPoint(outAdjY, outAdjY, inpAdjY, inpAdjY, 0.5)
+      const [midX, midY] = bezierMid(out.x, outAdjY, inp.x, inpAdjY)
 
       if (isSelected) {
         drawDragHandle(ctx, inp.x, inpAdjY)
@@ -879,6 +907,21 @@ export default function FlowSchemaView({
             ? `__insert_btn_${conn.sourceId}`
             : `__insert_opt_${conn.optionId}`
         drawInsertButton(ctx, midX, midY, hoveredPort === portKey)
+      }
+
+      // Diagnostic annotation under each arrow when debug mode is on
+      if (debugConnections) {
+        const fromTitle = (steps.find((s) => s.id === conn.sourceId)?.title ?? conn.sourceId).slice(0, 14)
+        const toTitle = (steps.find((s) => s.id === conn.targetId)?.title ?? conn.targetId).slice(0, 14)
+        const tag = `${fromTitle}→${toTitle} [${conn.kind}]`
+        ctx.font = '9px monospace'
+        const m = ctx.measureText(tag)
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
+        ctx.fillRect(midX - m.width / 2 - 4, midY + 14, m.width + 8, 14)
+        ctx.fillStyle = '#fef3c7'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(tag, midX, midY + 21)
       }
     }
 
@@ -908,10 +951,7 @@ export default function FlowSchemaView({
         if (!implicitEndIds.has(stepId)) return
         const isThisEndSelected =
           selectedArrow?.kind === 'end' && selectedArrow.stepId === stepId
-        const eddx = Math.abs(toX - fromX)
-        const ecpOff = Math.max(eddx * 0.5, 50)
-        const eMidX = bezierPoint(fromX, fromX + ecpOff, toX - ecpOff, toX, 0.5)
-        const eMidY = bezierPoint(fromY, fromY, toY, toY, 0.5)
+        const [eMidX, eMidY] = bezierMid(fromX, fromY, toX, toY)
 
         if (isThisEndSelected) {
           drawDragHandle(ctx, fromX, fromY)
@@ -1024,7 +1064,7 @@ export default function FlowSchemaView({
     }
 
     ctx.restore()
-  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepIds, selectedArrow])
+  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepIds, selectedArrow, allConnections, debugConnections])
 
   // Animation frame for smooth rendering
   useEffect(() => {
@@ -1059,14 +1099,12 @@ export default function FlowSchemaView({
       const sp = posRef.current[START_ID]
       const fp = posRef.current[sorted[0].id]
       if (!sp || !fp) return false
-      const fromX = sp.x + SPECIAL_W
-      const fromY = sp.y + SPECIAL_H / 2
-      const toX = fp.x
-      const toY = fp.y + NODE_H / 2
-      const dx = Math.abs(toX - fromX)
-      const cpOff = Math.max(dx * 0.5, 50)
-      const midX = bezierPoint(fromX, fromX + cpOff, toX - cpOff, toX, 0.5)
-      const midY = bezierPoint(fromY, fromY, toY, toY, 0.5)
+      const [midX, midY] = bezierMid(
+        sp.x + SPECIAL_W,
+        sp.y + SPECIAL_H / 2,
+        fp.x,
+        fp.y + NODE_H / 2,
+      )
       return dist(cx, cy, midX, midY) <= 14
     }
 
@@ -1074,14 +1112,12 @@ export default function FlowSchemaView({
       const ePos = posRef.current[END_ID]
       const sPos = posRef.current[selectedArrow.stepId]
       if (!ePos || !sPos) return false
-      const fromX = sPos.x + NODE_W
-      const fromY = sPos.y + NODE_H / 2
-      const toX = ePos.x
-      const toY = ePos.y + SPECIAL_H / 2
-      const dx = Math.abs(toX - fromX)
-      const cpOff = Math.max(dx * 0.5, 50)
-      const midX = bezierPoint(fromX, fromX + cpOff, toX - cpOff, toX, 0.5)
-      const midY = bezierPoint(fromY, fromY, toY, toY, 0.5)
+      const [midX, midY] = bezierMid(
+        sPos.x + NODE_W,
+        sPos.y + NODE_H / 2,
+        ePos.x,
+        ePos.y + SPECIAL_H / 2,
+      )
       return dist(cx, cy, midX, midY) <= 14
     }
 
@@ -1104,11 +1140,7 @@ export default function FlowSchemaView({
 
     const out = getOutputPort(pos)
     const inp = getInputPort(targetPos)
-
-    const dx = Math.abs(inp.x - out.x)
-    const cpOff = Math.max(dx * 0.5, 50)
-    const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-    const midY = bezierPoint(out.y, out.y, inp.y, inp.y, 0.5)
+    const [midX, midY] = bezierMid(out.x, out.y, inp.x, inp.y)
     return dist(cx, cy, midX, midY) <= 14
   }, [selectedArrow, steps])
 
@@ -1128,10 +1160,7 @@ export default function FlowSchemaView({
       | { kind: 'end'; fromStepId: string }
       | null => {
       const tryMid = (fromX: number, fromY: number, toX: number, toY: number) => {
-        const dx = Math.abs(toX - fromX)
-        const cpOff = Math.max(dx * 0.5, 50)
-        const midX = bezierPoint(fromX, fromX + cpOff, toX - cpOff, toX, 0.5)
-        const midY = bezierPoint(fromY, fromY, toY, toY, 0.5)
+        const [midX, midY] = bezierMid(fromX, fromY, toX, toY)
         return dist(cx, cy, midX, midY) <= 12
       }
 
@@ -2017,6 +2046,13 @@ export default function FlowSchemaView({
         >
           Reset
         </button>
+        <button
+          onClick={() => setDebugConnections((v) => !v)}
+          className={`px-2 py-1 text-xs border-l border-gray-200 ml-1 ${debugConnections ? 'text-orange-600 font-semibold' : 'text-gray-600 hover:text-gray-900'}`}
+          title="Toggle connection diagnostics (overlay labels + console.log)"
+        >
+          Debug
+        </button>
       </div>
 
       {/* Help text */}
@@ -2053,6 +2089,39 @@ export default function FlowSchemaView({
 
 // --- Drawing helpers ---
 
+// Bezier control points for a connection. Forward (target right of source)
+// uses a horizontal S-curve. Backward (target left of source) routes the
+// curve UNDER the cards via deep downward control points so loopbacks
+// don't share a horizontal channel with forward arrows.
+function bezierCps(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number
+): readonly [number, number, number, number] {
+  const isBackward = toX < fromX
+  if (isBackward) {
+    const drop = NODE_H + 80
+    return [fromX + 60, fromY + drop, toX - 60, toY + drop] as const
+  }
+  const dx = Math.abs(toX - fromX)
+  const cpOffset = Math.max(dx * 0.4, 40)
+  return [fromX + cpOffset, fromY, toX - cpOffset, toY] as const
+}
+
+function bezierMid(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number
+): [number, number] {
+  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY)
+  return [
+    bezierPoint(fromX, c1x, c2x, toX, 0.5),
+    bezierPoint(fromY, c1y, c2y, toY, 0.5),
+  ]
+}
+
 function drawConnection(
   ctx: CanvasRenderingContext2D,
   fromX: number,
@@ -2064,8 +2133,7 @@ function drawConnection(
   color?: string
 ) {
   const lineColor = color || '#FF9500'
-  const dx = Math.abs(toX - fromX)
-  const cpOffset = Math.max(dx * 0.4, 40)
+  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY)
 
   ctx.beginPath()
   ctx.strokeStyle = isDraft ? '#FF9500' : lineColor
@@ -2074,7 +2142,7 @@ function drawConnection(
   else ctx.setLineDash([])
 
   ctx.moveTo(fromX, fromY)
-  ctx.bezierCurveTo(fromX + cpOffset, fromY, toX - cpOffset, toY, toX, toY)
+  ctx.bezierCurveTo(c1x, c1y, c2x, c2y, toX, toY)
   ctx.stroke()
   ctx.setLineDash([])
 
@@ -2091,8 +2159,9 @@ function drawConnection(
 
   // Label
   if (label) {
-    const midX = bezierPoint(fromX, fromX + cpOffset, toX - cpOffset, toX, 0.5)
-    const midY = bezierPoint(fromY, fromY, toY, toY, 0.5) - 10
+    const [mx, my] = bezierMid(fromX, fromY, toX, toY)
+    const midX = mx
+    const midY = my - 10
     const display = label.length > 18 ? label.slice(0, 16) + '...' : label
 
     ctx.font = '10px Inter, system-ui, sans-serif'
@@ -2466,12 +2535,10 @@ function isNearBezier(
   toY: number,
   threshold: number
 ): boolean {
-  const dx = Math.abs(toX - fromX)
-  const cpOffset = Math.max(dx * 0.5, 50)
-
+  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY)
   for (let t = 0; t <= 1; t += 0.02) {
-    const bx = bezierPoint(fromX, fromX + cpOffset, toX - cpOffset, toX, t)
-    const by = bezierPoint(fromY, fromY, toY, toY, t)
+    const bx = bezierPoint(fromX, c1x, c2x, toX, t)
+    const by = bezierPoint(fromY, c1y, c2y, toY, t)
     if (dist(px, py, bx, by) < threshold) return true
   }
   return false
