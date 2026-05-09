@@ -826,13 +826,18 @@ export default function FlowSchemaView({
       byTarget.forEach((conn) => allConnections.push(conn))
     }
 
-    // Fan out inbound endpoints when more than one arrow targets the same step
+    // Fan out at BOTH ends so multiple arrows from the same source or to
+    // the same target don't visually stack. Outbound fan at the source's
+    // OUT port, inbound fan at the target's IN port.
+    const outboundCounts = new Map<string, number>()
     const inboundCounts = new Map<string, number>()
     allConnections.forEach((c) => {
+      outboundCounts.set(c.sourceId, (outboundCounts.get(c.sourceId) ?? 0) + 1)
       inboundCounts.set(c.targetId, (inboundCounts.get(c.targetId) ?? 0) + 1)
     })
+    const outboundIndex = new Map<string, number>()
     const inboundIndex = new Map<string, number>()
-    const inboundSpread = 18
+    const fanSpread = 26
 
     for (const conn of allConnections) {
       const sourcePos = positions[conn.sourceId]
@@ -840,27 +845,33 @@ export default function FlowSchemaView({
       if (!sourcePos || !targetPos) continue
       const out = getOutputPort(sourcePos)
       const inp = getInputPort(targetPos)
-      const total = inboundCounts.get(conn.targetId) ?? 1
-      const idx = inboundIndex.get(conn.targetId) ?? 0
-      inboundIndex.set(conn.targetId, idx + 1)
-      const yOff = total > 1 ? (idx - (total - 1) / 2) * inboundSpread : 0
-      const inpAdjY = inp.y + yOff
+
+      const outTotal = outboundCounts.get(conn.sourceId) ?? 1
+      const outIdx = outboundIndex.get(conn.sourceId) ?? 0
+      outboundIndex.set(conn.sourceId, outIdx + 1)
+      const inTotal = inboundCounts.get(conn.targetId) ?? 1
+      const inIdx = inboundIndex.get(conn.targetId) ?? 0
+      inboundIndex.set(conn.targetId, inIdx + 1)
+      const outYOff = outTotal > 1 ? (outIdx - (outTotal - 1) / 2) * fanSpread : 0
+      const inYOff = inTotal > 1 ? (inIdx - (inTotal - 1) / 2) * fanSpread : 0
+      const outAdjY = out.y + outYOff
+      const inpAdjY = inp.y + inYOff
 
       const isSelected =
         conn.kind === 'button'
           ? selectedArrow?.kind === 'button' && selectedArrow.stepId === conn.sourceId
           : selectedArrow?.optionId === conn.optionId
 
-      drawConnection(ctx, out.x, out.y, inp.x, inpAdjY, conn.label, false, '#FF9500')
+      drawConnection(ctx, out.x, outAdjY, inp.x, inpAdjY, conn.label, false, '#FF9500')
 
       const ddx = Math.abs(inp.x - out.x)
       const cpOff = Math.max(ddx * 0.5, 50)
       const midX = bezierPoint(out.x, out.x + cpOff, inp.x - cpOff, inp.x, 0.5)
-      const midY = bezierPoint(out.y, out.y, inpAdjY, inpAdjY, 0.5)
+      const midY = bezierPoint(outAdjY, outAdjY, inpAdjY, inpAdjY, 0.5)
 
       if (isSelected) {
         drawDragHandle(ctx, inp.x, inpAdjY)
-        drawDragHandle(ctx, out.x, out.y)
+        drawDragHandle(ctx, out.x, outAdjY)
         drawDeleteButton(ctx, midX, midY)
       } else {
         const portKey =
