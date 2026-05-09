@@ -526,25 +526,46 @@ export default function FlowSchemaView({
       // Pass 2: for each new step, decide where it goes:
       // - Exactly one (preserved) source + one (preserved) target → slot it
       //   between them and shift the downstream chain right (mid-chain insert).
-      // - Otherwise → place it at the END of the existing visual chain
-      //   (right of the rightmost positioned card, same row), so a fresh
-      //   "+ Add Step" extends the chain instead of landing on top of it.
-      // - Truly empty flow → fall back to viewport center.
+      // - Otherwise → drop at the current viewport center, then spiral
+      //   outward in NODE-sized steps until we find a position that doesn't
+      //   overlap any existing card. So "+ Add Step" lands where the user is
+      //   looking and isn't connected to anything, but still stays clear of
+      //   the other cards.
       const slot = NODE_W + H_GAP
 
-      // Helper: place a still-unplaced new step at the end of the chain,
-      // i.e. right of the rightmost positioned step, on the same row.
-      const placeAtChainEnd = (id: string) => {
-        let rightmost: NodePos | null = null
+      const overlapsExistingCard = (id: string, ax: number, ay: number) => {
         for (const s of steps) {
           if (s.id === id) continue
           const p = merged[s.id]
           if (!p) continue
-          if (!rightmost || p.x > rightmost.x) rightmost = p
+          if (
+            ax < p.x + NODE_W && ax + NODE_W > p.x &&
+            ay < p.y + NODE_H && ay + NODE_H > p.y
+          ) return true
         }
-        if (rightmost) {
-          merged[id] = { x: rightmost.x + slot, y: rightmost.y }
+        return false
+      }
+
+      const placeWithoutOverlap = (id: string, startX: number, startY: number) => {
+        if (!overlapsExistingCard(id, startX, startY)) {
+          merged[id] = { x: startX, y: startY }
           return true
+        }
+        const dx = NODE_W + H_GAP
+        const dy = NODE_H + V_GAP
+        for (let r = 1; r <= 12; r++) {
+          for (let yi = -r; yi <= r; yi++) {
+            for (let xi = -r; xi <= r; xi++) {
+              // Only walk the perimeter at this radius
+              if (Math.abs(xi) !== r && Math.abs(yi) !== r) continue
+              const tx = startX + xi * dx
+              const ty = startY + yi * dy
+              if (!overlapsExistingCard(id, tx, ty)) {
+                merged[id] = { x: tx, y: ty }
+                return true
+              }
+            }
+          }
         }
         return false
       }
@@ -567,16 +588,18 @@ export default function FlowSchemaView({
         const uniqueTargets = Array.from(new Set(targets))
 
         if (sources.length !== 1 || uniqueTargets.length !== 1) {
-          if (placeAtChainEnd(id)) continue
-          if (viewportCenter) merged[id] = { ...viewportCenter }
+          const start = viewportCenter ?? { x: 0, y: 0 }
+          if (placeWithoutOverlap(id, start.x, start.y)) continue
+          merged[id] = { ...start }
           continue
         }
 
         const src = merged[sources[0].id]
         const tgt = merged[uniqueTargets[0]]
         if (!src || !tgt) {
-          if (placeAtChainEnd(id)) continue
-          if (viewportCenter) merged[id] = { ...viewportCenter }
+          const start = viewportCenter ?? { x: 0, y: 0 }
+          if (placeWithoutOverlap(id, start.x, start.y)) continue
+          merged[id] = { ...start }
           continue
         }
 
