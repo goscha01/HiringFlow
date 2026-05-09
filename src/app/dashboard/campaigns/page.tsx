@@ -306,7 +306,9 @@ export default function CampaignsPage() {
         campaign: duplicatingAd.campaign,
         flowId: duplicatingAd.flowId,
         imageUrl: duplicatingAd.imageUrl,
-        placementUrl: duplicatingAd.placementUrl,
+        // Placement URL deliberately NOT copied — a duplicate exists to post the
+        // same creative somewhere new, so the original group link doesn't apply.
+        placementUrl: null,
         templateId: duplicatingAd.templateId,
         headline: duplicatingAd.headline ?? tpl?.headline ?? d.headline,
         bodyText: duplicatingAd.bodyText ?? tpl?.bodyText ?? d.body,
