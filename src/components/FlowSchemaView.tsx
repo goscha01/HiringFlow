@@ -520,10 +520,30 @@ export default function FlowSchemaView({
 
       // Pass 2: for each new step, decide where it goes:
       // - Exactly one (preserved) source + one (preserved) target → slot it
-      //   between them and shift the downstream chain right.
-      // - Otherwise → drop it at the current viewport center, so the user
-      //   sees it land where they're looking instead of at column 0.
+      //   between them and shift the downstream chain right (mid-chain insert).
+      // - Otherwise → place it at the END of the existing visual chain
+      //   (right of the rightmost positioned card, same row), so a fresh
+      //   "+ Add Step" extends the chain instead of landing on top of it.
+      // - Truly empty flow → fall back to viewport center.
       const slot = NODE_W + H_GAP
+
+      // Helper: place a still-unplaced new step at the end of the chain,
+      // i.e. right of the rightmost positioned step, on the same row.
+      const placeAtChainEnd = (id: string) => {
+        let rightmost: NodePos | null = null
+        for (const s of steps) {
+          if (s.id === id) continue
+          const p = merged[s.id]
+          if (!p) continue
+          if (!rightmost || p.x > rightmost.x) rightmost = p
+        }
+        if (rightmost) {
+          merged[id] = { x: rightmost.x + slot, y: rightmost.y }
+          return true
+        }
+        return false
+      }
+
       for (const id of newIds) {
         const newStep = steps.find((s) => s.id === id)
         if (!newStep) continue
@@ -542,6 +562,7 @@ export default function FlowSchemaView({
         const uniqueTargets = Array.from(new Set(targets))
 
         if (sources.length !== 1 || uniqueTargets.length !== 1) {
+          if (placeAtChainEnd(id)) continue
           if (viewportCenter) merged[id] = { ...viewportCenter }
           continue
         }
@@ -549,6 +570,7 @@ export default function FlowSchemaView({
         const src = merged[sources[0].id]
         const tgt = merged[uniqueTargets[0]]
         if (!src || !tgt) {
+          if (placeAtChainEnd(id)) continue
           if (viewportCenter) merged[id] = { ...viewportCenter }
           continue
         }
