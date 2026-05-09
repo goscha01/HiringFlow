@@ -45,6 +45,9 @@ export default function CampaignsPage() {
   const [saving, setSaving] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [tab, setTab] = useState<'ads' | 'sources' | 'links'>('ads')
+  // Filters for the Ads tab. Empty string means "all". Both filters intersect.
+  const [adsSourceFilter, setAdsSourceFilter] = useState<string>('')
+  const [adsFlowFilter, setAdsFlowFilter] = useState<string>('')
   // Ad copy fields in modal
   const [adHeadline, setAdHeadline] = useState('')
   const [adBody, setAdBody] = useState('')
@@ -418,6 +421,16 @@ export default function CampaignsPage() {
   const activeAds = ads.filter(a => a.isActive).length
   const sourcesUsed = new Set(ads.map(a => a.source)).size
 
+  // Filtered ad list — drives the Ads tab table. Filters intersect; empty
+  // filter means "no constraint on that axis".
+  const filteredAds = useMemo(() => {
+    return ads.filter((a) => {
+      if (adsSourceFilter && a.source !== adsSourceFilter) return false
+      if (adsFlowFilter && a.flowId !== adsFlowFilter) return false
+      return true
+    })
+  }, [ads, adsSourceFilter, adsFlowFilter])
+
   // Sources breakdown — built up from the ads' actual source values so
   // custom workspace sources appear in the table alongside built-ins.
   const sourceStats = useMemo(() => {
@@ -492,6 +505,59 @@ export default function CampaignsPage() {
               <button onClick={openCreate} className="btn-primary">+ New Ad</button>
             </div>
           ) : (
+            <>
+              {/* Filters — narrow the table by source and/or flow. Counts
+                  next to the result line make it obvious when a filter is
+                  hiding rows. */}
+              <div className="flex flex-wrap items-center gap-2.5 mb-3">
+                <select
+                  value={adsSourceFilter}
+                  onChange={(e) => setAdsSourceFilter(e.target.value)}
+                  className="px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  title="Filter ads by source"
+                >
+                  <option value="">All sources</option>
+                  {SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  {customSources.length > 0 && (
+                    <optgroup label="Custom">
+                      {customSources.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </optgroup>
+                  )}
+                </select>
+                <select
+                  value={adsFlowFilter}
+                  onChange={(e) => setAdsFlowFilter(e.target.value)}
+                  className="px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  title="Filter ads by flow"
+                >
+                  <option value="">All flows</option>
+                  {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                {(adsSourceFilter || adsFlowFilter) && (
+                  <>
+                    <button
+                      onClick={() => { setAdsSourceFilter(''); setAdsFlowFilter('') }}
+                      className="px-3 py-2 text-sm text-grey-40 hover:text-grey-15"
+                    >
+                      Clear
+                    </button>
+                    <span className="text-xs text-grey-50 ml-auto">
+                      Showing {filteredAds.length} of {ads.length} ads
+                    </span>
+                  </>
+                )}
+              </div>
+              {filteredAds.length === 0 ? (
+                <div className="section-card text-center py-12">
+                  <p className="text-grey-35">No ads match the current filters.</p>
+                  <button
+                    onClick={() => { setAdsSourceFilter(''); setAdsFlowFilter('') }}
+                    className="mt-3 text-sm text-brand-500 hover:text-brand-600 font-medium"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              ) : (
             <div className="bg-white rounded-lg border border-surface-border overflow-hidden">
               <table className="min-w-full">
                 <thead>
@@ -507,7 +573,7 @@ export default function CampaignsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-border">
-                  {ads.map((ad) => (
+                  {filteredAds.map((ad) => (
                     <tr key={ad.id} className="hover:bg-surface-light">
                       <td className="px-5 py-4">
                         {ad.imageUrl ? (
@@ -571,6 +637,8 @@ export default function CampaignsPage() {
                 </tbody>
               </table>
             </div>
+              )}
+            </>
           )}
         </>
       )}
