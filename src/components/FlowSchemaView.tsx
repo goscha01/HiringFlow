@@ -493,10 +493,14 @@ export default function FlowSchemaView({
       const layout = computeLayout()
       const layoutIds = Object.keys(layout)
 
-      // Pass 1: preserve existing positions, fall back to layout for new ones.
+      // Pass 1: preserve existing positions for STEPS, fall back to layout
+      // for new ones. START / END are not preserved here — they're always
+      // re-anchored at the chain's edges in pass 4 below so the End node
+      // moves rightward when a card is added at the end of the chain.
       const merged: Record<string, NodePos> = {}
       const newIds: string[] = []
       for (const id of layoutIds) {
+        if (id === START_ID || id === END_ID) continue
         if (id in prev) {
           merged[id] = prev[id]
         } else {
@@ -622,6 +626,36 @@ export default function FlowSchemaView({
         if (!isAdjacent) {
           merged[step.combinedWithId] = { x: adjacentX, y: adjacentY }
         }
+      }
+
+      // Pass 4: re-anchor START and END to bracket the actual chain.
+      // This is computed from `merged` (not from prev) so the End node
+      // moves right whenever a card is added at the end of the chain.
+      const stepXs: number[] = []
+      const stepYs: number[] = []
+      for (const s of steps) {
+        const p = merged[s.id]
+        if (!p) continue
+        stepXs.push(p.x)
+        stepYs.push(p.y)
+      }
+      if (stepXs.length > 0) {
+        const minX = Math.min(...stepXs)
+        const maxX = Math.max(...stepXs)
+        const minY = Math.min(...stepYs)
+        const maxY = Math.max(...stepYs)
+        const midY = (minY + maxY) / 2 + (NODE_H - SPECIAL_H) / 2
+        merged[START_ID] = {
+          x: minX - (NODE_W + H_GAP) + (NODE_W - SPECIAL_W) / 2,
+          y: midY,
+        }
+        merged[END_ID] = {
+          x: maxX + NODE_W + H_GAP + (NODE_W - SPECIAL_W) / 2,
+          y: midY,
+        }
+      } else {
+        if (layout[START_ID]) merged[START_ID] = layout[START_ID]
+        if (layout[END_ID]) merged[END_ID] = layout[END_ID]
       }
 
       // Avoid spurious re-renders when nothing actually moved
