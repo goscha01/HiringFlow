@@ -314,11 +314,65 @@ export async function POST(request: NextRequest) {
 }
 
 function participantKey(email: string | null | undefined, name: string | null | undefined): string | null {
-  const e = (email || '').toLowerCase().trim()
-  const n = (name || '').toLowerCase().trim()
+  const e = unduplicateEmailGlue((email || '').toLowerCase().trim())
   if (e) return `e:${e}`
-  if (n) return `n:${n}`
+  // Recover an email that's been glued into the display name by a buggy
+  // scrape (older extension versions concatenate the participant's name
+  // span and email span as one textContent string when Meet renders them
+  // inline). Using the embedded email as the key makes this row collapse
+  // with snapshots that captured the email cleanly.
+  const rawName = (name || '').trim()
+  const embeddedEmail = rawName.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)
+  if (embeddedEmail) return `e:${unduplicateEmailGlue(embeddedEmail[0].toLowerCase())}`
+  const sanitized = sanitizeNameForKey(rawName)
+  if (sanitized) return `n:${sanitized}`
   return null
+}
+
+/**
+ * `"Sayapingeorgesayapingeorge@gmail.com"` is structurally a valid email
+ * but is in fact `<displayName><email-local>@domain` glued together by
+ * Meet's panel rendering. Detect the doubled-local-part case (left half
+ * equals right half, case-insensitive) and trim it back to the real
+ * address. Conservative threshold (half ≥ 4) avoids false positives on
+ * short repetitive locals like `abc@x.com`.
+ */
+function unduplicateEmailGlue(addr: string): string {
+  if (!addr) return addr
+  const m = addr.match(/^([\w.+-]+)@([\w-]+\.[\w.-]+)$/)
+  if (!m) return addr
+  const local = m[1]
+  if (local.length % 2 !== 0) return addr
+  const half = local.length / 2
+  if (half < 4) return addr
+  if (local.slice(0, half).toLowerCase() !== local.slice(half).toLowerCase()) return addr
+  return `${local.slice(half)}@${m[2]}`
+}
+
+/**
+ * Defensive name-cleanup mirroring the extension's sanitizeNameCandidate:
+ * strips embedded emails, the "devices" badge that leaks in from the
+ * multi-device participant tile, and collapses exact-doubled patterns
+ * ("Елена КорольЕлена Король" → "Елена Король") so two scrapes of the same
+ * person produce the same dedupe key.
+ */
+function sanitizeNameForKey(s: string): string {
+  if (!s) return ''
+  let out = s.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, ' ')
+  out = out.replace(/devices?/gi, ' ')
+  out = out.replace(/\s+/g, ' ').trim()
+  if (out.length >= 6) {
+    for (let len = Math.floor(out.length / 2); len >= 3; len--) {
+      const left = out.slice(0, len)
+      const after = out.slice(len).trimStart()
+      if (after.toLowerCase() !== left.toLowerCase()) continue
+      if (/\s/.test(left) || left.length >= 6) {
+        out = left.trim()
+        break
+      }
+    }
+  }
+  return out.toLowerCase().trim()
 }
 
 function minIso(a: string | undefined, b: string | undefined): string | undefined {
