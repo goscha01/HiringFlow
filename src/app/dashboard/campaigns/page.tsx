@@ -294,9 +294,11 @@ export default function CampaignsPage() {
   const confirmDuplicate = async () => {
     if (!duplicatingAd || !duplicateName.trim()) return
     setDuplicating(true)
-    // For older ads without saved copy, fall back: matching template → source default
-    const tpl = adTemplates.find(t => t.source === duplicatingAd.source) || adTemplates.find(t => t.source === 'general')
-    const d = DEFAULT_AD_COPY[duplicatingAd.source] || DEFAULT_AD_COPY._default
+    // Verbatim copy — every persisted field is taken straight from the source
+    // ad. If a field is null on the source, the duplicate gets null too; we
+    // deliberately do NOT fall back to a template or source default, otherwise
+    // the duplicate ends up with "Benefits"/"Requirements"/etc. text that
+    // the source never had.
     const res = await fetch('/api/ads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -306,15 +308,19 @@ export default function CampaignsPage() {
         campaign: duplicatingAd.campaign,
         flowId: duplicatingAd.flowId,
         imageUrl: duplicatingAd.imageUrl,
-        // Placement URL deliberately NOT copied — a duplicate exists to post the
-        // same creative somewhere new, so the original group link doesn't apply.
+        // Placement URL deliberately NOT copied — a duplicate exists to post
+        // the same creative somewhere new, so the original group link
+        // doesn't apply.
         placementUrl: null,
-        templateId: duplicatingAd.templateId,
-        headline: duplicatingAd.headline ?? tpl?.headline ?? d.headline,
-        bodyText: duplicatingAd.bodyText ?? tpl?.bodyText ?? d.body,
-        requirements: duplicatingAd.requirements ?? tpl?.requirements ?? d.requirements,
-        benefits: duplicatingAd.benefits ?? tpl?.benefits ?? d.benefits,
-        callToAction: duplicatingAd.callToAction ?? tpl?.callToAction ?? d.cta,
+        // The duplicate is an independent ad, not a template-linked one —
+        // the user's mental model is "copy this exact ad", and a templateId
+        // would make the dropdown read "Template X" instead of "Default".
+        templateId: null,
+        headline: duplicatingAd.headline,
+        bodyText: duplicatingAd.bodyText,
+        requirements: duplicatingAd.requirements,
+        benefits: duplicatingAd.benefits,
+        callToAction: duplicatingAd.callToAction,
         notes: duplicatingAd.notes,
       }),
     })
