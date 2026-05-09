@@ -419,6 +419,43 @@ export default function FlowSchemaView({
     return result
   }, [steps])
 
+  // Lane assignment for backward edges. Each backward edge gets its own
+  // horizontal Y "lane" below the cards so loopbacks don't share a channel.
+  // Sort by horizontal span (longest first → lowest lane) so long routes
+  // tunnel under short ones rather than crossing them.
+  const connKey = useCallback((c: Conn) => {
+    return c.kind === 'button'
+      ? `btn:${c.sourceId}:${c.targetId}`
+      : `opt:${c.sourceId}:${c.optionId ?? c.targetId}`
+  }, [])
+  const laneYByConn = useMemo(() => {
+    const m = new Map<string, number>()
+    const backward = allConnections.filter((c) => {
+      const sp = positions[c.sourceId]
+      const tp = positions[c.targetId]
+      if (!sp || !tp) return false
+      return tp.x < sp.x
+    })
+    if (backward.length === 0) return m
+    let maxBottom = 0
+    for (const id of Object.keys(positions)) {
+      const p = positions[id]
+      const h = id === START_ID || id === END_ID ? SPECIAL_H : NODE_H
+      maxBottom = Math.max(maxBottom, p.y + h)
+    }
+    backward.sort((a, b) => {
+      const aSpan = Math.abs(positions[a.sourceId].x - positions[a.targetId].x)
+      const bSpan = Math.abs(positions[b.sourceId].x - positions[b.targetId].x)
+      return bSpan - aSpan
+    })
+    const laneBase = maxBottom + 80
+    const laneSpacing = 60
+    backward.forEach((c, idx) => {
+      m.set(connKey(c), laneBase + idx * laneSpacing)
+    })
+    return m
+  }, [allConnections, positions, connKey])
+
   // Diagnostic log: dump every drawn connection with source/target titles
   // and coordinates whenever the toggle is on or the data changes.
   useEffect(() => {
@@ -748,7 +785,8 @@ export default function FlowSchemaView({
         const targetPos = posRef.current[option.nextStepId]
         if (!targetPos) continue
         const inp = getInputPort(targetPos)
-        if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 10)) {
+        const lane = laneYByConn.get(`opt:${step.id}:${option.id}`)
+        if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 10, lane)) {
           return { optionId: option.id, stepId: step.id, kind: 'option' }
         }
       }
@@ -757,14 +795,15 @@ export default function FlowSchemaView({
         const targetPos = posRef.current[btnNext]
         if (targetPos) {
           const inp = getInputPort(targetPos)
-          if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 10)) {
+          const lane = laneYByConn.get(`btn:${step.id}:${btnNext}`)
+          if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 10, lane)) {
             return { optionId: BUTTON_ARROW_SENTINEL, stepId: step.id, kind: 'button' }
           }
         }
       }
     }
     return null
-  }, [steps])
+  }, [steps, laneYByConn])
 
   // Hit test: arrow target endpoint (near the target input port)
   const hitTestArrowEndpoint = useCallback((cx: number, cy: number): { optionId: string; stepId: string } | null => {
@@ -893,9 +932,11 @@ export default function FlowSchemaView({
           ? selectedArrow?.kind === 'button' && selectedArrow.stepId === conn.sourceId
           : selectedArrow?.optionId === conn.optionId
 
-      drawConnection(ctx, out.x, outAdjY, inp.x, inpAdjY, conn.label, false, '#FF9500')
+      const laneY = laneYByConn.get(connKey(conn))
 
-      const [midX, midY] = bezierMid(out.x, outAdjY, inp.x, inpAdjY)
+      drawConnection(ctx, out.x, outAdjY, inp.x, inpAdjY, conn.label, false, '#FF9500', laneY)
+
+      const [midX, midY] = bezierMid(out.x, outAdjY, inp.x, inpAdjY, laneY)
 
       if (isSelected) {
         drawDragHandle(ctx, inp.x, inpAdjY)
@@ -1064,7 +1105,7 @@ export default function FlowSchemaView({
     }
 
     ctx.restore()
-  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepIds, selectedArrow, allConnections, debugConnections])
+  }, [positions, thumbnails, screenImages, videoAspects, pan, scale, steps, selectedStepId, hoveredPort, hoveredArrow, mode, startMessage, endMessage, getEndStepIds, selectedArrow, allConnections, laneYByConn, connKey, debugConnections])
 
   // Animation frame for smooth rendering
   useEffect(() => {
@@ -1127,12 +1168,17 @@ export default function FlowSchemaView({
     if (!pos) return false
 
     let targetStepId: string | null = null
+    let lane: number | undefined
     if (selectedArrow.kind === 'button') {
       const btnNext = step.buttonConfig?.nextStepId
-      if (btnNext && btnNext !== '__end__') targetStepId = btnNext
+      if (btnNext && btnNext !== '__end__') {
+        targetStepId = btnNext
+        lane = laneYByConn.get(`btn:${step.id}:${btnNext}`)
+      }
     } else {
       const option = step.options.find((o) => o.id === selectedArrow.optionId)
       targetStepId = option?.nextStepId ?? null
+      if (option) lane = laneYByConn.get(`opt:${step.id}:${option.id}`)
     }
     if (!targetStepId) return false
     const targetPos = posRef.current[targetStepId]
@@ -1140,9 +1186,9 @@ export default function FlowSchemaView({
 
     const out = getOutputPort(pos)
     const inp = getInputPort(targetPos)
-    const [midX, midY] = bezierMid(out.x, out.y, inp.x, inp.y)
+    const [midX, midY] = bezierMid(out.x, out.y, inp.x, inp.y, lane)
     return dist(cx, cy, midX, midY) <= 14
-  }, [selectedArrow, steps])
+  }, [selectedArrow, steps, laneYByConn])
 
   // Hit test: arrow midpoint "+" insert button. Iterates every connection
   // (start, end, option, button) since "+" is now always rendered, and
@@ -1159,8 +1205,8 @@ export default function FlowSchemaView({
       | { kind: 'start'; toStepId: string }
       | { kind: 'end'; fromStepId: string }
       | null => {
-      const tryMid = (fromX: number, fromY: number, toX: number, toY: number) => {
-        const [midX, midY] = bezierMid(fromX, fromY, toX, toY)
+      const tryMid = (fromX: number, fromY: number, toX: number, toY: number, lane?: number) => {
+        const [midX, midY] = bezierMid(fromX, fromY, toX, toY, lane)
         return dist(cx, cy, midX, midY) <= 12
       }
 
@@ -1213,7 +1259,8 @@ export default function FlowSchemaView({
           const targetPos = posRef.current[option.nextStepId]
           if (!targetPos) continue
           const inp = getInputPort(targetPos)
-          if (tryMid(out.x, out.y, inp.x, inp.y)) {
+          const lane = laneYByConn.get(`opt:${step.id}:${option.id}`)
+          if (tryMid(out.x, out.y, inp.x, inp.y, lane)) {
             return { kind: 'option', optionId: option.id, fromStepId: step.id, toStepId: option.nextStepId }
           }
         }
@@ -1227,7 +1274,8 @@ export default function FlowSchemaView({
             const targetPos = posRef.current[btnNext]
             if (targetPos) {
               const inp = getInputPort(targetPos)
-              if (tryMid(out.x, out.y, inp.x, inp.y)) {
+              const lane = laneYByConn.get(`btn:${step.id}:${btnNext}`)
+              if (tryMid(out.x, out.y, inp.x, inp.y, lane)) {
                 return { kind: 'button', fromStepId: step.id, toStepId: btnNext }
               }
             }
@@ -1237,7 +1285,7 @@ export default function FlowSchemaView({
 
       return null
     },
-    [steps, selectedArrow, startMessage, endMessage, getEndStepIds]
+    [steps, selectedArrow, startMessage, endMessage, getEndStepIds, laneYByConn]
   )
 
   // Detect hovered arrow line (option, button, start, or end), so "+" only
@@ -1302,7 +1350,8 @@ export default function FlowSchemaView({
           const targetPos = posRef.current[option.nextStepId]
           if (!targetPos) continue
           const inp = getInputPort(targetPos)
-          if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 12)) {
+          const lane = laneYByConn.get(`opt:${step.id}:${option.id}`)
+          if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 12, lane)) {
             return { kind: 'option', optionId: option.id, fromStepId: step.id }
           }
         }
@@ -1316,7 +1365,8 @@ export default function FlowSchemaView({
           const targetPos = posRef.current[btnNext]
           if (targetPos) {
             const inp = getInputPort(targetPos)
-            if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 12)) {
+            const lane = laneYByConn.get(`btn:${step.id}:${btnNext}`)
+            if (isNearBezier(cx, cy, out.x, out.y, inp.x, inp.y, 12, lane)) {
               return { kind: 'button', fromStepId: step.id }
             }
           }
@@ -1324,7 +1374,7 @@ export default function FlowSchemaView({
       }
       return null
     },
-    [steps, selectedArrow, startMessage, endMessage, getEndStepIds]
+    [steps, selectedArrow, startMessage, endMessage, getEndStepIds, laneYByConn]
   )
 
   // Mouse handlers
@@ -2089,16 +2139,21 @@ export default function FlowSchemaView({
 
 // --- Drawing helpers ---
 
-// Bezier control points for a connection. Forward (target right of source)
-// uses a horizontal S-curve. Backward (target left of source) routes the
-// curve UNDER the cards via deep downward control points so loopbacks
-// don't share a horizontal channel with forward arrows.
+// Bezier control points for a connection.
+// - laneY provided: routes the curve through that exact lane Y (used for
+//   backward edges with assigned lanes so each loopback gets its own row).
+// - Forward arrow with no laneY: traditional horizontal S-curve.
+// - Backward arrow with no laneY (fallback): single deep drop under cards.
 function bezierCps(
   fromX: number,
   fromY: number,
   toX: number,
-  toY: number
+  toY: number,
+  laneY?: number
 ): readonly [number, number, number, number] {
+  if (laneY !== undefined) {
+    return [fromX + 60, laneY, toX - 60, laneY] as const
+  }
   const isBackward = toX < fromX
   if (isBackward) {
     const drop = NODE_H + 80
@@ -2113,9 +2168,10 @@ function bezierMid(
   fromX: number,
   fromY: number,
   toX: number,
-  toY: number
+  toY: number,
+  laneY?: number
 ): [number, number] {
-  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY)
+  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY, laneY)
   return [
     bezierPoint(fromX, c1x, c2x, toX, 0.5),
     bezierPoint(fromY, c1y, c2y, toY, 0.5),
@@ -2130,10 +2186,11 @@ function drawConnection(
   toY: number,
   label: string,
   isDraft: boolean,
-  color?: string
+  color?: string,
+  laneY?: number
 ) {
   const lineColor = color || '#FF9500'
-  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY)
+  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY, laneY)
 
   ctx.beginPath()
   ctx.strokeStyle = isDraft ? '#FF9500' : lineColor
@@ -2159,7 +2216,7 @@ function drawConnection(
 
   // Label
   if (label) {
-    const [mx, my] = bezierMid(fromX, fromY, toX, toY)
+    const [mx, my] = bezierMid(fromX, fromY, toX, toY, laneY)
     const midX = mx
     const midY = my - 10
     const display = label.length > 18 ? label.slice(0, 16) + '...' : label
@@ -2533,9 +2590,10 @@ function isNearBezier(
   fromY: number,
   toX: number,
   toY: number,
-  threshold: number
+  threshold: number,
+  laneY?: number
 ): boolean {
-  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY)
+  const [c1x, c1y, c2x, c2y] = bezierCps(fromX, fromY, toX, toY, laneY)
   for (let t = 0; t <= 1; t += 0.02) {
     const bx = bezierPoint(fromX, c1x, c2x, toX, t)
     const by = bezierPoint(fromY, c1y, c2y, toY, t)
