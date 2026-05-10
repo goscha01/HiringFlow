@@ -976,36 +976,19 @@ export default function FlowSchemaView({
     // built in the useMemo above. Within a step the button beats the
     // option to the same target; cross-step dupes are NOT removed.
     //
-    // Fan out at BOTH ends so multiple arrows from the same source or to
-    // the same target don't visually stack. Outbound fan at the source's
-    // OUT port, inbound fan at the target's IN port.
-    const outboundCounts = new Map<string, number>()
-    const inboundCounts = new Map<string, number>()
-    allConnections.forEach((c) => {
-      outboundCounts.set(c.sourceId, (outboundCounts.get(c.sourceId) ?? 0) + 1)
-      inboundCounts.set(c.targetId, (inboundCounts.get(c.targetId) ?? 0) + 1)
-    })
-    const outboundIndex = new Map<string, number>()
-    const inboundIndex = new Map<string, number>()
-    const fanSpread = 26
-
+    // All arrows leave from the single OUT port and arrive at the single
+    // IN port — same as End arrows — so visual convergence at both ends
+    // matches across all connection types. Where arrows would otherwise
+    // overlap (backward loopbacks), the lane-routing system below assigns
+    // each its own bezier path.
     for (const conn of allConnections) {
       const sourcePos = positions[conn.sourceId]
       const targetPos = positions[conn.targetId]
       if (!sourcePos || !targetPos) continue
       const out = getOutputPort(sourcePos)
       const inp = getInputPort(targetPos)
-
-      const outTotal = outboundCounts.get(conn.sourceId) ?? 1
-      const outIdx = outboundIndex.get(conn.sourceId) ?? 0
-      outboundIndex.set(conn.sourceId, outIdx + 1)
-      const inTotal = inboundCounts.get(conn.targetId) ?? 1
-      const inIdx = inboundIndex.get(conn.targetId) ?? 0
-      inboundIndex.set(conn.targetId, inIdx + 1)
-      const outYOff = outTotal > 1 ? (outIdx - (outTotal - 1) / 2) * fanSpread : 0
-      const inYOff = inTotal > 1 ? (inIdx - (inTotal - 1) / 2) * fanSpread : 0
-      const outAdjY = out.y + outYOff
-      const inpAdjY = inp.y + inYOff
+      const outAdjY = out.y
+      const inpAdjY = inp.y
 
       const isSelected =
         conn.kind === 'button'
