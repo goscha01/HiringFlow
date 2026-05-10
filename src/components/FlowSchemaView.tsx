@@ -985,10 +985,10 @@ export default function FlowSchemaView({
       const sourcePos = positions[conn.sourceId]
       const targetPos = positions[conn.targetId]
       if (!sourcePos || !targetPos) continue
+      // Every arrow attaches to the step's single OUT and IN ports — same
+      // point regardless of how many other arrows leave/enter the same node.
       const out = getOutputPort(sourcePos)
       const inp = getInputPort(targetPos)
-      const outAdjY = out.y
-      const inpAdjY = inp.y
 
       const isSelected =
         conn.kind === 'button'
@@ -997,13 +997,13 @@ export default function FlowSchemaView({
 
       const laneY = laneYByConn.get(connKey(conn))
 
-      drawConnection(ctx, out.x, outAdjY, inp.x, inpAdjY, conn.label, false, '#FF9500', laneY)
+      drawConnection(ctx, out.x, out.y, inp.x, inp.y, conn.label, false, '#FF9500', laneY)
 
-      const [midX, midY] = bezierMid(out.x, outAdjY, inp.x, inpAdjY, laneY)
+      const [midX, midY] = bezierMid(out.x, out.y, inp.x, inp.y, laneY)
 
       if (isSelected) {
-        drawDragHandle(ctx, inp.x, inpAdjY)
-        drawDragHandle(ctx, out.x, outAdjY)
+        drawDragHandle(ctx, inp.x, inp.y)
+        drawDragHandle(ctx, out.x, out.y)
         drawDeleteButton(ctx, midX, midY)
       } else {
         const portKey =
