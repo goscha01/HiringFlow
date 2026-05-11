@@ -29,6 +29,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
       recordingState: true, transcriptState: true,
       meetApiSyncedAt: true, attendanceSheetFileId: true,
+      driveRecordingFileId: true, driveGeminiNotesFileId: true, driveTranscriptFileId: true,
     },
   })
   await Promise.all(stale.map((m) => syncMeetingFromMeetApi(m).catch((err) =>
@@ -42,6 +43,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       id: true,
       meetingUri: true,
       meetingCode: true,
+      meetSpaceName: true,
       scheduledStart: true,
       scheduledEnd: true,
       actualStart: true,
@@ -57,6 +59,22 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       participants: true,
       confirmedAt: true,
       createdAt: true,
+      // Full artifact history (recordings made on prior reschedule URLs,
+      // multiple recordings when the host reopened the link, etc.). The
+      // single drive*FileId fields above only point at the "primary" pick —
+      // the UI uses this list to surface every recording/transcript/notes
+      // file we know about for the meeting.
+      artifacts: {
+        select: {
+          id: true,
+          kind: true,
+          driveFileId: true,
+          fileName: true,
+          meetSpaceName: true,
+          driveCreatedTime: true,
+        },
+        orderBy: { driveCreatedTime: 'asc' },
+      },
     },
   })
 

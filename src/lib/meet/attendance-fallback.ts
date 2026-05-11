@@ -62,6 +62,12 @@ export interface AttendanceSignal {
    * existence proves *someone* met but not *who*).
    */
   candidatePresent?: boolean
+  /**
+   * Every Drive file we found in the window for this signal source. Callers
+   * persist all of them into InterviewMeetingArtifact even though only one
+   * drives the lifecycle decision.
+   */
+  allFiles?: Array<{ id: string; name: string; createdAt: Date }>
 }
 
 export interface AttendanceRow {
@@ -87,9 +93,10 @@ interface DriveFile {
 }
 
 /**
- * Look for a "Notes by Gemini" doc whose creation time falls in the meeting's
- * window. Searches the cached Meet Recordings folder if known, otherwise
- * falls back to a global query.
+ * Look for "Notes by Gemini" docs whose creation time falls in the meeting's
+ * window. Returns ALL matches so callers can persist every artifact found;
+ * `findAttendanceForMeeting` separately picks the most recent for the
+ * lifecycle signal.
  */
 export async function findGeminiNotesForMeeting(
   client: OAuth2Client,
@@ -98,7 +105,7 @@ export async function findGeminiNotesForMeeting(
     windowStart: Date
     windowEnd: Date
   },
-): Promise<DriveFile | null> {
+): Promise<DriveFile[]> {
   // Drive's createdTime window — 1h before scheduled start through 4h after
   // scheduled end covers near-term timing skew + delayed Gemini finalization.
   const after = new Date(opts.windowStart.getTime() - 60 * 60 * 1000).toISOString()
@@ -117,14 +124,10 @@ export async function findGeminiNotesForMeeting(
   const res = await authedFetch(client, `${DRIVE_V3}/files?q=${q}&fields=${fields}&pageSize=10&orderBy=createdTime%20desc`)
   if (!res.ok) {
     console.warn('[attendance] Gemini Notes search failed', res.status)
-    return null
+    return []
   }
   const body = await res.json() as { files?: DriveFile[] }
-  const files = body.files ?? []
-  // First file in the window is the most recent — Gemini writes once per
-  // meeting (sometimes once mid-meeting + once at end; either is fine for
-  // "meeting happened" detection).
-  return files[0] ?? null
+  return body.files ?? []
 }
 
 /**
@@ -259,14 +262,22 @@ export async function findAttendanceForMeeting(
   }
 
   // 2. Gemini Notes — strongest "happened" signal we get for free when the
-  //    extension isn't enabled.
-  const notes = await findGeminiNotesForMeeting(client, opts).catch(() => null)
-  if (notes) {
+  //    extension isn't enabled. Return ALL files via allFiles so the caller
+  //    can archive every Notes doc it finds (multiple sessions on the same
+  //    link produce multiple docs).
+  const notes = await findGeminiNotesForMeeting(client, opts).catch(() => [] as DriveFile[])
+  if (notes.length > 0) {
+    const primary = notes[0]
     return {
       source: 'gemini_notes',
-      driveFileId: notes.id,
-      fileName: notes.name,
-      createdAt: notes.createdTime ? new Date(notes.createdTime) : new Date(),
+      driveFileId: primary.id,
+      fileName: primary.name,
+      createdAt: primary.createdTime ? new Date(primary.createdTime) : new Date(),
+      allFiles: notes.map((f) => ({
+        id: f.id,
+        name: f.name,
+        createdAt: f.createdTime ? new Date(f.createdTime) : new Date(),
+      })),
     }
   }
 

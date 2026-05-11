@@ -16,10 +16,20 @@ import {
 } from '@/lib/funnel-stages'
 import { ScheduleInterviewDialog } from './_ScheduleInterviewDialog'
 
+interface InterviewMeetingArtifact {
+  id: string
+  kind: 'recording' | 'transcript' | 'gemini_notes' | 'attendance_sheet' | string
+  driveFileId: string
+  fileName: string | null
+  meetSpaceName: string | null
+  driveCreatedTime: string
+}
+
 interface InterviewMeeting {
   id: string
   meetingUri: string
   meetingCode: string | null
+  meetSpaceName: string | null
   scheduledStart: string
   scheduledEnd: string
   actualStart: string | null
@@ -30,6 +40,7 @@ interface InterviewMeeting {
   transcriptState: string
   driveRecordingFileId: string | null
   driveTranscriptFileId: string | null
+  artifacts: InterviewMeetingArtifact[]
   participants: Array<{ email?: string; displayName?: string; joinTime?: string; leaveTime?: string }> | null
   confirmedAt: string | null
   cancelledAt: string | null
@@ -299,6 +310,42 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandid
                     </div>
                   </div>
                 )}
+                {(() => {
+                  // Additional recordings: every artifact of kind 'recording'
+                  // that isn't the primary. Surfaces both reschedule-orphans
+                  // (old Meet link recordings) and reopen-orphans (host opened
+                  // the same link again later).
+                  const extras = (m.artifacts || []).filter((a) => a.kind === 'recording' && a.driveFileId !== m.driveRecordingFileId)
+                  if (extras.length === 0) return null
+                  return (
+                    <div className="mt-3 rounded-[6px] border border-surface-border bg-grey-95/40 p-2 text-xs space-y-1">
+                      <div className="text-grey-40 font-medium">Other recordings on Drive ({extras.length})</div>
+                      {extras.map((a) => {
+                        const fromOldSpace = m.meetSpaceName && a.meetSpaceName && a.meetSpaceName !== m.meetSpaceName
+                        return (
+                          <div key={a.id} className="flex items-center gap-2 flex-wrap">
+                            <a
+                              href={`https://drive.google.com/file/d/${a.driveFileId}/view`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              {a.fileName || a.driveFileId.slice(0, 8)}
+                            </a>
+                            <span className="text-grey-40">
+                              {new Date(a.driveCreatedTime).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                            </span>
+                            {fromOldSpace && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                from prior Meet link
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
                 {m.transcriptState === 'ready' && m.driveTranscriptFileId && (
                   <div className="mt-1 flex items-center gap-3">
                     <a href={`/api/interview-meetings/${m.id}/transcript`} className="text-xs text-primary hover:underline" target="_blank" rel="noopener noreferrer">

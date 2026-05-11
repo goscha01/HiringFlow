@@ -15,6 +15,7 @@ import { fireMeetingScheduledAutomations, fireMeetingRescheduledAutomations, can
 import { meetIntegrationEnabled } from './meet/feature-flag'
 import { getSpaceByMeetingCode, parseMeetingCodeFromUrl, updateSpaceSettings } from './meet/google-meet'
 import { subscribeSpace, deleteSubscription } from './meet/workspace-events'
+import { archivePrimaryArtifacts } from './meet/artifacts'
 import { getAuthedClientForWorkspace, hasMeetScopes } from './google'
 
 export interface ProcessEventResult {
@@ -360,6 +361,21 @@ async function reconcileExternalMeetReschedule(
   } catch (err) {
     console.warn('[ReconcileReschedule] subscribeSpace (new) failed:', (err as Error).message)
   }
+
+  // Archive any artifacts that were already pinned to the OLD space before
+  // we wipe the primary pointers below. Without this step a recording made
+  // on the old link would be orphaned — no row in the DB would reference it.
+  // The child table preserves it with the old space tag so the candidate
+  // detail UI can still list it.
+  await archivePrimaryArtifacts(existing.id, {
+    driveRecordingFileId: existing.driveRecordingFileId,
+    driveTranscriptFileId: existing.driveTranscriptFileId,
+    driveGeminiNotesFileId: existing.driveGeminiNotesFileId,
+    attendanceSheetFileId: existing.attendanceSheetFileId,
+    meetSpaceName: existing.meetSpaceName,
+  }).catch((err) => {
+    console.warn('[ReconcileReschedule] archivePrimaryArtifacts failed (non-fatal):', (err as Error).message)
+  })
 
   await prisma.interviewMeeting.update({
     where: { id: existing.id },

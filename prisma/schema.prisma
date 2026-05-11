@@ -79,6 +79,7 @@ model Workspace {
   certnIntegration  CertnIntegration?
   backgroundChecks  BackgroundCheck[]
   extensionTokens   ExtensionToken[]
+  captureResponses  CaptureResponse[]
 
   @@map("workspaces")
 }
@@ -195,6 +196,13 @@ model InterviewMeeting {
   // Drive file id of the attendance-extension spreadsheet matched to this
   // meeting (when present + enabled).
   attendanceSheetFileId       String?   @map("attendance_sheet_file_id")
+  // Full history of every Drive artifact (recording, transcript, gemini notes,
+  // attendance sheet) we've discovered for this meeting. Reschedules that swap
+  // the Meet URL and second sessions on the same link both produce extra
+  // recordings; the legacy single-fileId columns above only point at one of
+  // them and the rest used to be orphaned. The child rows preserve full
+  // history including the meetSpaceName at the time of capture.
+  artifacts                   InterviewMeetingArtifact[]
   // Set when the candidate replies YES/CONFIRM to a before_meeting SMS
   // reminder (or any future channel that lands on this row). Null until
   // confirmation. Surfaced on the candidate detail page as a green pill.
@@ -205,6 +213,38 @@ model InterviewMeeting {
   @@index([workspaceId, sessionId])
   @@index([scheduledStart])
   @@map("interview_meetings")
+}
+
+// Every Drive artifact (recording / transcript / Gemini Notes / attendance
+// sheet) ever discovered for a meeting. One InterviewMeeting can accumulate
+// many rows here over its lifetime:
+//   - Calendar regenerating the Meet URL mid-reschedule (artifacts get tagged
+//     with the *old* meetSpaceName and remain reachable in the UI).
+//   - Multiple sessions opened on the same link (e.g. host rejoined an hour
+//     after the scheduled meeting ended; Drive creates a separate Recording
+//     file with a later createdTime).
+//
+// The denormalized `drive*FileId` pointers on InterviewMeeting still point at
+// one of these (the "primary" / latest), but the canonical artifact list lives
+// here.
+model InterviewMeetingArtifact {
+  id                 String           @id @default(uuid())
+  interviewMeetingId String           @map("interview_meeting_id")
+  meeting            InterviewMeeting @relation(fields: [interviewMeetingId], references: [id], onDelete: Cascade)
+  // 'recording' | 'transcript' | 'gemini_notes' | 'attendance_sheet'
+  kind               String
+  driveFileId        String           @map("drive_file_id")
+  fileName           String?          @map("file_name")
+  // Meet space at the moment the artifact was discovered. Survives later
+  // reschedule URL swaps so we can attribute each recording to the link it
+  // actually came from.
+  meetSpaceName      String?          @map("meet_space_name")
+  driveCreatedTime   DateTime         @map("drive_created_time")
+  discoveredAt       DateTime         @default(now()) @map("discovered_at")
+
+  @@unique([interviewMeetingId, driveFileId])
+  @@index([interviewMeetingId, kind])
+  @@map("interview_meeting_artifacts")
 }
 
 // Idempotency ledger for Pub/Sub-delivered Workspace Events. Each processed
@@ -235,8 +275,8 @@ model ExtensionToken {
   workspaceId String    @map("workspace_id")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tokenHash   String    @unique @map("token_hash") // SHA-256 hex of the bearer token
-  prefix      String    // First 12 chars of the plaintext, for revoke UI ("hfme_abc1...")
-  label       String?   // Optional human label; defaults to the user agent at creation
+  prefix      String // First 12 chars of the plaintext, for revoke UI ("hfme_abc1...")
+  label       String? // Optional human label; defaults to the user agent at creation
   createdById String?   @map("created_by_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   lastUsedAt  DateTime? @map("last_used_at")
@@ -314,85 +354,98 @@ model Picture {
 // ============ FLOWS ============
 
 model Flow {
-  id              String           @id @default(uuid())
-  workspaceId     String           @map("workspace_id")
-  workspace       Workspace        @relation(fields: [workspaceId], references: [id])
-  createdById     String           @map("created_by_id")
-  name            String
-  slug            String           @unique
-  isPublished     Boolean          @default(false) @map("is_published")
-  startMessage    String           @default("Welcome! Please complete the following steps.") @map("start_message")
-  endMessage      String           @default("Thank you for your participation!") @map("end_message")
-  branding        Json?
+  id                        String            @id @default(uuid())
+  workspaceId               String            @map("workspace_id")
+  workspace                 Workspace         @relation(fields: [workspaceId], references: [id])
+  createdById               String            @map("created_by_id")
+  name                      String
+  slug                      String            @unique
+  isPublished               Boolean           @default(false) @map("is_published")
+  startMessage              String            @default("Welcome! Please complete the following steps.") @map("start_message")
+  endMessage                String            @default("Thank you for your participation!") @map("end_message")
+  branding                  Json?
   // Per-flow timeouts (days/hours) consumed by the cron stalled detector.
   // Null → use the platform DEFAULT_TIMEOUTS in src/lib/candidate-status.ts.
   // Roles with longer hiring loops (e.g. specialty trades) can extend these
   // without affecting other flows in the same workspace.
-  videoInterviewTimeoutDays Int?    @map("video_interview_timeout_days")
-  trainingTimeoutDays       Int?    @map("training_timeout_days")
-  noShowTimeoutHours        Int?    @map("no_show_timeout_hours")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  steps           FlowStep[]
-  sessions        Session[]
-  ads             Ad[]
-  automationRules AutomationRule[]
+  videoInterviewTimeoutDays Int?              @map("video_interview_timeout_days")
+  trainingTimeoutDays       Int?              @map("training_timeout_days")
+  noShowTimeoutHours        Int?              @map("no_show_timeout_hours")
+  createdAt                 DateTime          @default(now()) @map("created_at")
+  steps                     FlowStep[]
+  sessions                  Session[]
+  ads                       Ad[]
+  automationRules           AutomationRule[]
+  captureResponses          CaptureResponse[]
 
   @@map("flows")
 }
 
 model Ad {
-  id          String    @id @default(uuid())
-  workspaceId String    @map("workspace_id")
-  workspace   Workspace @relation(fields: [workspaceId], references: [id])
-  createdById String    @map("created_by_id")
-  name        String
-  source      String // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other'
-  campaign    String?
-  flowId      String    @map("flow_id")
-  flow        Flow      @relation(fields: [flowId], references: [id])
-  slug        String    @unique
-  imageUrl    String?   @map("image_url")
-  placementUrl String?  @map("placement_url")
-  templateId  String?   @map("template_id")
-  template    AdTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  headline    String?
-  bodyText    String?   @map("body_text")
+  id           String      @id @default(uuid())
+  workspaceId  String      @map("workspace_id")
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id])
+  createdById  String      @map("created_by_id")
+  name         String
+  source       String // 'indeed' | 'facebook' | 'craigslist' | 'google' | 'linkedin' | 'other'
+  campaign     String?
+  flowId       String      @map("flow_id")
+  flow         Flow        @relation(fields: [flowId], references: [id])
+  slug         String      @unique
+  imageUrl     String?     @map("image_url")
+  placementUrl String?     @map("placement_url")
+  templateId   String?     @map("template_id")
+  template     AdTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  headline     String?
+  bodyText     String?     @map("body_text")
   requirements String?
-  benefits    String?
-  callToAction String?  @map("call_to_action")
-  notes       String?   // private — not shown on public landing page
-  isActive    Boolean   @default(true) @map("is_active")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  sessions    Session[]
+  benefits     String?
+  callToAction String?     @map("call_to_action")
+  notes        String? // private — not shown on public landing page
+  isActive     Boolean     @default(true) @map("is_active")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  sessions     Session[]
 
   @@map("ads")
 }
 
 model FlowStep {
-  id              String                @id @default(uuid())
-  flowId          String                @map("flow_id")
-  flow            Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  title           String
-  videoId         String?               @map("video_id")
-  video           Video?                @relation(fields: [videoId], references: [id])
-  questionText    String?               @map("question_text")
-  stepOrder       Int                   @default(0) @map("step_order")
-  stepType        String                @default("question") @map("step_type")
-  questionType    String                @default("single") @map("question_type")
-  formEnabled     Boolean               @default(false) @map("form_enabled")
-  formConfig      Json?                 @map("form_config")
-  infoContent     String?               @map("info_content")
-  buttonConfig    Json?                 @map("button_config")
-  combinedWithId  String?               @map("combined_with_id")
-  captionsEnabled Boolean               @default(false) @map("captions_enabled")
-  captionStyle    Json?                 @map("caption_style")
-  createdAt       DateTime              @default(now()) @map("created_at")
-  options         StepOption[]          @relation("StepOptions")
-  incomingOptions StepOption[]          @relation("NextStep")
-  answers         SessionAnswer[]
-  submissions     CandidateSubmission[]
-  sessions        Session[]             @relation("LastStep")
+  id               String                @id @default(uuid())
+  flowId           String                @map("flow_id")
+  flow             Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  title            String
+  videoId          String?               @map("video_id")
+  video            Video?                @relation(fields: [videoId], references: [id])
+  questionText     String?               @map("question_text")
+  stepOrder        Int                   @default(0) @map("step_order")
+  // Step kinds: 'question' (default) | 'form' | 'info' | 'submission' (legacy
+  // video-answer) | 'capture' (generic Capture Engine — audio/video/text/upload
+  // shape lives in captureConfig). Legacy 'submission' steps remain on the
+  // CandidateSubmission table and are NOT touched by the capture pipeline.
+  stepType         String                @default("question") @map("step_type")
+  questionType     String                @default("single") @map("question_type")
+  formEnabled      Boolean               @default(false) @map("form_enabled")
+  formConfig       Json?                 @map("form_config")
+  infoContent      String?               @map("info_content")
+  buttonConfig     Json?                 @map("button_config")
+  combinedWithId   String?               @map("combined_with_id")
+  captionsEnabled  Boolean               @default(false) @map("captions_enabled")
+  captionStyle     Json?                 @map("caption_style")
+  // Validated by parseCaptureConfig (src/lib/capture/capture-config.ts). Shape:
+  //   { mode, prompt, required, maxDurationSec?, minDurationSec?,
+  //     allowRetake, maxRetakes?, transcriptionEnabled, aiAnalysisEnabled }
+  // Only meaningful when stepType='capture'. Stored as JSON so the builder can
+  // evolve fields without per-column migrations; never trust raw JSON outside
+  // of the validator.
+  captureConfig    Json?                 @map("capture_config")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  options          StepOption[]          @relation("StepOptions")
+  incomingOptions  StepOption[]          @relation("NextStep")
+  answers          SessionAnswer[]
+  submissions      CandidateSubmission[]
+  captureResponses CaptureResponse[]
+  sessions         Session[]             @relation("LastStep")
 
   @@map("flow_steps")
 }
@@ -413,76 +466,77 @@ model StepOption {
 // ============ SESSIONS / CANDIDATES ============
 
 model Session {
-  id                   String                @id @default(uuid())
-  workspaceId          String                @map("workspace_id")
-  workspace            Workspace             @relation(fields: [workspaceId], references: [id])
-  flowId               String                @map("flow_id")
-  flow                 Flow                  @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  candidateName        String?               @map("candidate_name")
-  candidateEmail       String?               @map("candidate_email")
-  candidatePhone       String?               @map("candidate_phone")
-  formData             Json?                 @map("form_data")
-  startedAt            DateTime              @default(now()) @map("started_at")
-  finishedAt           DateTime?             @map("finished_at")
+  id                      String                 @id @default(uuid())
+  workspaceId             String                 @map("workspace_id")
+  workspace               Workspace              @relation(fields: [workspaceId], references: [id])
+  flowId                  String                 @map("flow_id")
+  flow                    Flow                   @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  candidateName           String?                @map("candidate_name")
+  candidateEmail          String?                @map("candidate_email")
+  candidatePhone          String?                @map("candidate_phone")
+  formData                Json?                  @map("form_data")
+  startedAt               DateTime               @default(now()) @map("started_at")
+  finishedAt              DateTime?              @map("finished_at")
   // Heartbeat — bumped whenever the candidate POSTs to a public flow / training
   // / quiz endpoint. Recruiters use this to see if a candidate is actively
   // engaging right now or has gone quiet. Distinct from `startedAt` (creation)
   // and `finishedAt` (flow completion) because it covers post-flow activity
   // like training and quiz progress.
-  lastActivityAt       DateTime?             @map("last_activity_at")
-  outcome              String? // 'completed' | 'passed' | 'failed' | 'abandoned'
-  pipelineStatus       String?               @map("pipeline_status")
+  lastActivityAt          DateTime?              @map("last_activity_at")
+  outcome                 String? // 'completed' | 'passed' | 'failed' | 'abandoned'
+  pipelineStatus          String?                @map("pipeline_status")
   // Status axis — orthogonal to pipelineStatus (which is the funnel STAGE id).
   // Lets a candidate sit at `stage='video_interview_sent'` with `status='stalled'`
   // so the board can hide them without losing the historical "where they got
   // to" signal. Enum: 'active' | 'waiting' | 'stalled' | 'nurture' | 'lost' |
   // 'hired'. Source of truth lives in src/lib/candidate-status.ts. Default is
   // 'active' so newly-created sessions show up in the active pool by default.
-  status               String                @default("active")
+  status                  String                 @default("active")
   // Structured drop-off / loss reason. Distinct from `rejectionReason` (which
   // stays as a recruiter-editable free-form note) — the enum is what
   // analytics groups by. Enum: see CandidateDispositionReason in
   // src/lib/candidate-status.ts. Nullable because most active candidates
   // don't have a reason.
-  dispositionReason    String?               @map("disposition_reason")
+  dispositionReason       String?                @map("disposition_reason")
   // Lifecycle stamps for the status transitions. Set by manual lifecycle
   // actions and by the cron stalled detector / no-show handler. Cleared on
   // reactivate. Used by analytics for time-in-state aggregations.
-  stalledAt            DateTime?             @map("stalled_at")
-  lostAt               DateTime?             @map("lost_at")
-  hiredAt              DateTime?             @map("hired_at")
+  stalledAt               DateTime?              @map("stalled_at")
+  lostAt                  DateTime?              @map("lost_at")
+  hiredAt                 DateTime?              @map("hired_at")
   // Free-form reason captured when a candidate lands in a Rejected-style
   // stage. Auto-set to 'No-show' by the no-show detection; otherwise editable
   // from the candidate page (predefined options + custom string).
-  rejectionReason      String?               @map("rejection_reason")
-  rejectionReasonAt    DateTime?             @map("rejection_reason_at")
+  rejectionReason         String?                @map("rejection_reason")
+  rejectionReasonAt       DateTime?              @map("rejection_reason_at")
   // Central automation kill-switch. When set, the automation guard blocks
   // every candidate-facing send for this session regardless of status, stage,
   // or trigger — see src/lib/automation-guard.ts. Set by the stalled/lost/
   // hired/archived lifecycle transitions and by manual operator halts /
   // compliance holds. Clearing reactivates automations.
-  automationsHaltedAt     DateTime? @map("automations_halted_at")
-  automationsHaltedReason String?   @map("automations_halted_reason")
-  lastStepId           String?               @map("last_step_id")
-  lastStep             FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
-  adId                 String?               @map("ad_id")
-  ad                   Ad?                   @relation(fields: [adId], references: [id])
-  campaign             String?
-  source               String?
+  automationsHaltedAt     DateTime?              @map("automations_halted_at")
+  automationsHaltedReason String?                @map("automations_halted_reason")
+  lastStepId              String?                @map("last_step_id")
+  lastStep                FlowStep?              @relation("LastStep", fields: [lastStepId], references: [id])
+  adId                    String?                @map("ad_id")
+  ad                      Ad?                    @relation(fields: [adId], references: [id])
+  campaign                String?
+  source                  String?
   // True when the candidate was created via the "Add candidate" modal
   // (recruiter-entered) rather than self-applying through a flow. Distinct
   // from `source`, which is now user-selectable (Indeed/Facebook/custom).
-  addedManually        Boolean               @default(false) @map("added_manually")
-  answers              SessionAnswer[]
-  submissions          CandidateSubmission[]
-  trainingEnrollments  TrainingEnrollment[]
-  trainingAccessTokens TrainingAccessToken[] @relation("AccessTokenSession")
-  schedulingEvents     SchedulingEvent[]
-  aiCalls              AICall[]
-  interviewMeetings    InterviewMeeting[]
-  notes                CandidateNote[]
-  backgroundChecks     BackgroundCheck[]
-  pipelineStatusChanges PipelineStatusChange[]
+  addedManually           Boolean                @default(false) @map("added_manually")
+  answers                 SessionAnswer[]
+  submissions             CandidateSubmission[]
+  trainingEnrollments     TrainingEnrollment[]
+  trainingAccessTokens    TrainingAccessToken[]  @relation("AccessTokenSession")
+  schedulingEvents        SchedulingEvent[]
+  aiCalls                 AICall[]
+  interviewMeetings       InterviewMeeting[]
+  notes                   CandidateNote[]
+  backgroundChecks        BackgroundCheck[]
+  pipelineStatusChanges   PipelineStatusChange[]
+  captureResponses        CaptureResponse[]
 
   // Composite index for the board's default "active candidates" filter and
   // for the cron stalled detector's per-workspace sweep — both query by
@@ -960,32 +1014,32 @@ model AutomationExecution {
 // ============ SCHEDULING ============
 
 model SchedulingConfig {
-  id                   String            @id @default(uuid())
-  workspaceId          String            @map("workspace_id")
-  workspace            Workspace         @relation(fields: [workspaceId], references: [id])
-  createdById          String            @map("created_by_id")
-  name                 String
-  provider             String            @default("calendly")
-  schedulingUrl        String            @map("scheduling_url")
+  id                  String            @id @default(uuid())
+  workspaceId         String            @map("workspace_id")
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id])
+  createdById         String            @map("created_by_id")
+  name                String
+  provider            String            @default("calendly")
+  schedulingUrl       String            @map("scheduling_url")
   // When true, the candidate redirect lands on the in-app HireFunnel booking
   // page (slot picker backed by Google FreeBusy). When false, the candidate
   // is 302'd to the pasted external URL (Calendly/Cal.com/etc.). Per-config
   // so a workspace can run both side-by-side.
-  useBuiltInScheduler  Boolean           @default(false) @map("use_built_in_scheduler")
+  useBuiltInScheduler Boolean           @default(false) @map("use_built_in_scheduler")
   // Validated via parseBookingRules (src/lib/scheduling/booking-rules.ts).
   // Shape: { durationMinutes, bufferBeforeMinutes, bufferAfterMinutes,
   // minNoticeHours, maxDaysOut, slotIntervalMinutes, workingHours }.
-  bookingRules         Json?             @map("booking_rules")
+  bookingRules        Json?             @map("booking_rules")
   // Optional override of GoogleIntegration.calendarId for FreeBusy/insert.
   // Defaults (null) to the integration's calendar.
-  calendarId           String?           @map("calendar_id")
-  isDefault            Boolean           @default(false) @map("is_default")
-  isActive             Boolean           @default(true) @map("is_active")
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @updatedAt @map("updated_at")
-  automationRules      AutomationRule[]
-  automationSteps      AutomationStep[]  @relation("StepSchedulingConfig")
-  events               SchedulingEvent[]
+  calendarId          String?           @map("calendar_id")
+  isDefault           Boolean           @default(false) @map("is_default")
+  isActive            Boolean           @default(true) @map("is_active")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  automationRules     AutomationRule[]
+  automationSteps     AutomationStep[]  @relation("StepSchedulingConfig")
+  events              SchedulingEvent[]
 
   @@map("scheduling_configs")
 }
@@ -1100,4 +1154,87 @@ model ProcessedCertnEvent {
   @@unique([workspaceId, certnEventId])
   @@index([processedAt])
   @@map("processed_certn_events")
+}
+
+// ============ CAPTURE RESPONSES (generic Capture Engine) ============
+// One CaptureResponse per (session, step, captureOrdinal). Generic across all
+// modes — audio / video / audio_video / text / upload / future ai_call. The
+// legacy CandidateSubmission table is preserved untouched; the two systems
+// coexist and the recruiter UI reads both. New capture flow steps
+// (stepType='capture') write here.
+//
+// Media is stored privately in S3 under a deterministic, tenant-scoped key:
+//   captures/{workspaceId}/{sessionId}/{stepId}/{captureResponseId}.{ext}
+// Playback is served via short-lived signed URLs through
+// GET /api/captures/[id]/playback — never via public bucket URLs.
+//
+// Status lifecycle:
+//   draft → uploading → uploaded → processing → processed
+//   failed is terminal and may be entered from uploading or processing.
+//   Phase 1 without transcription/AI: uploaded transitions directly to
+//   processed in capture-response.service.finalize.
+//
+// TODO(orphan-cleanup): a future cron should sweep:
+//   1) draft/uploading rows older than 24h (candidate abandoned upload mid-flow)
+//   2) failed rows older than 30d (audit window long enough for support)
+//   3) S3 objects under captures/* whose key has no matching DB row (presign
+//      issued, candidate uploaded, finalize never ran — leaks bytes only)
+// Not in Phase 1 scope; see src/lib/capture/capture-response.service.ts for
+// the corresponding service-level notes.
+model CaptureResponse {
+  id              String    @id @default(uuid())
+  workspaceId     String    @map("workspace_id")
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // FK to flows table — matches the existing convention used by FlowStep,
+  // Session, and AutomationRule (all of which carry both `flow_id` column
+  // and a Flow relation). Cascading the delete keeps capture rows in sync
+  // when a flow is removed, same as how FlowStep behaves.
+  flowId          String    @map("flow_id")
+  flow            Flow      @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  stepId          String    @map("step_id")
+  step            FlowStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  sessionId       String    @map("session_id")
+  session         Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  // 'text' | 'audio' | 'video' | 'audio_video' | 'upload' | 'ai_call'
+  // ai_call is reserved for future use; the dashboard review UI is designed
+  // so existing/future AI call records can surface here without a new table.
+  mode            String
+  prompt          String?
+  // Storage abstraction. 's3' for new uploads in Phase 1. Future values:
+  // 'vercel_blob' (legacy), 'external_url' (ai_call provider).
+  storageProvider String?   @map("storage_provider")
+  // Tenant-scoped, server-generated only. NEVER from client input. See
+  // buildCaptureStorageKey() in capture-storage.service.ts.
+  storageKey      String?   @map("storage_key")
+  mimeType        String?   @map("mime_type")
+  fileSizeBytes   Int?      @map("file_size_bytes")
+  durationSec     Float?    @map("duration_sec")
+  transcript      String?
+  aiSummary       String?   @map("ai_summary")
+  aiScore         Float?    @map("ai_score")
+  aiMetadata      Json?     @map("ai_metadata")
+  // Status lifecycle (see model header).
+  status          String    @default("draft")
+  errorMessage    String?   @map("error_message")
+  // Retake bookkeeping. captureOrdinal increments per (session, step) so we
+  // can keep prior takes without violating a single-row unique constraint
+  // while still being able to identify the "active" take (status='processed'
+  // with the highest ordinal — surfaced by capture-response.service).
+  captureOrdinal  Int       @default(1) @map("capture_ordinal")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([sessionId, stepId, captureOrdinal])
+  // Tenant-scoped read paths used by the recruiter list endpoint.
+  @@index([workspaceId, sessionId])
+  @@index([workspaceId, status])
+  // Recent-activity feed within a session, ordered newest-first.
+  @@index([workspaceId, sessionId, createdAt(sort: Desc)])
+  // Single-column indexes for FK joins / cascade traversals. Postgres uses
+  // these for cascade delete planning and for the cleanup cron's
+  // per-{flow,step,session} scans.
+  @@index([flowId])
+  @@index([stepId])
+  @@index([sessionId])
+  @@map("capture_responses")
 }

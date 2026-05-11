@@ -28,6 +28,7 @@ import { fetchUserInfo, getAuthedClientForWorkspace, hasSheetsScope } from '../g
 import { withWorkspaceMeetClient, listConferenceRecords, listParticipants, listRecordings, type Participant } from './google-meet'
 import { findMeetRecordingsFolderId, searchMeetRecordings, searchMeetTranscripts } from './google-drive'
 import { findAttendanceForMeeting, type AttendanceSignal } from './attendance-fallback'
+import { recordArtifact, recordArtifacts } from './artifacts'
 import { logSchedulingEvent } from '../scheduling'
 import { fireMeetingLifecycleAutomations } from '../automation'
 import { bumpSessionActivity } from '../session-activity'
@@ -51,8 +52,16 @@ type SyncableMeeting = Pick<InterviewMeeting,
   'id' | 'workspaceId' | 'sessionId' | 'meetSpaceName' |
   'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd' |
   'recordingState' | 'transcriptState' |
-  'meetApiSyncedAt' | 'attendanceSheetFileId'
+  'meetApiSyncedAt' | 'attendanceSheetFileId' |
+  'driveRecordingFileId' | 'driveGeminiNotesFileId' | 'driveTranscriptFileId'
 >
+
+// How long after scheduledEnd we keep doing artifact rescans, even when the
+// primary recording pointer is already set. Catches the case where a host
+// reopens the Meet link hours after the scheduled window and produces a
+// second recording in Drive (we want it in the artifact list so the UI can
+// show every recording, not just the first one we found).
+const ARTIFACT_RESCAN_WINDOW_MS = 24 * 60 * 60 * 1000
 
 function shouldSync(m: SyncableMeeting, extensionEnabled = false): boolean {
   if (m.actualEnd) {
@@ -73,6 +82,14 @@ function shouldSync(m: SyncableMeeting, extensionEnabled = false): boolean {
         if (m.meetApiSyncedAt && Date.now() - m.meetApiSyncedAt.getTime() < MIN_RESYNC_INTERVAL_MS) return false
         return true
       }
+    }
+    // Even after the recording is "ready", keep rescanning Drive for late
+    // artifacts (the host reopening the Meet link an hour later produces a
+    // second mp4 we'd otherwise miss). Bounded by ARTIFACT_RESCAN_WINDOW_MS
+    // and throttled by MIN_RESYNC_INTERVAL_MS so we don't hammer Drive.
+    if (m.scheduledEnd && Date.now() < m.scheduledEnd.getTime() + ARTIFACT_RESCAN_WINDOW_MS) {
+      if (m.meetApiSyncedAt && Date.now() - m.meetApiSyncedAt.getTime() < MIN_RESYNC_INTERVAL_MS) return false
+      return true
     }
     return false
   }
@@ -243,6 +260,7 @@ export async function syncWorkspaceMeetings(workspaceId: string): Promise<number
       scheduledStart: true, scheduledEnd: true, actualStart: true, actualEnd: true,
       recordingState: true, transcriptState: true,
       meetApiSyncedAt: true, attendanceSheetFileId: true,
+      driveRecordingFileId: true, driveGeminiNotesFileId: true, driveTranscriptFileId: true,
     },
   })
   const stale = candidates.filter((m) => shouldSync(m, extensionEnabled))
@@ -305,16 +323,37 @@ async function syncFromDriveRecording(
     candidateName: session.candidateName,
     createdAfter: new Date(start.getTime() - 60 * 60 * 1000),
     createdBefore: new Date(end.getTime() + 3 * 60 * 60 * 1000),
-    limit: 5,
+    limit: 10,
   }).catch((err) => {
     console.error('[meet-sync] searchMeetRecordings failed:', (err as Error).message)
     return []
   })
 
-  const chosen = candidates[0]
-  if (!chosen) return { updated: false, recordingFileId: null, createdAt: null }
+  if (candidates.length === 0) return { updated: false, recordingFileId: null, createdAt: null }
 
+  // Persist EVERY recording we found into the artifact table — handles the
+  // case where the host reopened the link and made a second recording, or
+  // where a reschedule URL swap left an older recording on the prior space.
+  await recordArtifacts(meeting.id, 'recording', candidates.map((f) => ({
+    driveFileId: f.id,
+    fileName: f.name,
+    meetSpaceName: meeting.meetSpaceName,
+    driveCreatedTime: f.createdTime ? new Date(f.createdTime) : new Date(),
+  }))).catch((err) => console.warn('[meet-sync] recordArtifacts(recording) failed:', (err as Error).message))
+
+  // Primary pointer policy: pick the longest-running recording (largest
+  // file) so the UI surfaces the "real" interview rather than e.g. a 30s
+  // post-meeting reopen. searchMeetRecordings returns mp4s only, so size is
+  // a fair proxy for length. Fall back to newest if sizes are missing.
+  const chosen = pickPrimaryRecording(candidates)
   const createdAt = chosen.createdTime ? new Date(chosen.createdTime) : new Date()
+
+  // Honor the legacy "write once" semantics for the primary pointer: don't
+  // overwrite an existing pick that the recruiter might be relying on. The
+  // artifact table above carries the rest of the recordings either way.
+  const isNewPrimary = !meeting.driveRecordingFileId
+  if (!isNewPrimary) return { updated: false, recordingFileId: meeting.driveRecordingFileId, createdAt }
+
   const data: Prisma.InterviewMeetingUpdateInput = {
     driveRecordingFileId: chosen.id,
     recordingState: 'ready',
@@ -332,6 +371,19 @@ async function syncFromDriveRecording(
   }
   await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
   return { updated: true, recordingFileId: chosen.id, createdAt }
+}
+
+/**
+ * Pick the "primary" recording from a set of candidates. Prefers the largest
+ * file (proxy for longest duration — the real interview rather than a host
+ * reopening the link briefly); falls back to newest if sizes are unavailable.
+ */
+function pickPrimaryRecording<T extends { id: string; size?: string; createdTime?: string }>(candidates: T[]): T {
+  const sized = candidates.filter((c) => c.size && /^\d+$/.test(c.size))
+  if (sized.length > 0) {
+    return sized.reduce((best, cur) => (Number(cur.size) > Number(best.size) ? cur : best))
+  }
+  return [...candidates].sort((a, b) => (b.createdTime || '').localeCompare(a.createdTime || ''))[0]
 }
 
 /**
@@ -363,14 +415,24 @@ async function syncFromDriveTranscript(
     candidateName: session.candidateName,
     createdAfter: new Date(start.getTime() - 60 * 60 * 1000),
     createdBefore: new Date(end.getTime() + 3 * 60 * 60 * 1000),
-    limit: 5,
+    limit: 10,
   }).catch((err) => {
     console.error('[meet-sync] searchMeetTranscripts failed:', (err as Error).message)
     return []
   })
-  const chosen = docs[0]
-  if (!chosen) return false
+  if (docs.length === 0) return false
 
+  // Record every transcript found — multiple can exist when the host reopened
+  // the link (each session generates its own transcript).
+  await recordArtifacts(meeting.id, 'transcript', docs.map((f) => ({
+    driveFileId: f.id,
+    fileName: f.name,
+    meetSpaceName: meeting.meetSpaceName,
+    driveCreatedTime: f.createdTime ? new Date(f.createdTime) : new Date(),
+  }))).catch((err) => console.warn('[meet-sync] recordArtifacts(transcript) failed:', (err as Error).message))
+
+  if (meeting.driveTranscriptFileId) return false
+  const chosen = docs[0]
   await prisma.interviewMeeting.update({
     where: { id: meeting.id },
     data: { driveTranscriptFileId: chosen.id, transcriptState: 'ready' },
@@ -422,7 +484,9 @@ async function ensureFolderId(
  * Returns true if any event was emitted (so the caller can record `updated`).
  */
 export type ApplyAttendanceMeeting = Pick<InterviewMeeting,
-  'id' | 'workspaceId' | 'sessionId' | 'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd'
+  'id' | 'workspaceId' | 'sessionId' | 'meetSpaceName' |
+  'scheduledStart' | 'scheduledEnd' | 'actualStart' | 'actualEnd' |
+  'driveGeminiNotesFileId' | 'attendanceSheetFileId'
 >
 export async function applyAttendanceSignal(
   meeting: ApplyAttendanceMeeting,
@@ -430,11 +494,37 @@ export async function applyAttendanceSignal(
   driveOutcome: { recordingFileId: string | null; createdAt: Date | null },
   opts: { extensionEnabled?: boolean } = {},
 ): Promise<boolean> {
-  // Persist file pointers so the UI can deep-link them, even if we don't end
-  // up emitting any lifecycle events from this run.
+  // Persist every file we found into the artifact table (full history),
+  // separately from the primary denormalized pointer below.
+  if (attendance?.allFiles && attendance.allFiles.length > 0) {
+    const kind: 'gemini_notes' | 'attendance_sheet' =
+      attendance.source === 'attendance_sheet' ? 'attendance_sheet' : 'gemini_notes'
+    await recordArtifacts(meeting.id, kind, attendance.allFiles.map((f) => ({
+      driveFileId: f.id,
+      fileName: f.name,
+      meetSpaceName: meeting.meetSpaceName,
+      driveCreatedTime: f.createdAt,
+    }))).catch((err) => console.warn(`[meet-sync] recordArtifacts(${kind}) failed:`, (err as Error).message))
+  } else if (attendance) {
+    await recordArtifact(meeting.id, attendance.source === 'attendance_sheet' ? 'attendance_sheet' : 'gemini_notes', {
+      driveFileId: attendance.driveFileId,
+      fileName: attendance.fileName,
+      meetSpaceName: meeting.meetSpaceName,
+      driveCreatedTime: attendance.createdAt,
+    }).catch((err) => console.warn('[meet-sync] recordArtifact (attendance) failed:', (err as Error).message))
+  }
+
+  // Persist primary pointers so the UI can deep-link them, even if we don't
+  // end up emitting any lifecycle events from this run. Write-once semantics
+  // — never overwrite a recruiter-relevant choice; the artifact table above
+  // carries the full history.
   const linkUpdate: Prisma.InterviewMeetingUpdateInput = {}
-  if (attendance?.source === 'gemini_notes') linkUpdate.driveGeminiNotesFileId = attendance.driveFileId
-  if (attendance?.source === 'attendance_sheet') linkUpdate.attendanceSheetFileId = attendance.driveFileId
+  if (attendance?.source === 'gemini_notes' && !meeting.driveGeminiNotesFileId) {
+    linkUpdate.driveGeminiNotesFileId = attendance.driveFileId
+  }
+  if (attendance?.source === 'attendance_sheet' && !meeting.attendanceSheetFileId) {
+    linkUpdate.attendanceSheetFileId = attendance.driveFileId
+  }
   if (Object.keys(linkUpdate).length > 0) {
     await prisma.interviewMeeting.update({ where: { id: meeting.id }, data: linkUpdate }).catch(() => {})
   }
@@ -486,6 +576,46 @@ export async function applyAttendanceSignal(
 
   // Anything that proves the meeting *occurred*: attendance sheet (any
   // present row), Gemini Notes, or a recording artifact.
+  //
+  // Gemini Notes alone is the weakest of these signals — opening the link
+  // before the meeting starts is enough to create a Notes doc, and a host
+  // testing the link post-no-show will spuriously revive the card. Reject
+  // a Gemini-only signal when either:
+  //   (a) a meeting_no_show event already exists for this meeting, OR
+  //   (b) the Notes doc was created BEFORE scheduledStart (it can only be a
+  //       pre-meeting link test, not the meeting itself).
+  const geminiOnly =
+    attendance?.source === 'gemini_notes' &&
+    !sheetSaysPresent &&
+    !recordingPresent
+  if (geminiOnly) {
+    const createdBeforeStart =
+      meeting.scheduledStart &&
+      attendance!.createdAt.getTime() < meeting.scheduledStart.getTime()
+    if (createdBeforeStart) {
+      console.log('[Meet] geminiNotes signal rejected (created before scheduledStart)', {
+        meetingId: meeting.id,
+        notesCreatedAt: attendance!.createdAt.toISOString(),
+        scheduledStart: meeting.scheduledStart?.toISOString(),
+      })
+      return false
+    }
+    const noShowExists = await prisma.schedulingEvent.findFirst({
+      where: {
+        sessionId: meeting.sessionId,
+        eventType: 'meeting_no_show',
+        metadata: { path: ['interviewMeetingId'], equals: meeting.id },
+      },
+      select: { id: true },
+    })
+    if (noShowExists) {
+      console.log('[Meet] geminiNotes signal rejected (no_show already logged)', {
+        meetingId: meeting.id,
+      })
+      return false
+    }
+  }
+
   const happened =
     sheetSaysPresent ||
     attendance?.source === 'gemini_notes' ||

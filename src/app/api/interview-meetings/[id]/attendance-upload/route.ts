@@ -41,8 +41,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     where: { id: params.id, workspaceId: ws.workspaceId },
     select: {
       id: true, workspaceId: true, sessionId: true,
+      meetSpaceName: true,
       scheduledStart: true, scheduledEnd: true,
       actualStart: true, actualEnd: true,
+      driveGeminiNotesFileId: true, attendanceSheetFileId: true,
     },
   })
   if (!meeting) return NextResponse.json({ error: 'Not found' }, { status: 404 })
