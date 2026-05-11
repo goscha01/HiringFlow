@@ -186,6 +186,8 @@ export function statusTransitionPatch(
   stalledAt?: Date | null
   lostAt?: Date | null
   hiredAt?: Date | null
+  automationsHaltedAt?: Date | null
+  automationsHaltedReason?: string | null
 } {
   const now = opts.now ?? new Date()
   const patch: ReturnType<typeof statusTransitionPatch> = { status: next }
@@ -199,12 +201,18 @@ export function statusTransitionPatch(
       patch.stalledAt = now
       patch.lostAt = null
       patch.hiredAt = null
+      // Halt downstream automations — pending QStash callbacks for this
+      // candidate hit the guard's halt check and skip. Central kill-switch.
+      patch.automationsHaltedAt = now
+      patch.automationsHaltedReason = `lifecycle:stalled:${opts.dispositionReason ?? 'manual'}`
       break
     case 'lost':
       patch.lostAt = now
       patch.hiredAt = null
       // Keep stalledAt — historically useful to know how long it sat stalled
       // before being declared lost. Cleared on reactivate.
+      patch.automationsHaltedAt = now
+      patch.automationsHaltedReason = `lifecycle:lost:${opts.dispositionReason ?? 'manual'}`
       break
     case 'hired':
       patch.hiredAt = now
@@ -214,16 +222,25 @@ export function statusTransitionPatch(
       // caller passed one explicitly (e.g. 'hired_elsewhere' would be lost,
       // not hired, but defensive null-out for the happy path).
       if (opts.dispositionReason === undefined) patch.dispositionReason = null
+      // Halt forward-moving automations for hired candidates. Rules that
+      // intentionally fire on hired (e.g. an offer-acceptance follow-up)
+      // must opt in via AutomationRule.allowedForStatuses.
+      patch.automationsHaltedAt = now
+      patch.automationsHaltedReason = 'lifecycle:hired'
       break
     case 'active':
     case 'waiting':
     case 'nurture':
-      // Reactivate-style transition — clear all the terminal stamps and the
+      // Reactivate-style transition — clear all the terminal stamps, the
       // disposition reason (unless the caller explicitly passed one, e.g. a
-      // recruiter moving to nurture with `hired_elsewhere`).
+      // recruiter moving to nurture with `hired_elsewhere`), AND the
+      // automation kill-switch. Reactivated candidates are eligible for
+      // automations again.
       patch.stalledAt = null
       patch.lostAt = null
       patch.hiredAt = null
+      patch.automationsHaltedAt = null
+      patch.automationsHaltedReason = null
       if (opts.dispositionReason === undefined) patch.dispositionReason = null
       break
   }

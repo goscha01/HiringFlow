@@ -94,6 +94,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       candidateEmail: testChannel === 'email' ? to : null,
       candidatePhone: testChannel === 'sms' ? to : null,
       candidateName,
+      // `source='test'` is the marker analytics/kanban/backfill filter on.
+      // The central guard treats source='test' sessions as eligible for the
+      // test-bypass (see executeStep) so the recruiter can render the
+      // email/SMS end-to-end without first satisfying lifecycle/stage gates.
       source: 'test',
       pipelineStatus,
       outcome,
@@ -146,8 +150,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   // trigger — renders template, sends email/SMS, writes AutomationExecution,
   // logs SchedulingEvent (if next step is scheduling), chains downstream rules.
   // ignoreActive=true so tests work on draft/inactive rules.
+  // bypassEligibilityForTest is honoured ONLY when session.source==='test'
+  // (the guard re-verifies that in executeStep). Without this bypass the
+  // test endpoint can't render bodies that depend on prerequisite state
+  // (e.g. a training_completed rule against a freshly-created test session
+  // with no enrollments).
   try {
-    await executeRule(rule.id, session.id, { ignoreActive: true })
+    await executeRule(rule.id, session.id, {
+      ignoreActive: true,
+      dispatchCtx: {
+        triggerType: rule.triggerType,
+        executionMode: 'manual_rerun',
+        actorUserId: ws.userId,
+        bypassEligibilityForTest: true,
+      },
+    })
   } catch (err) {
     return NextResponse.json({
       success: false,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { excludeTestSessions } from '@/lib/session-filters'
 
 export async function GET(request: NextRequest) {
   const ws = await getWorkspaceSession()
@@ -23,7 +24,12 @@ export async function GET(request: NextRequest) {
   const sourceParam = request.nextUrl.searchParams.get('source')
 
   const where: Record<string, unknown> = { workspaceId: ws.workspaceId }
-  const andClauses: Record<string, unknown>[] = []
+  // Exclude `source='test'` rows produced by the automation test endpoint
+  // from the kanban. They live in the same table as real candidates but are
+  // throwaway by design. Pushed into AND so it composes with any source
+  // filter the caller passes (a filter on `source='facebook'` would already
+  // exclude test rows naturally — this only matters for the default view).
+  const andClauses: Record<string, unknown>[] = [excludeTestSessions()]
 
   if (status && status !== 'all') {
     where.pipelineStatus = status

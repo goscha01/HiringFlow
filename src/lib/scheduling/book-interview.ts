@@ -288,7 +288,13 @@ export async function bookInterview(opts: BookInterviewOpts): Promise<BookInterv
   })
 
   await updatePipelineStatus(session.id, 'scheduled').catch(() => {})
-  await fireMeetingScheduledAutomations(session.id).catch((err) => {
+  await fireMeetingScheduledAutomations(session.id, {
+    // public bookings come from the candidate-facing flow link; operator
+    // bookings are recruiter-initiated. Both tag the downstream executions
+    // for the audit trail; lifecycle/prereq/stage guards apply identically.
+    executionMode: opts.source === 'public' ? 'public_trigger' : 'immediate',
+    actorUserId: opts.loggedBy ?? null,
+  }).catch((err) => {
     console.error('[bookInterview] fireMeetingScheduledAutomations failed:', err)
   })
 

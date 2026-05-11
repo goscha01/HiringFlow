@@ -46,6 +46,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { DEFAULT_TIMEOUTS, type CandidateDispositionReason } from '@/lib/candidate-status'
+import { excludeTestSessions } from '@/lib/session-filters'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
       where: {
         flowId: flow.id,
         status: 'active',
+        ...excludeTestSessions(),
         finishedAt: null,
         startedAt: { lt: cutoff },
       },
@@ -119,6 +121,7 @@ export async function GET(request: NextRequest) {
       where: {
         flowId: flow.id,
         status: 'active',
+        ...excludeTestSessions(),
         OR: [
           // (a) Unused access token older than the cutoff, no progressed
           // enrollment. Catches the common "automation sent training
@@ -163,6 +166,7 @@ export async function GET(request: NextRequest) {
       where: {
         flowId: flow.id,
         status: 'active',
+        ...excludeTestSessions(),
         trainingEnrollments: {
           some: {
             status: 'in_progress',
@@ -209,6 +213,7 @@ export async function GET(request: NextRequest) {
       where: {
         flowId: flow.id,
         status: 'active',
+        ...excludeTestSessions(),
         interviewMeetings: {
           some: {
             scheduledStart: { lt: cutoff },
@@ -272,5 +277,13 @@ function stalledPayload(now: Date, reason: CandidateDispositionReason) {
     status: 'stalled',
     dispositionReason: reason,
     stalledAt: now,
+    // Flip the central automation kill-switch in the same update so any
+    // queued QStash callbacks fired after this transition are blocked at
+    // the guard. Without this, a 24h-before reminder for a candidate the
+    // cron just flagged stalled would still go out — the cron flips status
+    // but doesn't reach into the queue. The guard's halt check skips the
+    // send and persists a `skipped_cancelled` row for the audit trail.
+    automationsHaltedAt: now,
+    automationsHaltedReason: `cron:stalled:${reason}`,
   }
 }

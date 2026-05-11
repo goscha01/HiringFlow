@@ -27,7 +27,7 @@ type EnrollmentProgress = {
  * POST  — Mark training as completed
  */
 export async function PATCH(request: NextRequest) {
-  const { enrollmentId, completedSections, currentLesson } = await request.json()
+  const { enrollmentId, accessToken, completedSections, currentLesson } = await request.json()
 
   if (!enrollmentId) {
     return NextResponse.json({ error: 'enrollmentId required' }, { status: 400 })
@@ -43,8 +43,25 @@ export async function PATCH(request: NextRequest) {
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${enrollmentId}::text, 0))`
 
-    const enrollment = await tx.trainingEnrollment.findUnique({ where: { id: enrollmentId } })
+    const enrollment = await tx.trainingEnrollment.findUnique({
+      where: { id: enrollmentId },
+      include: { accessToken: true },
+    })
     if (!enrollment) return { notFound: true as const }
+
+    // Token gate — see POST handler for the rationale. PATCH also accepts
+    // arbitrary `completedSections` from the client (line 62 below replaces
+    // the array wholesale), so an unauthenticated PATCH can either advance
+    // a candidate's progress OR clobber it back to an earlier state. Same
+    // signed-token check protects both directions.
+    if (enrollment.accessTokenId) {
+      if (typeof accessToken !== 'string' || !accessToken) {
+        return { unauthorized: true as const }
+      }
+      if (!enrollment.accessToken || enrollment.accessToken.token !== accessToken) {
+        return { unauthorized: true as const }
+      }
+    }
 
     const progress: EnrollmentProgress = (enrollment.progress as EnrollmentProgress) || { completedSections: [], quizScores: [] }
 
@@ -93,6 +110,7 @@ export async function PATCH(request: NextRequest) {
 
     return {
       notFound: false as const,
+      unauthorized: false as const,
       sessionId: enrollment.sessionId,
       trainingId: enrollment.trainingId,
       isCompleted,
@@ -101,15 +119,20 @@ export async function PATCH(request: NextRequest) {
     }
   })
 
-  if (result.notFound) {
+  if ('notFound' in result && result.notFound) {
     return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 })
+  }
+  if ('unauthorized' in result && result.unauthorized) {
+    return NextResponse.json({ error: 'invalid accessToken' }, { status: 401 })
   }
 
   // Route through the funnel-stage trigger only on initial progression so
   // we don't re-fire training_started for every section navigation post-
   // completion. Outside the transaction since it touches other rows.
   if (result.sessionId && !result.isCompleted) {
-    await fireTrainingStartedAutomations(result.sessionId, result.trainingId).catch(() => {})
+    await fireTrainingStartedAutomations(result.sessionId, result.trainingId, {
+      executionMode: 'public_trigger',
+    }).catch(() => {})
   }
 
   await bumpSessionActivity(result.sessionId)
@@ -118,7 +141,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { enrollmentId } = await request.json()
+  const { enrollmentId, accessToken } = await request.json()
 
   if (!enrollmentId) {
     return NextResponse.json({ error: 'enrollmentId required' }, { status: 400 })
@@ -126,10 +149,28 @@ export async function POST(request: NextRequest) {
 
   const enrollment = await prisma.trainingEnrollment.findUnique({
     where: { id: enrollmentId },
-    include: { training: true },
+    include: { training: true, accessToken: true },
   })
   if (!enrollment) {
     return NextResponse.json({ error: 'Enrollment not found' }, { status: 404 })
+  }
+
+  // Per-candidate token gate. The enrollment was created behind a signed
+  // training link (TrainingAccessToken), and the candidate's browser knows
+  // that token. Require it on the completion POST so a stale tab replay,
+  // prefetch, or external scanner that learns enrollmentId can't mark the
+  // training complete and fire downstream automations. Tokens that don't
+  // match (or weren't supplied) are rejected — the prior implementation
+  // accepted any caller who knew enrollmentId, which is how a session that
+  // never completed any section could end up triggering the
+  // `training_completed` rule chain.
+  if (enrollment.accessTokenId) {
+    if (typeof accessToken !== 'string' || !accessToken) {
+      return NextResponse.json({ error: 'accessToken required' }, { status: 401 })
+    }
+    if (!enrollment.accessToken || enrollment.accessToken.token !== accessToken) {
+      return NextResponse.json({ error: 'invalid accessToken' }, { status: 401 })
+    }
   }
 
   if (enrollment.status === 'completed') {
@@ -140,9 +181,13 @@ export async function POST(request: NextRequest) {
 
   console.log(`[Training] Enrollment ${enrollmentId} completed for training ${enrollment.training.title}`)
 
-  // Fire training_completed automations (e.g., send scheduling email)
+  // Fire training_completed automations (e.g., send scheduling email).
+  // executionMode='public_trigger' so the audit trail shows the public
+  // POST as the producer of any downstream skipped/sent executions.
   if (enrollment.sessionId) {
-    await fireTrainingCompletedAutomations(enrollment.sessionId, enrollment.trainingId)
+    await fireTrainingCompletedAutomations(enrollment.sessionId, enrollment.trainingId, {
+      executionMode: 'public_trigger',
+    })
   }
 
   await bumpSessionActivity(enrollment.sessionId)

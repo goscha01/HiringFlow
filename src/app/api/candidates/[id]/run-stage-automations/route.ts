@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getWorkspaceSession, unauthorized } from '@/lib/auth'
+import { getWorkspaceSession, unauthorized, forbidden } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { executeRule } from '@/lib/automation'
 import { normalizeStages, type StageTriggerEvent } from '@/lib/funnel-stages'
+
+// Workspace roles authorised to issue manual reruns. Manual reruns can create
+// real-world sends (emails, SMS, Certn orders) and are billed; they are a
+// privileged operation and a plain workspace member should not be able to
+// re-fire automations against a candidate. Super admins are always allowed.
+const RERUN_ADMIN_ROLES = new Set(['admin', 'owner'])
 
 // Manually fire all automations attached (via funnel-stage triggers) to a
 // given stage, for one candidate. Each stage has zero or more StageTriggers
@@ -94,9 +100,24 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   // ruleId is optional — when set, fire only that one rule (still must be in
   // the stage's matched set, so the UI can't fire arbitrary rules through
   // this endpoint). When omitted, fall back to firing every matched rule.
-  const { stageId, ruleId } = await request.json().catch(() => ({})) as { stageId?: string; ruleId?: string }
+  // `force=true` bypasses the duplicate-send guard so a manual rerun can
+  // resend a step that already fired automatically. force REQUIRES an admin
+  // or owner role (or super admin) — a plain workspace member cannot create
+  // real-world sends/costs by re-triggering. force is the ONLY guard check
+  // it bypasses; lifecycle/stage/prerequisite/halt checks remain
+  // authoritative through the central guard (src/lib/automation-guard.ts).
+  const { stageId, ruleId, force } = (await request.json().catch(() => ({}))) as {
+    stageId?: string
+    ruleId?: string
+    force?: boolean
+  }
   if (!stageId || typeof stageId !== 'string') {
     return NextResponse.json({ error: 'stageId is required' }, { status: 400 })
+  }
+
+  const isAdminLike = ws.isSuperAdmin || RERUN_ADMIN_ROLES.has(ws.role)
+  if (force === true && !isAdminLike) {
+    return forbidden()
   }
 
   const session = await prisma.session.findFirst({
@@ -123,10 +144,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const results: Array<{ ruleId: string; name: string; ok: boolean; error?: string }> = []
   for (const rule of rules) {
     try {
-      // Manual run = recruiter intent to send now. Bypass the per-step
-      // "already sent" guard so a re-trigger actually re-sends instead of
-      // silently no-opping when the rule already fired automatically.
-      await executeRule(rule.id, session.id, { ignoreSentGuard: true })
+      // Manual run = recruiter intent to send now. The central guard re-loads
+      // session state and only honours `force` for executionMode='manual_rerun'.
+      // Without force the duplicate-send guard still applies — a manual rerun
+      // of an already-sent step is silently a no-op unless an admin opted in.
+      await executeRule(rule.id, session.id, {
+        force: force === true,
+        dispatchCtx: {
+          triggerType: rule.triggerType,
+          executionMode: 'manual_rerun',
+          actorUserId: ws.userId,
+          force: force === true,
+        },
+      })
       results.push({ ruleId: rule.id, name: rule.name, ok: true })
     } catch (err) {
       results.push({

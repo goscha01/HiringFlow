@@ -408,17 +408,21 @@ export default function TrainingPage() {
       })
   }, [slug, token, preview, previewSectionId])
 
-  // Save progress to backend
+  // Save progress to backend. The `accessToken` field is the per-candidate
+  // signed token from the URL — the backend uses it to verify the caller has
+  // the candidate's invitation link before allowing a state change. Without
+  // it, anyone who learns the enrollmentId (e.g. via a prefetch or shared
+  // URL) could mark training complete and fire downstream automations.
   const saveProgress = useCallback(async (sections: string[]) => {
     if (!training?.enrollmentId) return
     try {
       await fetch(`/api/public/trainings/${slug}/progress`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enrollmentId: training.enrollmentId, completedSections: sections }),
+        body: JSON.stringify({ enrollmentId: training.enrollmentId, accessToken: token, completedSections: sections }),
       })
     } catch { /* silent */ }
-  }, [training?.enrollmentId, slug])
+  }, [training?.enrollmentId, slug, token])
 
   // Position ping — tells the backend which lesson the candidate is currently
   // on so the recruiter dashboard can show "Section X · Lesson Y" before the
@@ -432,11 +436,12 @@ export default function TrainingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enrollmentId: training.enrollmentId,
+          accessToken: token,
           currentLesson: { sectionId, lessonIdx },
         }),
       })
     } catch { /* silent */ }
-  }, [training?.enrollmentId, slug])
+  }, [training?.enrollmentId, slug, token])
 
   // Tell the backend which lesson the candidate is sitting on now. Fires on
   // every section/content change while in active-learning view. Skipped on
@@ -448,17 +453,20 @@ export default function TrainingPage() {
     pingLesson(s.id, contentIdx)
   }, [started, sectionIdx, contentIdx, training, pingLesson])
 
-  // Mark training completed on backend
+  // Mark training completed on backend. accessToken is sent for the same
+  // reason as on saveProgress — the backend treats this as a privileged
+  // operation that fires downstream automations and refuses callers that
+  // can't prove they have the candidate's invitation link.
   const markCompleted = useCallback(async () => {
     if (!training?.enrollmentId) return
     try {
       await fetch(`/api/public/trainings/${slug}/progress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enrollmentId: training.enrollmentId }),
+        body: JSON.stringify({ enrollmentId: training.enrollmentId, accessToken: token }),
       })
     } catch { /* silent */ }
-  }, [training?.enrollmentId, slug])
+  }, [training?.enrollmentId, slug, token])
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-[#F7F7F8]"><div className="w-8 h-8 border-3 border-[#FF9500] border-t-transparent rounded-full animate-spin" /></div>
 

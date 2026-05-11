@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import type { CandidateStatus, CandidateDispositionReason } from './candidate-status'
+import { excludeTestSessions } from './session-filters'
 
 export interface DateFilter {
   from?: Date
@@ -18,9 +19,11 @@ function dateWhere(filter?: DateFilter) {
 
 /**
  * Funnel metrics — session-based counts through each pipeline stage.
+ * Test-source sessions are excluded (see src/lib/session-filters.ts) so
+ * recruiter analytics reflect real candidates, not test sends.
  */
 export async function getFunnelMetrics(workspaceId: string, filter?: DateFilter) {
-  const where = { workspaceId, ...dateWhere(filter) }
+  const where = { workspaceId, ...excludeTestSessions(), ...dateWhere(filter) }
 
   const [
     started,
@@ -47,7 +50,7 @@ export async function getFunnelMetrics(workspaceId: string, filter?: DateFilter)
  * Source metrics — grouped by session.source (from Ad attribution or direct).
  */
 export async function getSourceMetrics(workspaceId: string, filter?: DateFilter) {
-  const where = { workspaceId, ...dateWhere(filter) }
+  const where = { workspaceId, ...excludeTestSessions(), ...dateWhere(filter) }
 
   const sessions = await prisma.session.groupBy({
     by: ['source'],
@@ -92,7 +95,7 @@ export async function getAdMetrics(workspaceId: string, filter?: DateFilter) {
 
   const metrics = await Promise.all(
     ads.map(async (ad) => {
-      const adWhere = { workspaceId, adId: ad.id, ...dateFilter }
+      const adWhere = { workspaceId, adId: ad.id, ...excludeTestSessions(), ...dateFilter }
 
       const [started, completed, passed, trainingCompleted, invitedToSchedule, scheduled] = await Promise.all([
         prisma.session.count({ where: adWhere }),
@@ -118,7 +121,7 @@ export async function getAdMetrics(workspaceId: string, filter?: DateFilter) {
   )
 
   // Also add "Direct" (no ad) entry
-  const directWhere = { workspaceId, adId: null as string | null, ...dateFilter }
+  const directWhere = { workspaceId, adId: null as string | null, ...excludeTestSessions(), ...dateFilter }
   const [dStarted, dCompleted, dPassed, dTrainingCompleted, dInvited, dScheduled] = await Promise.all([
     prisma.session.count({ where: directWhere }),
     prisma.session.count({ where: { ...directWhere, outcome: { in: ['completed', 'passed'] } } }),
@@ -160,7 +163,7 @@ export async function getAdMetrics(workspaceId: string, filter?: DateFilter) {
  * stages). Analytics UI computes that client-side from the funnel data.
  */
 export async function getStatusMetrics(workspaceId: string, filter?: DateFilter) {
-  const where = { workspaceId, ...dateWhere(filter) }
+  const where = { workspaceId, ...excludeTestSessions(), ...dateWhere(filter) }
 
   const [byStatus, lostByReason, stalledByReason, reactivated] = await Promise.all([
     prisma.session.groupBy({

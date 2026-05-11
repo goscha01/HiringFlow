@@ -5,6 +5,7 @@ import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { applyStageTrigger } from './funnel-stage-runtime'
 import { Client } from '@upstash/qstash'
+import { canExecuteAutomationStep, recordSkip, type ExecutionMode } from './automation-guard'
 
 const qstashToken = process.env.QSTASH_TOKEN
 const qstash = qstashToken
@@ -34,7 +35,15 @@ const PRE_MEETING_TRIGGERS = new Set([
   'training_completed',
 ])
 
-export async function fireAutomations(sessionId: string, outcome: string) {
+/**
+ * Top-level "fire" functions accept an optional `dispatchOptions` so the
+ * caller can stamp executionMode (public_trigger / cron / etc.) on every
+ * downstream execution. Default is `immediate` (synchronous trigger from
+ * an inline lifecycle event).
+ */
+type FireDispatchOptions = { executionMode?: ExecutionMode; actorUserId?: string | null }
+
+export async function fireAutomations(sessionId: string, outcome: string, opts?: FireDispatchOptions) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
@@ -54,13 +63,20 @@ export async function fireAutomations(sessionId: string, outcome: string) {
       legacyStatus,
     }).catch(() => updatePipelineStatus(sessionId, legacyStatus).catch(() => {}))
 
-    await dispatchRulesForTrigger(sessionId, triggerType, session)
+    await dispatchRulesForTrigger(sessionId, triggerType, session, {
+      executionMode: opts?.executionMode,
+      actorUserId: opts?.actorUserId,
+    })
   } catch (error) {
     console.error('[Automation] Error firing automations for session', sessionId, ':', error)
   }
 }
 
-export async function fireTrainingCompletedAutomations(sessionId: string, trainingId?: string) {
+export async function fireTrainingCompletedAutomations(
+  sessionId: string,
+  trainingId?: string,
+  opts?: FireDispatchOptions,
+) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
@@ -85,13 +101,21 @@ export async function fireTrainingCompletedAutomations(sessionId: string, traini
       reason: 'Training was completed before this step fired',
     }).catch((err) => console.error('[Automation] cancel post-training-completed follow-ups failed:', err))
 
-    await dispatchRulesForTrigger(sessionId, 'training_completed', session, { trainingId })
+    await dispatchRulesForTrigger(sessionId, 'training_completed', session, {
+      trainingId,
+      executionMode: opts?.executionMode,
+      actorUserId: opts?.actorUserId,
+    })
   } catch (error) {
     console.error('[Automation] Error firing training_completed automations for session', sessionId, ':', error)
   }
 }
 
-export async function fireTrainingStartedAutomations(sessionId: string, trainingId: string) {
+export async function fireTrainingStartedAutomations(
+  sessionId: string,
+  trainingId: string,
+  opts?: FireDispatchOptions,
+) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
@@ -113,13 +137,17 @@ export async function fireTrainingStartedAutomations(sessionId: string, training
       reason: 'Training was started before this step fired',
     }).catch((err) => console.error('[Automation] cancel post-training-started follow-ups failed:', err))
 
-    await dispatchRulesForTrigger(sessionId, 'training_started', session, { trainingId })
+    await dispatchRulesForTrigger(sessionId, 'training_started', session, {
+      trainingId,
+      executionMode: opts?.executionMode,
+      actorUserId: opts?.actorUserId,
+    })
   } catch (error) {
     console.error('[Automation] Error firing training_started for session', sessionId, ':', error)
   }
 }
 
-export async function fireMeetingScheduledAutomations(sessionId: string) {
+export async function fireMeetingScheduledAutomations(sessionId: string, opts?: FireDispatchOptions) {
   try {
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
@@ -139,7 +167,10 @@ export async function fireMeetingScheduledAutomations(sessionId: string) {
       ruleTriggerTypes: PRE_MEETING_TRIGGERS,
     }).catch((err) => console.error('[Automation] cancel pre-meeting follow-ups failed:', err))
 
-    await dispatchRulesForTrigger(sessionId, 'meeting_scheduled', session)
+    await dispatchRulesForTrigger(sessionId, 'meeting_scheduled', session, {
+      executionMode: opts?.executionMode,
+      actorUserId: opts?.actorUserId,
+    })
 
     const upcoming = await prisma.interviewMeeting.findFirst({
       where: { sessionId },
@@ -325,14 +356,18 @@ async function reScheduleMeetingRelativeSteps(sessionId: string) {
       triggerType: { in: ['meeting_scheduled', 'meeting_started', 'meeting_ended', 'recording_ready'] },
       steps: { some: { timingMode: { in: ['before_meeting', 'after_meeting'] } } },
     },
-    select: { id: true, steps: { orderBy: { order: 'asc' } } },
+    select: { id: true, triggerType: true, steps: { orderBy: { order: 'asc' } } },
   })
   for (const rule of rules) {
+    const ctx: DispatchContext = {
+      triggerType: rule.triggerType,
+      executionMode: 'immediate',
+    }
     for (const step of rule.steps) {
       if (step.timingMode !== 'before_meeting' && step.timingMode !== 'after_meeting') continue
       // dispatchStep's upsert respects already-sent rows, so this is safe to
       // call again after a reschedule.
-      await dispatchStep(rule.id, step, sessionId).catch((err) => {
+      await dispatchStep(rule.id, step, sessionId, ctx).catch((err) => {
         console.error('[Automation] re-schedule of meeting-relative step failed:', err)
       })
     }
@@ -411,6 +446,9 @@ export async function fireMeetingLifecycleAutomations(
         // free-form rejectionReason (for the existing red pill / manual
         // edit) AND the new structured status axis so analytics can group
         // by the disposition enum without parsing free-form strings.
+        // Also halt downstream automations (e.g. an "interview tomorrow!"
+        // reminder still queued for this candidate) via the central
+        // kill-switch.
         const now = new Date()
         await prisma.session.update({
           where: { id: sessionId },
@@ -420,6 +458,8 @@ export async function fireMeetingLifecycleAutomations(
             status: 'lost',
             dispositionReason: 'interview_no_show',
             lostAt: now,
+            automationsHaltedAt: now,
+            automationsHaltedReason: 'lifecycle:meeting_no_show',
           },
         }).catch((err) => console.error('[Automation] failed to stamp rejection / lost fields', err))
       }
@@ -427,14 +467,18 @@ export async function fireMeetingLifecycleAutomations(
 
     if (trigger === 'recording_ready') {
       // Release any executions that were waiting on the recording. Each row
-      // represents one (step, channel) pair that should now run.
+      // represents one (step, channel) pair that should now run. The guard
+      // re-evaluates eligibility — a candidate who became stalled/lost
+      // between meeting_ended and recording_ready is now safely blocked.
       const pending = await prisma.automationExecution.findMany({
         where: { sessionId, status: 'waiting_for_recording' },
         select: { id: true, stepId: true, channel: true },
       })
       for (const e of pending) {
         if (!e.stepId) continue
-        await executeStep(e.stepId, sessionId, e.channel as 'email' | 'sms').catch((err) =>
+        await executeStep(e.stepId, sessionId, e.channel as 'email' | 'sms', {
+          dispatchCtx: { triggerType: 'recording_ready', executionMode: 'delayed_callback' },
+        }).catch((err) =>
           console.error('[Automation] waiting release failed', e.id, err))
       }
     }
@@ -456,6 +500,10 @@ export async function fireMeetingLifecycleAutomations(
           steps: { orderBy: { order: 'asc' } },
         },
       })
+      const meetingEndedCtx: DispatchContext = {
+        triggerType: 'meeting_ended',
+        executionMode: 'immediate',
+      }
       for (const rule of rules) {
         if (rule.steps.length === 0) continue
         if (rule.waitForRecording) {
@@ -470,14 +518,15 @@ export async function fireMeetingLifecycleAutomations(
               channel,
               status: 'waiting_for_recording',
               scheduledFor: cutoff,
+              executionMode: 'immediate',
             })
           }
           // Subsequent steps still queue at their delays (they don't wait).
           for (let i = 1; i < rule.steps.length; i++) {
-            await dispatchStep(rule.id, rule.steps[i], sessionId)
+            await dispatchStep(rule.id, rule.steps[i], sessionId, meetingEndedCtx)
           }
         } else {
-          await dispatchRule(rule.id, sessionId)
+          await dispatchRule(rule.id, sessionId, meetingEndedCtx)
         }
       }
       return
@@ -558,11 +607,36 @@ export async function cancelMeetingDependentFollowups(sessionId: string): Promis
   })
 }
 
+/**
+ * Carries through dispatch so the guard at execution time has the same
+ * trigger context the dispatcher used to select the rule, plus the
+ * executionMode so we can audit *how* the row was produced.
+ */
+type DispatchContext = {
+  triggerType: string
+  executionMode: ExecutionMode
+  triggerContext?: Record<string, unknown>
+  actorUserId?: string | null
+  /**
+   * Admin-only force override. Only honoured for executionMode in
+   * {manual_rerun, debug} and bypasses only the duplicate-send guard.
+   * Lifecycle / stage / prerequisite / halt checks remain authoritative.
+   */
+  force?: boolean
+  /**
+   * Test-mode short-circuit for the `/api/automations/[id]/test` endpoint.
+   * Tests create throwaway sessions with `source='test'` and need to bypass
+   * the lifecycle/stage/prerequisite gates to render the email/SMS body
+   * end-to-end. Honoured only when the session.source === 'test'.
+   */
+  bypassEligibilityForTest?: boolean
+}
+
 async function dispatchRulesForTrigger(
   sessionId: string,
   triggerType: string,
   session: SessionCtx,
-  ctx: { trainingId?: string | null } = {},
+  ctx: { trainingId?: string | null; executionMode?: ExecutionMode; actorUserId?: string | null } = {},
 ) {
   // Rules can be scoped by flowId AND by trainingId (each nullable on the
   // rule for "any"). For training-* triggers, we must filter on trainingId
@@ -587,8 +661,14 @@ async function dispatchRulesForTrigger(
   })
   if (rules.length === 0) return
   console.log(`[Automation] Dispatching ${rules.length} rules for session ${sessionId} (${triggerType})`)
+  const dispatchCtx: DispatchContext = {
+    triggerType,
+    executionMode: ctx.executionMode ?? 'immediate',
+    triggerContext: ctx.trainingId ? { trainingId: ctx.trainingId } : undefined,
+    actorUserId: ctx.actorUserId ?? null,
+  }
   for (const rule of rules) {
-    await dispatchRule(rule.id, sessionId)
+    await dispatchRule(rule.id, sessionId, dispatchCtx)
   }
 }
 
@@ -602,11 +682,12 @@ async function dispatchRulesForTrigger(
  * to the trigger event, so step 0 at delay=0 fires immediately, step 1 at
  * delay=60 fires 1h after the trigger regardless of whether step 0 succeeded.
  */
-export async function dispatchRule(ruleId: string, sessionId: string) {
+export async function dispatchRule(ruleId: string, sessionId: string, ctx?: DispatchContext) {
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
     select: {
       id: true,
+      triggerType: true,
       steps: { orderBy: { order: 'asc' } },
     },
   })
@@ -615,8 +696,14 @@ export async function dispatchRule(ruleId: string, sessionId: string) {
     console.warn(`[Automation] Rule ${ruleId} has no steps configured — skipping`)
     return
   }
+  // Default the trigger type to the rule's own when the caller didn't
+  // supply one (e.g. legacy QStash callbacks with the rule-shape payload).
+  const dispatchCtx: DispatchContext = ctx ?? {
+    triggerType: rule.triggerType,
+    executionMode: 'immediate',
+  }
   for (const step of rule.steps) {
-    await dispatchStep(rule.id, step, sessionId)
+    await dispatchStep(rule.id, step, sessionId, dispatchCtx)
   }
 }
 
@@ -639,6 +726,7 @@ async function dispatchStep(
   ruleId: string,
   step: { id: string; delayMinutes: number; channel: string; timingMode?: string | null },
   sessionId: string,
+  ctx: DispatchContext,
 ) {
   const channels = expandChannels(step.channel)
   const mode = step.timingMode || 'trigger'
@@ -694,9 +782,9 @@ async function dispatchStep(
 
   for (const channel of channels) {
     if (delaySeconds > 0 && qstash) {
-      await queueStepAtDelay(ruleId, step.id, sessionId, channel, delaySeconds)
+      await queueStepAtDelay(ruleId, step.id, sessionId, channel, delaySeconds, ctx)
     } else {
-      await executeStep(step.id, sessionId, channel)
+      await executeStep(step.id, sessionId, channel, { dispatchCtx: ctx })
     }
   }
 }
@@ -722,6 +810,15 @@ async function upsertExecution(opts: {
   channel: 'email' | 'sms'
   status: string
   scheduledFor?: Date | null
+  executionMode?: ExecutionMode
+  /**
+   * When true, clear `qstashMessageId` (the caller has just deleted the old
+   * QStash message and is about to publish a fresh one). When false, the
+   * existing messageId is preserved so a transient re-entry (e.g. a stale
+   * callback) does not lose the live message id — that was the pre-fix
+   * behaviour that left orphan QStash messages firing with no DB pointer.
+   */
+  resetQueueState?: boolean
 }) {
   const existing = await prisma.automationExecution.findUnique({
     where: {
@@ -738,8 +835,16 @@ async function upsertExecution(opts: {
       data: {
         status: opts.status,
         scheduledFor: opts.scheduledFor ?? null,
-        errorMessage: null,
-        qstashMessageId: null,
+        // Only blank these when the caller is explicitly resetting the
+        // queued state (e.g. queueStepAtDelay after deleting the old
+        // QStash msg). Otherwise keep them — a re-entry without a queue
+        // reset must not orphan the QStash message or lose error context.
+        ...(opts.resetQueueState
+          ? { errorMessage: null, qstashMessageId: null }
+          : {}),
+        // executionMode is upserted whenever the caller provides one so
+        // we capture which path actually produced the current state.
+        ...(opts.executionMode ? { executionMode: opts.executionMode } : {}),
       },
     })
   }
@@ -751,6 +856,7 @@ async function upsertExecution(opts: {
       channel: opts.channel,
       status: opts.status,
       scheduledFor: opts.scheduledFor ?? null,
+      executionMode: opts.executionMode ?? null,
     },
   })
 }
@@ -764,9 +870,10 @@ async function queueStepAtDelay(
   sessionId: string,
   channel: 'email' | 'sms',
   delaySeconds: number,
+  ctx: DispatchContext,
 ): Promise<boolean> {
   if (!qstash || delaySeconds <= 0) {
-    await executeStep(stepId, sessionId, channel)
+    await executeStep(stepId, sessionId, channel, { dispatchCtx: ctx })
     return false
   }
   const scheduledFor = new Date(Date.now() + delaySeconds * 1000)
@@ -791,11 +898,28 @@ async function queueStepAtDelay(
     ruleId, stepId, sessionId, channel,
     status: 'queued',
     scheduledFor,
+    executionMode: ctx.executionMode,
+    // Caller deleted the old QStash msg above (line ~785); reset the queue
+    // state so the new publish below replaces the prior messageId cleanly.
+    resetQueueState: true,
   })
   try {
     const res = await qstash.publishJSON({
       url: `${APP_URL}/api/automations/run`,
-      body: { stepId, sessionId, channel },
+      // Carry the trigger context so the callback handler can pass the same
+      // (triggerType, triggerContext) into the guard at execution time — the
+      // guard re-loads session/rule/step state from the DB and verifies
+      // prerequisites are still met. Without this, the callback would
+      // default-trigger off the rule's own triggerType, losing the
+      // trainingId/contextual disambiguation needed by predicates like
+      // requireCompletedEnrollment.
+      body: {
+        stepId,
+        sessionId,
+        channel,
+        triggerType: ctx.triggerType,
+        triggerContext: ctx.triggerContext,
+      },
       delay: delaySeconds,
     })
     const messageId = (res as { messageId?: string })?.messageId
@@ -809,7 +933,7 @@ async function queueStepAtDelay(
     return true
   } catch (err) {
     console.error('[Automation] QStash publish failed, running inline:', err)
-    await executeStep(stepId, sessionId, channel)
+    await executeStep(stepId, sessionId, channel, { dispatchCtx: ctx })
     return false
   }
 }
@@ -867,11 +991,15 @@ export async function scheduleBeforeMeetingReminders(sessionId: string, schedule
           delaySeconds = 0
         }
         const channels = expandChannels(step.channel)
+        const ctx: DispatchContext = {
+          triggerType: 'before_meeting',
+          executionMode: 'immediate',
+        }
         for (const channel of channels) {
           if (delaySeconds > 0 && qstash) {
-            await queueStepAtDelay(rule.id, step.id, sessionId, channel, delaySeconds)
+            await queueStepAtDelay(rule.id, step.id, sessionId, channel, delaySeconds, ctx)
           } else {
-            await executeStep(step.id, sessionId, channel)
+            await executeStep(step.id, sessionId, channel, { dispatchCtx: ctx })
           }
         }
       }
@@ -901,11 +1029,32 @@ export async function cancelBeforeMeetingReminders(sessionId: string): Promise<n
  * send, write the execution row, fire chained rules if this was the rule's
  * last step and the send succeeded.
  */
+/**
+ * Options for executeStep. dispatchCtx carries the trigger context from the
+ * caller (immediate trigger, QStash callback, manual rerun, etc.) so the
+ * authoritative guard can re-check prerequisites against current DB state.
+ *
+ * `ignoreActive`: lets the test endpoint run paused rules. Lifecycle/stage/
+ * prerequisite checks still apply — tests of paused rules must still respect
+ * candidate lifecycle invariants.
+ *
+ * `force`: admin-only override for the duplicate-send guard. Only honoured
+ * when dispatchCtx.executionMode is 'manual_rerun' or 'debug'. The guard
+ * module enforces this rule; callers cannot bypass it by setting force on
+ * other modes.
+ */
+type ExecuteStepOptions = {
+  ignoreActive?: boolean
+  /** Admin-only override of the duplicate-send guard. */
+  force?: boolean
+  dispatchCtx?: DispatchContext
+}
+
 export async function executeStep(
   stepId: string,
   sessionId: string,
   channel: 'email' | 'sms',
-  options?: { ignoreActive?: boolean; ignoreSentGuard?: boolean },
+  options?: ExecuteStepOptions,
 ) {
   console.log(`[Automation] executeStep start stepId=${stepId} sessionId=${sessionId} channel=${channel}`)
   const step = await prisma.automationStep.findUnique({
@@ -931,21 +1080,53 @@ export async function executeStep(
   })
   if (!session) { console.log(`[Automation] Session ${sessionId} NOT FOUND`); return }
 
-  const existing = await prisma.automationExecution.findUnique({
-    where: { stepId_sessionId_channel: { stepId, sessionId, channel } },
-  })
-  // Recruiter-initiated "Run automations" passes ignoreSentGuard so the
-  // recruiter can intentionally re-send. Auto-fire paths (lifecycle events,
-  // QStash callbacks, chained rules) leave it false so a re-fire of the same
-  // event doesn't double-send by accident.
-  if (existing && existing.status === 'sent' && !options?.ignoreSentGuard) {
-    console.log(`[Automation] Step ${stepId} already sent on ${channel} for session ${sessionId}`)
-    return
+  // ─── Authoritative guard ─────────────────────────────────────────────────
+  // Every send path converges here. The guard re-loads prerequisites against
+  // current DB state, so delayed QStash callbacks can't trust enqueue-time
+  // assumptions. force is honoured only for manual_rerun / debug modes, and
+  // only bypasses the duplicate-send check — never lifecycle, stage, or
+  // prerequisite checks.
+  //
+  // Test sessions (`source='test'`) created by the /automations/[id]/test
+  // endpoint are throwaway by design — they bypass eligibility checks so
+  // the recruiter can render the email/SMS body end-to-end without first
+  // satisfying lifecycle/stage/prerequisite gates. The bypass requires
+  // BOTH source='test' on the session AND the caller passing
+  // bypassEligibilityForTest, so a real session can never trip it.
+  const dispatchCtx = options?.dispatchCtx
+  const isTestBypass = dispatchCtx?.bypassEligibilityForTest === true && session.source === 'test'
+  if (!isTestBypass) {
+    const guard = await canExecuteAutomationStep({
+      session,
+      rule,
+      step,
+      channel,
+      triggerType: dispatchCtx?.triggerType ?? rule.triggerType,
+      triggerContext: dispatchCtx?.triggerContext,
+      executionMode: dispatchCtx?.executionMode ?? 'immediate',
+      force: options?.force ?? dispatchCtx?.force,
+      actorUserId: dispatchCtx?.actorUserId,
+    })
+    if (!guard.allowed) {
+      console.log(`[Automation] Step ${stepId} BLOCKED by guard: ${guard.reason} (session ${sessionId})`)
+      await recordSkip({
+        ruleId: rule.id,
+        stepId,
+        sessionId,
+        channel,
+        executionMode: dispatchCtx?.executionMode ?? 'immediate',
+        actorUserId: dispatchCtx?.actorUserId ?? null,
+        result: guard,
+        session,
+      })
+      return
+    }
   }
 
   const execution = await upsertExecution({
     ruleId: rule.id, stepId, sessionId, channel,
     status: 'pending',
+    executionMode: dispatchCtx?.executionMode,
   })
 
   // ─── Resolve merge tokens (training link, scheduling link, meeting info) ──
@@ -1287,16 +1468,34 @@ export async function executeStep(
  * `ignoreSentGuard` flag bypasses the per-(step,session,channel) "already
  * sent" check so a recruiter-initiated manual run can intentionally re-send.
  */
-export async function executeRule(ruleId: string, sessionId: string, options?: { ignoreActive?: boolean; ignoreSentGuard?: boolean }) {
+export async function executeRule(
+  ruleId: string,
+  sessionId: string,
+  options?: {
+    ignoreActive?: boolean
+    /** Admin-only override of the duplicate-send guard. Honoured only for
+     * manual_rerun / debug executionModes. */
+    force?: boolean
+    dispatchCtx?: DispatchContext
+  },
+) {
   const rule = await prisma.automationRule.findUnique({
     where: { id: ruleId },
-    select: { id: true, isActive: true, steps: { orderBy: { order: 'asc' } } },
+    select: { id: true, isActive: true, triggerType: true, steps: { orderBy: { order: 'asc' } } },
   })
   if (!rule) return
   if (!rule.isActive && !options?.ignoreActive) return
+  const ctx: DispatchContext = options?.dispatchCtx ?? {
+    triggerType: rule.triggerType,
+    executionMode: 'immediate',
+  }
   for (const step of rule.steps) {
     for (const channel of expandChannels(step.channel)) {
-      await executeStep(step.id, sessionId, channel, options)
+      await executeStep(step.id, sessionId, channel, {
+        ignoreActive: options?.ignoreActive,
+        force: options?.force,
+        dispatchCtx: ctx,
+      })
     }
   }
 }
@@ -1345,6 +1544,12 @@ async function maybeFireChainedRules(ruleId: string, sessionId: string, session:
     select: { id: true },
   })
   for (const c of chained) {
-    await dispatchRule(c.id, sessionId)
+    // executionMode=chained so skips on the chained side are auditable and
+    // bypasses (force) cannot leak through the cascade.
+    await dispatchRule(c.id, sessionId, {
+      triggerType: 'automation_completed',
+      executionMode: 'chained',
+      triggerContext: { parentRuleId: ruleId },
+    })
   }
 }

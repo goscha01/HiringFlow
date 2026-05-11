@@ -456,6 +456,13 @@ model Session {
   // from the candidate page (predefined options + custom string).
   rejectionReason      String?               @map("rejection_reason")
   rejectionReasonAt    DateTime?             @map("rejection_reason_at")
+  // Central automation kill-switch. When set, the automation guard blocks
+  // every candidate-facing send for this session regardless of status, stage,
+  // or trigger — see src/lib/automation-guard.ts. Set by the stalled/lost/
+  // hired/archived lifecycle transitions and by manual operator halts /
+  // compliance holds. Clearing reactivates automations.
+  automationsHaltedAt     DateTime? @map("automations_halted_at")
+  automationsHaltedReason String?   @map("automations_halted_reason")
   lastStepId           String?               @map("last_step_id")
   lastStep             FlowStep?             @relation("LastStep", fields: [lastStepId], references: [id])
   adId                 String?               @map("ad_id")
@@ -823,6 +830,13 @@ model AutomationRule {
   // When a meeting_ended rule has this set, execution is deferred until a
   // recording_ready event fires for the same session (or a 4h hard cutoff).
   waitForRecording        Boolean               @default(false) @map("wait_for_recording")
+  // Lifecycle statuses for which this rule is allowed to send (in addition
+  // to the default "active" candidates). Use for goodbye emails or compliance
+  // notifications that intentionally fire to stalled/lost/hired candidates.
+  // Empty array = rule blocked for non-active statuses (the safe default).
+  // Read by src/lib/automation-guard.ts; no UI exposes this yet — set in code
+  // only.
+  allowedForStatuses      String[]              @default([]) @map("allowed_for_statuses")
   isActive                Boolean               @default(true) @map("is_active")
   createdAt               DateTime              @default(now()) @map("created_at")
   updatedAt               DateTime              @updatedAt @map("updated_at")
@@ -917,11 +931,29 @@ model AutomationExecution {
   sentAt            DateTime?       @map("sent_at")
   scheduledFor      DateTime?       @map("scheduled_for")
   createdAt         DateTime        @default(now()) @map("created_at")
+  // ─── Guard audit fields (src/lib/automation-guard.ts) ──────────────────
+  // status uses 'skipped_wrong_status' | 'skipped_wrong_stage' |
+  // 'skipped_missing_prerequisite' | 'skipped_duplicate' | 'skipped_cancelled' |
+  // 'skipped_ineligible' for guard rejections. These fields capture WHY
+  // and what state the guard evaluated against, so the run history is
+  // queryable without re-deriving from logs.
+  skipReason        String?         @map("skip_reason")
+  evaluatedStage    String?         @map("evaluated_stage")
+  evaluatedStatus   String?         @map("evaluated_status")
+  expectedStage     String?         @map("expected_stage")
+  // 'immediate' | 'delayed_callback' | 'chained' | 'manual_rerun' | 'cron' |
+  // 'public_trigger' | 'debug'. Identifies which entry point produced this
+  // execution; lets us trace skipped sends by source.
+  executionMode     String?         @map("execution_mode")
+  // User id when the execution was produced by a manual_rerun or debug path.
+  // Null for automatic paths.
+  triggeredByUserId String?         @map("triggered_by_user_id")
 
   // One execution per (step, session, channel). channel is in the key so
   // step.channel='both' can produce one email and one sms execution for the
   // same session without colliding.
   @@unique([stepId, sessionId, channel])
+  @@index([sessionId, status])
   @@map("automation_executions")
 }
 

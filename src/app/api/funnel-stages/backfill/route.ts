@@ -9,6 +9,7 @@ import {
   type StageTriggerEvent,
 } from '@/lib/funnel-stages'
 import { recordPipelineStatusChange } from '@/lib/pipeline-status'
+import { excludeTestSessions } from '@/lib/session-filters'
 
 interface SessionEvent {
   event: StageTriggerEvent
@@ -62,7 +63,11 @@ export async function POST(request: NextRequest) {
   const stageById = new Map(stages.map((s) => [s.id, s]))
 
   const sessions = await prisma.session.findMany({
-    where: { workspaceId: ws.workspaceId },
+    // Test-source sessions never participate in backfill — they're seeded
+    // with synthetic pipelineStatus/outcome by the automations test endpoint
+    // and would otherwise be moved to whatever stage matches their seeded
+    // event surface.
+    where: { workspaceId: ws.workspaceId, ...excludeTestSessions() },
     select: {
       id: true,
       candidateName: true,
