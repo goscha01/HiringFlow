@@ -24,7 +24,7 @@ type ExtensionState =
   | { kind: 'connecting' }
   | { kind: 'opted_out'; version: string }
   | { kind: 'bound_elsewhere'; version: string; otherWorkspaceId: string }
-  | { kind: 'connected'; version: string; lastUsedAt: string | null; prefix: string }
+  | { kind: 'connected'; version: string; lastUsedAt: string | null; prefix: string; backfilledOnConnect?: number }
   | { kind: 'error'; version: string; message: string }
 
 type TokenStatus = {
@@ -40,7 +40,17 @@ interface ChromeRuntime {
   sendMessage(
     extensionId: string,
     msg: unknown,
-    cb: (res: { ok: boolean; version?: string; workspaceId?: string | null; connected?: boolean; reason?: string } | undefined) => void,
+    cb: (res: {
+      ok: boolean
+      version?: string
+      workspaceId?: string | null
+      connected?: boolean
+      reason?: string
+      // Returned by CONNECT after the backfill pass in v0.4.2+
+      backfilled?: number
+      skipped?: number
+      failed?: number
+    } | undefined) => void,
   ): void
   lastError?: { message?: string }
 }
@@ -79,16 +89,18 @@ function pingExtension(): Promise<PingResult> {
   })
 }
 
-function sendConnect(payload: { apiBaseUrl: string; token: string; workspaceId: string }): Promise<boolean> {
+type ConnectResult = { ok: boolean; backfilled?: number }
+function sendConnect(payload: { apiBaseUrl: string; token: string; workspaceId: string }): Promise<ConnectResult> {
   return new Promise((resolve) => {
     const runtime = getChromeRuntime()
-    if (!runtime) { resolve(false); return }
+    if (!runtime) { resolve({ ok: false }); return }
     try {
       runtime.sendMessage(EXTENSION_ID, { type: 'CONNECT', ...payload }, (res) => {
         const err = runtime.lastError
-        resolve(!err && !!res?.ok)
+        if (err || !res?.ok) { resolve({ ok: false }); return }
+        resolve({ ok: true, backfilled: res.backfilled ?? 0 })
       })
-    } catch { resolve(false) }
+    } catch { resolve({ ok: false }) }
   })
 }
 
@@ -176,12 +188,12 @@ export function AttendanceTrackerCard() {
         setState({ kind: 'error', version, message: data.error || 'Failed to issue extension token' })
         return
       }
-      const acked = await sendConnect({
+      const ack = await sendConnect({
         apiBaseUrl: data.apiBaseUrl,
         token: data.token,
         workspaceId: data.workspaceId,
       })
-      if (!acked) {
+      if (!ack.ok) {
         await fetch('/api/integrations/extension/token', { method: 'DELETE' }).catch(() => {})
         setState({ kind: 'error', version, message: 'Could not hand the token to the extension. Reload chrome://extensions and try again.' })
         return
@@ -194,6 +206,7 @@ export function AttendanceTrackerCard() {
           version,
           lastUsedAt: fresh.token.lastUsedAt,
           prefix: fresh.token.prefix,
+          backfilledOnConnect: ack.backfilled,
         })
       }
     } catch (e) {
@@ -290,6 +303,11 @@ export function AttendanceTrackerCard() {
 
       {state.kind === 'connected' && (
         <div className="mt-4 space-y-2 text-sm">
+          {!!state.backfilledOnConnect && state.backfilledOnConnect > 0 && (
+            <div className="px-3 py-2 rounded-[8px] bg-green-50 text-green-700 text-xs">
+              Backfilled {state.backfilledOnConnect} past meeting{state.backfilledOnConnect === 1 ? '' : 's'} from the extension&apos;s local history.
+            </div>
+          )}
           <div className="flex justify-between py-2 border-b border-surface-border">
             <span className="text-grey-40">Token</span>
             <span className="text-grey-15 font-mono text-xs">{state.prefix}…</span>
