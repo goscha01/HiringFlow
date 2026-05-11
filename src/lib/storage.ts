@@ -65,25 +65,20 @@ export async function saveCandidateVideoFile(file: File) {
   return saveToLocal(file, 'candidates')
 }
 
+// Vercel Blob URLs already contain a UUID per upload, so storageKey itself is
+// content-addressed: replacing a video produces a new row with a new blob URL,
+// which is its own invalidation. Returning the URL unmodified lets the browser
+// and CDN cache the video across visits.
 export function getVideoUrl(storageKey: string): string {
   if (storageKey.startsWith('http')) {
-    // Add cache-busting for Vercel Blob URLs to avoid ERR_CACHE_OPERATION_NOT_SUPPORTED
-    const url = new URL(storageKey)
-    // Bumped to bust browser caches that may be holding a stale failed CORS
-    // response for the older v=1 URLs.
-    url.searchParams.set('v', '2')
-    return url.toString()
+    return storageKey
   }
   return `/api/uploads/${storageKey}`
 }
 
 export function getCandidateVideoUrl(storageKey: string): string {
   if (storageKey.startsWith('http')) {
-    const url = new URL(storageKey)
-    // Bumped to bust browser caches that may be holding a stale failed CORS
-    // response for the older v=1 URLs.
-    url.searchParams.set('v', '2')
-    return url.toString()
+    return storageKey
   }
   return `/api/uploads/${storageKey}`
 }

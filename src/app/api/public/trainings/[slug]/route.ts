@@ -4,6 +4,21 @@ import { getVideoUrl } from '@/lib/storage'
 import { validateAccessToken, getOrCreateEnrollment } from '@/lib/training-access'
 import { getWorkspaceSession } from '@/lib/auth'
 import { bumpSessionActivity } from '@/lib/session-activity'
+import { logger } from '@/lib/logger'
+
+// Time a labelled async section. Used by the GET handler to record where the
+// public-training response actually spends its time — so we don't add Redis
+// before knowing whether the bottleneck is the Prisma read, the token check,
+// the enrollment upsert, or a cold start (none of which Redis can fix the
+// same way).
+async function time<T>(label: string, fn: () => Promise<T>, timings: Record<string, number>): Promise<T> {
+  const t0 = Date.now()
+  try {
+    return await fn()
+  } finally {
+    timings[label] = Date.now() - t0
+  }
+}
 
 // ─────────────────────────── Quiz options shapes ───────────────────────────
 //
@@ -129,7 +144,10 @@ function gradeFile(q: { id: string; options: unknown }, given: { url?: string; m
 }
 
 export async function GET(request: NextRequest, { params }: { params: { slug: string } }) {
-  const training = await prisma.training.findUnique({
+  const tStart = Date.now()
+  const timings: Record<string, number> = {}
+
+  const training = await time('trainingQuery', () => prisma.training.findUnique({
     where: { slug: params.slug },
     include: {
       sections: {
@@ -140,7 +158,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
         },
       },
     },
-  })
+  }), timings)
 
   if (!training) {
     return NextResponse.json({ error: 'Training not found' }, { status: 404 })
@@ -173,19 +191,19 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
       return NextResponse.json({ error: 'Access token required', code: 'TOKEN_REQUIRED' }, { status: 403 })
     }
 
-    const accessToken = await validateAccessToken(token, training.id)
+    const accessToken = await time('validateAccessToken', () => validateAccessToken(token, training.id), timings)
     if (!accessToken) {
       return NextResponse.json({ error: 'Access unavailable or expired', code: 'TOKEN_INVALID' }, { status: 403 })
     }
 
     // Get or create enrollment for this candidate
-    const enrollment = await getOrCreateEnrollment({
+    const enrollment = await time('getOrCreateEnrollment', () => getOrCreateEnrollment({
       trainingId: training.id,
       accessTokenId: accessToken.id,
       sessionId: accessToken.candidateId,
       userName: accessToken.candidate?.candidateName || null,
       userEmail: accessToken.candidate?.candidateEmail || null,
-    })
+    }), timings)
 
     enrollmentId = enrollment.id
     enrollmentStatus = enrollment.status
@@ -193,14 +211,15 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     candidateName = accessToken.candidate?.candidateName || null
     candidateEmail = accessToken.candidate?.candidateEmail || null
 
-    // Loading the training page is itself an engagement signal — without
-    // this, a candidate watching videos but never finishing a section
-    // (and therefore never PATCHing `completedSections`) would look idle
-    // on the recruiter dashboard.
-    await bumpSessionActivity(accessToken.candidateId)
+    // Heartbeat fire-and-forget: the recruiter dashboard reads
+    // Session.lastActivityAt to surface "last active Nm ago", but a stale
+    // heartbeat is never user-visible to the candidate, and bumpSessionActivity
+    // already swallows its own errors. Awaiting it just added DB round-trip
+    // time to the candidate's first paint.
+    void bumpSessionActivity(accessToken.candidateId)
   }
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     id: training.id,
     title: training.title,
     description: training.description,
@@ -245,6 +264,22 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
       } : null,
     })),
   })
+
+  // Emit once per request so we can see in LogHub whether candidate-reported
+  // "training loading slowly" is the API (DB / token / enrollment / cold start)
+  // or just the video buffering from Blob. Keep at info level so the production
+  // log volume stays readable; flip to debug if it gets noisy.
+  logger.info('public_training_get', {
+    slug: params.slug,
+    trainingId: training.id,
+    accessMode: training.accessMode,
+    isOwnerPreview,
+    tokenPresent: !!token,
+    totalMs: Date.now() - tStart,
+    ...timings,
+  })
+
+  return response
 }
 
 // Submit quiz answers — returns score

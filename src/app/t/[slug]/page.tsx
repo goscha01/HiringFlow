@@ -56,8 +56,9 @@ interface QuizResult {
 //   file  → { url, mimeType, sizeBytes }
 type AnswerValue = number[] | string | number | { url: string; mimeType: string; sizeBytes: number } | null
 
-function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
+function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className }: {
   src: string
+  poster?: string
   requiredWatch: boolean
   autoPlay?: boolean
   onEnded?: () => void
@@ -141,6 +142,12 @@ function LessonVideo({ src, requiredWatch, autoPlay, onEnded, className }: {
     <video
       ref={videoRef}
       src={src}
+      poster={poster}
+      // Only fetch metadata (duration, first frame) on mount. Without this some
+      // browsers default to `auto` and start downloading the full file before
+      // the candidate has pressed play. Only the active lesson is rendered, so
+      // there's no risk of preloading the whole training at once.
+      preload={autoPlay ? 'auto' : 'metadata'}
       controls
       controlsList={requiredWatch ? 'nodownload noplaybackrate noremoteplayback' : 'nodownload'}
       disablePictureInPicture={requiredWatch}
@@ -668,6 +675,7 @@ export default function TrainingPage() {
                   <LessonVideo
                     key={content.id}
                     src={content.videoUrl}
+                    poster={training.coverImage || undefined}
                     requiredWatch={content.requiredWatch}
                     autoPlay={content.autoplayNext}
                     onEnded={() => setVideoEnded(true)}
