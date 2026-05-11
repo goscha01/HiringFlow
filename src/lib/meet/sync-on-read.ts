@@ -449,14 +449,40 @@ export async function applyAttendanceSignal(
     return true
   }
 
-  // When the workspace has the attendance extension enabled, the sheet is
-  // the only authoritative attendance signal. Gemini Notes / recordings
-  // can't disambiguate "candidate attended" from "host was alone", so we
-  // refuse to fire meeting_started/ended off them — that wrongly sends the
-  // post-meeting "next step" email for a no-show. The sync-on-read
-  // re-sync window keeps polling Drive until the sheet appears.
+  // When the workspace has the (third-party Drive) attendance extension
+  // enabled, the sheet is meant to be the authoritative attendance signal —
+  // Gemini Notes / recordings can't disambiguate "candidate attended" from
+  // "host was alone", so without the sheet a weaker signal would wrongly
+  // fire the post-meeting "next step" email for a no-show.
+  //
+  // BUT: this flag was overloaded after the HF Meet Tracker (Path B) shipped.
+  // If the workspace has an active Meet Tracker token, attendance flows in
+  // via POST /api/google-meet/attendance instead and we should fall back to
+  // Gemini Notes / recordings for any meeting the live extension didn't
+  // cover (past meetings, sessions where the recruiter didn't have the ext
+  // installed at the time). Same goes for meetings that already received
+  // direct attendance_uploaded events — the live signal already won.
   const sheetSaysPresent = attendance?.source === 'attendance_sheet' && attendance.candidatePresent === true
-  if (opts.extensionEnabled && !sheetSaysPresent) return false
+  if (opts.extensionEnabled && !sheetSaysPresent) {
+    const [hasMeetTracker, hasDirectAttendance] = await Promise.all([
+      prisma.extensionToken.findFirst({
+        where: { workspaceId: meeting.workspaceId, revokedAt: null },
+        select: { id: true },
+      }),
+      prisma.schedulingEvent.findFirst({
+        where: {
+          sessionId: meeting.sessionId,
+          eventType: 'attendance_uploaded',
+          metadata: { path: ['interviewMeetingId'], equals: meeting.id },
+        },
+        select: { id: true },
+      }),
+    ])
+    // Pure Path A workspace AND no live signal landed → preserve original
+    // wait-for-sheet behavior. Otherwise let Gemini Notes / recordings
+    // through as a weak fallback.
+    if (!hasMeetTracker && !hasDirectAttendance) return false
+  }
 
   // Anything that proves the meeting *occurred*: attendance sheet (any
   // present row), Gemini Notes, or a recording artifact.
