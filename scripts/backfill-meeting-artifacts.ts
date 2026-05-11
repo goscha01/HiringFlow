@@ -68,7 +68,8 @@ async function processMeeting(meetingId: string): Promise<{ recordings: number; 
     where: { id: meetingId },
     select: {
       id: true, workspaceId: true, sessionId: true,
-      meetSpaceName: true, scheduledStart: true, scheduledEnd: true,
+      meetSpaceName: true, googleCalendarEventId: true,
+      scheduledStart: true, scheduledEnd: true,
       driveRecordingFileId: true, driveTranscriptFileId: true,
       driveGeminiNotesFileId: true, attendanceSheetFileId: true,
       session: { select: { candidateName: true } },
@@ -91,10 +92,52 @@ async function processMeeting(meetingId: string): Promise<{ recordings: number; 
   }
 
   const candidateName = meeting.session.candidateName
-  const start = meeting.scheduledStart
-  const end = meeting.scheduledEnd
-  const createdAfter = new Date(start.getTime() - 60 * 60 * 1000)
-  const createdBefore = new Date(end.getTime() + 4 * 60 * 60 * 1000)
+
+  // Build the search window as the UNION of every scheduled time this meeting
+  // ever had. Reschedules update `scheduledStart` in place, so using only the
+  // current value misses recordings made at the ORIGINAL time (e.g. someone
+  // joined the original link before the user rescheduled). Historical times
+  // live in SchedulingEvents metadata; we match them to THIS meeting by
+  // either `interviewMeetingId` (newer events) or `googleEventId` matching
+  // the row's `googleCalendarEventId` (older events that predate the
+  // interviewMeetingId convention).
+  //
+  // Critical: we do NOT fall back to all events on the session. When the
+  // candidate has multiple InterviewMeeting rows (e.g. a no-show + a
+  // follow-up), unioning their schedules would mis-attribute recordings to
+  // the wrong row.
+  const events = await prisma.schedulingEvent.findMany({
+    where: {
+      sessionId: meeting.sessionId,
+      eventType: { in: ['meeting_scheduled', 'meeting_rescheduled'] },
+      OR: [
+        { metadata: { path: ['interviewMeetingId'], equals: meeting.id } },
+        ...(meeting.googleCalendarEventId
+          ? [{ metadata: { path: ['googleEventId'], equals: meeting.googleCalendarEventId } } as const]
+          : []),
+      ],
+    },
+    select: { metadata: true },
+  })
+  const scheduledTimes: Date[] = [meeting.scheduledStart]
+  const scheduledEnds: Date[] = [meeting.scheduledEnd]
+  for (const ev of events) {
+    const meta = (ev.metadata as Record<string, unknown> | null) || {}
+    const scheduledAt = typeof meta.scheduledAt === 'string' ? meta.scheduledAt : null
+    const endAt = typeof meta.endAt === 'string' ? meta.endAt : null
+    if (scheduledAt) {
+      const t = new Date(scheduledAt)
+      if (!isNaN(t.getTime())) scheduledTimes.push(t)
+    }
+    if (endAt) {
+      const t = new Date(endAt)
+      if (!isNaN(t.getTime())) scheduledEnds.push(t)
+    }
+  }
+  const earliestStart = new Date(Math.min(...scheduledTimes.map((d) => d.getTime())))
+  const latestEnd = new Date(Math.max(...scheduledEnds.map((d) => d.getTime())))
+  const createdAfter = new Date(earliestStart.getTime() - 60 * 60 * 1000)
+  const createdBefore = new Date(latestEnd.getTime() + 4 * 60 * 60 * 1000)
 
   let recordings = 0, transcripts = 0, notes = 0
 

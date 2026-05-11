@@ -104,6 +104,15 @@ export async function findGeminiNotesForMeeting(
     folderId: string | null
     windowStart: Date
     windowEnd: Date
+    /**
+     * Required to disambiguate when multiple candidates' meetings overlap the
+     * same window. Meet names the Notes doc after the calendar event title
+     * (typically "<Candidate> and <Host>"), so a `name contains <candidate>`
+     * filter correctly excludes other candidates' docs created in the same
+     * minute. The filter is omitted only when explicitly unknown — back-compat
+     * for callers that haven't been updated.
+     */
+    candidateName?: string | null
   },
 ): Promise<DriveFile[]> {
   // Drive's createdTime window — 1h before scheduled start through 4h after
@@ -118,6 +127,10 @@ export async function findGeminiNotesForMeeting(
     `createdTime>='${after}'`,
     `createdTime<='${before}'`,
   ]
+  if (opts.candidateName) {
+    const safe = opts.candidateName.replace(/'/g, "\\'")
+    conds.push(`name contains '${safe}'`)
+  }
   if (opts.folderId) conds.push(`'${opts.folderId}' in parents`)
   const q = encodeURIComponent(conds.join(' and '))
   const fields = encodeURIComponent('files(id,name,mimeType,createdTime,modifiedTime,webViewLink)')
@@ -265,7 +278,12 @@ export async function findAttendanceForMeeting(
   //    extension isn't enabled. Return ALL files via allFiles so the caller
   //    can archive every Notes doc it finds (multiple sessions on the same
   //    link produce multiple docs).
-  const notes = await findGeminiNotesForMeeting(client, opts).catch(() => [] as DriveFile[])
+  const notes = await findGeminiNotesForMeeting(client, {
+    folderId: opts.folderId,
+    windowStart: opts.windowStart,
+    windowEnd: opts.windowEnd,
+    candidateName: opts.candidateName,
+  }).catch(() => [] as DriveFile[])
   if (notes.length > 0) {
     const primary = notes[0]
     return {
