@@ -56,9 +56,29 @@ interface QuizResult {
 //   file  → { url, mimeType, sizeBytes }
 type AnswerValue = number[] | string | number | { url: string; mimeType: string; sizeBytes: number } | null
 
-function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className }: {
+// Fire-and-forget client telemetry for a single video event. Uses sendBeacon
+// when available (survives page navigation) and falls back to fetch+keepalive.
+// All failures are swallowed — we never want to interrupt the candidate.
+function reportVideoEvent(payload: Record<string, unknown>) {
+  if (typeof window === 'undefined') return
+  try {
+    const body = JSON.stringify(payload)
+    const url = '/api/public/training-video-events'
+    if (typeof navigator.sendBeacon === 'function') {
+      navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))
+      return
+    }
+    fetch(url, { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, keepalive: true }).catch(() => {})
+  } catch { /* never throw */ }
+}
+
+type VideoPhase = 'loading' | 'ready' | 'buffering' | 'error'
+
+function LessonVideo({ src, poster, slug, contentId, requiredWatch, autoPlay, onEnded, className }: {
   src: string
   poster?: string
+  slug: string
+  contentId: string
   requiredWatch: boolean
   autoPlay?: boolean
   onEnded?: () => void
@@ -68,7 +88,29 @@ function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className 
   const maxWatchedRef = useRef(0)
   const endedFiredRef = useRef(false)
   const onEndedRef = useRef(onEnded)
+  // Telemetry bookkeeping — tracks the lifecycle of THIS video instance so we
+  // can compute "time to canplay" and throttle waiting/stalled noise.
+  const stallCountRef = useRef(0)
+  const lastStallReportAtRef = useRef(0)
+  const milestoneSentRef = useRef<Record<string, boolean>>({})
+  const [phase, setPhase] = useState<VideoPhase>('loading')
+  const [errorCode, setErrorCode] = useState<number | null>(null)
+  // Retry forces a remount of the <video> element so the browser re-runs the
+  // resource selection algorithm from scratch (just calling .load() doesn't
+  // recover from some transient S3 / network failures cleanly).
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => { onEndedRef.current = onEnded }, [onEnded])
+
+  // Reset phase whenever the src or reloadKey changes (i.e. next lesson, or
+  // user hit Retry). The browser will re-fire loadstart → loadedmetadata →
+  // canplay, so we just need to be in 'loading' before they arrive.
+  useEffect(() => {
+    setPhase('loading')
+    setErrorCode(null)
+    stallCountRef.current = 0
+    lastStallReportAtRef.current = 0
+    milestoneSentRef.current = {}
+  }, [src, reloadKey])
 
   useEffect(() => {
     const v = videoRef.current
@@ -76,12 +118,56 @@ function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className 
     maxWatchedRef.current = 0
     endedFiredRef.current = false
 
+    // Strip query/hash so we never accidentally ship a signed token to LogHub.
+    // The hostname + pathname is enough to correlate logs with the S3 object.
+    let videoHost = ''
+    let videoKey = ''
+    try {
+      const u = new URL(src, window.location.origin)
+      videoHost = u.hostname
+      videoKey = u.pathname
+    } catch { /* keep empty */ }
+
+    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || ''
+    const conn = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection
+    const effectiveType = conn?.effectiveType || ''
+
+    const baseAttrs = () => ({
+      slug,
+      contentId,
+      videoHost,
+      videoKey,
+      ua,
+      effectiveType,
+      msFromPageLoad: Math.round(performance.now()),
+      stallCount: stallCountRef.current,
+      currentTime: Number.isFinite(v.currentTime) ? Math.round(v.currentTime) : null,
+      duration: Number.isFinite(v.duration) ? Math.round(v.duration) : null,
+      readyState: v.readyState,
+      networkState: v.networkState,
+    })
+
+    // Lifecycle milestones (loadstart, loadedmetadata, canplay, playing, error)
+    // are reported once per video instance. waiting/stalled are throttled to
+    // one report per 5s so a persistently buffering candidate doesn't drown
+    // the log pipeline.
+    const sendOnce = (event: string, extra: Record<string, unknown> = {}) => {
+      if (milestoneSentRef.current[event]) return
+      milestoneSentRef.current[event] = true
+      reportVideoEvent({ event, ...baseAttrs(), ...extra })
+    }
+    const sendThrottled = (event: string, extra: Record<string, unknown> = {}) => {
+      const now = Date.now()
+      if (now - lastStallReportAtRef.current < 5000) return
+      lastStallReportAtRef.current = now
+      reportVideoEvent({ event, ...baseAttrs(), ...extra })
+    }
+
     const fireEndedOnce = () => {
       if (endedFiredRef.current) return
       endedFiredRef.current = true
       onEndedRef.current?.()
     }
-
     const isAtEnd = () => {
       if (v.ended) return true
       const dur = v.duration
@@ -92,6 +178,7 @@ function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className 
       return maxWatchedRef.current >= dur - 1.5 || v.currentTime >= dur - 0.25
     }
 
+    // ── Existing watch-enforcement + completion handlers ──────────────────
     const onTimeUpdate = () => {
       if (requiredWatch && v.currentTime > maxWatchedRef.current + 0.5) {
         v.currentTime = maxWatchedRef.current
@@ -108,7 +195,7 @@ function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className 
         v.currentTime = maxWatchedRef.current
       }
     }
-    const onLoadedMetadata = () => {
+    const onLoadedMetadataInternal = () => {
       maxWatchedRef.current = 0
       endedFiredRef.current = false
     }
@@ -116,44 +203,137 @@ function LessonVideo({ src, poster, requiredWatch, autoPlay, onEnded, className 
       if (requiredWatch && v.playbackRate > 1) v.playbackRate = 1
     }
     const onNativeEnded = () => fireEndedOnce()
-    // Fallback: when the player pauses at the end without firing `ended`
-    // (some browsers + MP4 encodings drop the event), check explicitly.
-    const onPause = () => { if (isAtEnd()) fireEndedOnce() }
+    const onPauseInternal = () => { if (isAtEnd()) fireEndedOnce() }
+
+    // ── New: phase tracking + telemetry handlers ──────────────────────────
+    const onLoadStart = () => sendOnce('loadstart')
+    const onLoadedMetadataPhase = () => sendOnce('loadedmetadata')
+    const onCanPlay = () => {
+      sendOnce('canplay')
+      setPhase('ready')
+    }
+    const onPlaying = () => {
+      sendOnce('playing')
+      setPhase('ready')
+    }
+    const onWaiting = () => {
+      stallCountRef.current += 1
+      setPhase((p) => (p === 'error' ? p : 'buffering'))
+      sendThrottled('waiting')
+    }
+    const onStalled = () => {
+      stallCountRef.current += 1
+      setPhase((p) => (p === 'error' ? p : 'buffering'))
+      sendThrottled('stalled')
+    }
+    const onError = () => {
+      const code = v.error?.code ?? null
+      setErrorCode(code)
+      setPhase('error')
+      // Always report errors (one per src) — these are the events that justify
+      // adding retry UX in the first place, so dropping duplicates is fine.
+      sendOnce('error', { errorCode: code })
+    }
 
     v.addEventListener('timeupdate', onTimeUpdate)
     v.addEventListener('seeking', onSeeking)
     v.addEventListener('seeked', onSeeking)
-    v.addEventListener('loadedmetadata', onLoadedMetadata)
+    v.addEventListener('loadedmetadata', onLoadedMetadataInternal)
+    v.addEventListener('loadedmetadata', onLoadedMetadataPhase)
     v.addEventListener('ratechange', onRateChange)
     v.addEventListener('ended', onNativeEnded)
-    v.addEventListener('pause', onPause)
+    v.addEventListener('pause', onPauseInternal)
+    v.addEventListener('loadstart', onLoadStart)
+    v.addEventListener('canplay', onCanPlay)
+    v.addEventListener('playing', onPlaying)
+    v.addEventListener('waiting', onWaiting)
+    v.addEventListener('stalled', onStalled)
+    v.addEventListener('error', onError)
     return () => {
       v.removeEventListener('timeupdate', onTimeUpdate)
       v.removeEventListener('seeking', onSeeking)
       v.removeEventListener('seeked', onSeeking)
-      v.removeEventListener('loadedmetadata', onLoadedMetadata)
+      v.removeEventListener('loadedmetadata', onLoadedMetadataInternal)
+      v.removeEventListener('loadedmetadata', onLoadedMetadataPhase)
       v.removeEventListener('ratechange', onRateChange)
       v.removeEventListener('ended', onNativeEnded)
-      v.removeEventListener('pause', onPause)
+      v.removeEventListener('pause', onPauseInternal)
+      v.removeEventListener('loadstart', onLoadStart)
+      v.removeEventListener('canplay', onCanPlay)
+      v.removeEventListener('playing', onPlaying)
+      v.removeEventListener('waiting', onWaiting)
+      v.removeEventListener('stalled', onStalled)
+      v.removeEventListener('error', onError)
     }
-  }, [requiredWatch, src])
+  }, [requiredWatch, src, slug, contentId, reloadKey])
 
   return (
-    <video
-      ref={videoRef}
-      src={src}
-      poster={poster}
-      // Only fetch metadata (duration, first frame) on mount. Without this some
-      // browsers default to `auto` and start downloading the full file before
-      // the candidate has pressed play. Only the active lesson is rendered, so
-      // there's no risk of preloading the whole training at once.
-      preload={autoPlay ? 'auto' : 'metadata'}
-      controls
-      controlsList={requiredWatch ? 'nodownload noplaybackrate noremoteplayback' : 'nodownload'}
-      disablePictureInPicture={requiredWatch}
-      autoPlay={autoPlay}
-      className={className}
-    />
+    <div className="relative">
+      <video
+        key={reloadKey}
+        ref={videoRef}
+        src={src}
+        poster={poster}
+        // Only fetch metadata (duration, first frame) on mount. Without this some
+        // browsers default to `auto` and start downloading the full file before
+        // the candidate has pressed play. Only the active lesson is rendered, so
+        // there's no risk of preloading the whole training at once.
+        preload={autoPlay ? 'auto' : 'metadata'}
+        controls
+        // iOS Safari fullscreens the video by default on play; playsInline keeps
+        // it inline so the candidate stays in the lesson chrome.
+        playsInline
+        controlsList={requiredWatch ? 'nodownload noplaybackrate noremoteplayback' : 'nodownload'}
+        disablePictureInPicture={requiredWatch}
+        autoPlay={autoPlay}
+        className={className}
+      />
+
+      {/* Loading metadata overlay. pointer-events-none so the candidate can
+          still click the native controls (poster doubles as the visual). */}
+      {phase === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/55 text-white text-sm px-3 py-1.5 rounded-[8px]">Loading video…</div>
+        </div>
+      )}
+
+      {/* Mid-playback buffering badge. Small + top-right so it doesn't cover
+          the timeline or controls. */}
+      {phase === 'buffering' && (
+        <div className="absolute top-2 right-2 bg-black/65 text-white text-xs px-2 py-1 rounded-[6px]">
+          Buffering…
+        </div>
+      )}
+
+      {/* Full-coverage error panel — replaces the broken player so the
+          candidate has a clear next action. Retry remounts the <video>
+          (reloadKey++), and "Open in new tab" preserves access to the source
+          file via the same URL the player was using, so a candidate on a
+          flaky connection can fall back to native browser download. The rest
+          of the lesson page (Next button, progress) stays interactive. */}
+      {phase === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 text-white gap-3 rounded-[8px] p-4 text-center">
+          <p className="text-sm">Video failed to load.{errorCode != null ? ` (code ${errorCode})` : ''}</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="px-3 py-1.5 bg-white text-[#262626] text-sm font-medium rounded-[6px] hover:bg-[#F1F1F3]"
+            >
+              Retry
+            </button>
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-transparent text-white text-sm font-medium rounded-[6px] border border-white/40 hover:bg-white/10"
+            >
+              Open in new tab
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -676,6 +856,8 @@ export default function TrainingPage() {
                     key={content.id}
                     src={content.videoUrl}
                     poster={training.coverImage || undefined}
+                    slug={slug}
+                    contentId={content.id}
                     requiredWatch={content.requiredWatch}
                     autoPlay={content.autoplayNext}
                     onEnded={() => setVideoEnded(true)}
