@@ -9,6 +9,7 @@ import {
   type FunnelStage,
   normalizeStages,
 } from '@/lib/funnel-stages'
+import { detectAutomationWarnings } from '@/lib/automation-warnings'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string; bodyHtml?: string; bodyText?: string | null }
@@ -311,6 +312,10 @@ export default function AutomationsPage() {
   const [showCompanyPhoneWarning, setShowCompanyPhoneWarning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Extension/meeting-flow interference warnings — soft, surfaced on save
+  // and overridable via "Save anyway" once the user has read them.
+  const [saveWarnings, setSaveWarnings] = useState<string[]>([])
+  const [warningsAcked, setWarningsAcked] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   // Inline template creator
   const [newTplName, setNewTplName] = useState('')
@@ -535,6 +540,8 @@ export default function AutomationsPage() {
     setSteps([newStep(0, prefillId)])
     setTemplateEditorStepIdx(null)
     setSaveError(null)
+    setSaveWarnings([])
+    setWarningsAcked(false)
     setShowModal(true)
   }
   const openEdit = (r: Rule) => {
@@ -580,6 +587,8 @@ export default function AutomationsPage() {
     }
     setTemplateEditorStepIdx(null)
     setSaveError(null)
+    setSaveWarnings([])
+    setWarningsAcked(false)
     setShowModal(true)
   }
 
@@ -606,7 +615,7 @@ export default function AutomationsPage() {
     })
   }
 
-  const save = async () => {
+  const save = async (opts: { forceAck?: boolean } = {}) => {
     setSaveError(null)
     if (!name.trim()) { setSaveError('Name is required'); return }
     for (let i = 0; i < steps.length; i++) {
@@ -616,6 +625,24 @@ export default function AutomationsPage() {
       if (wantsEmail && !s.emailTemplateId) { setSaveError(`Step ${i + 1}: pick an email template`); return }
       if (wantsSms && (!s.smsBody || !s.smsBody.trim())) { setSaveError(`Step ${i + 1}: SMS body is required`); return }
     }
+
+    // Soft guard: surface body/trigger mismatches that interfere with the
+    // Meet Tracker extension's lifecycle events. User can override via
+    // "Save anyway" once warnings have been shown.
+    const warnings = detectAutomationWarnings({
+      triggerType,
+      steps: steps.map((s) => ({
+        channel: s.channel,
+        smsBody: s.smsBody,
+        emailTemplate: s.emailTemplate
+          ?? (s.emailTemplateId ? templates.find((t) => t.id === s.emailTemplateId) ?? null : null),
+      })),
+    })
+    if (warnings.length > 0 && !warningsAcked && !opts.forceAck) {
+      setSaveWarnings(warnings)
+      return
+    }
+    setSaveWarnings([])
 
     setSaving(true)
     const isTrainingTrigger = triggerType === 'training_started' || triggerType === 'training_completed'
@@ -1280,10 +1307,34 @@ export default function AutomationsPage() {
               </div>
 
             </div>
+            {saveWarnings.length > 0 && (
+              <div className="mt-4 px-3 py-2 rounded-[8px] bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                  <div className="space-y-1">
+                    <div className="font-medium">This automation may interfere with the Meet Tracker flow:</div>
+                    <ul className="list-disc list-inside space-y-1">
+                      {saveWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                    <div className="pt-1 text-amber-700">Click <strong>Save anyway</strong> to keep this configuration, or close the modal to adjust it.</div>
+                  </div>
+                </div>
+              </div>
+            )}
             {saveError && <div className="mt-4 px-3 py-2 rounded-[8px] bg-red-50 border border-red-200 text-xs text-red-700">{saveError}</div>}
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={save} disabled={saving || !name.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
+              <button
+                onClick={() => {
+                  const ack = saveWarnings.length > 0
+                  if (ack) setWarningsAcked(true)
+                  void save({ forceAck: ack })
+                }}
+                disabled={saving || !name.trim()}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : saveWarnings.length > 0 ? 'Save anyway' : editing ? 'Save' : 'Create'}
+              </button>
             </div>
           </div>
         </div>
