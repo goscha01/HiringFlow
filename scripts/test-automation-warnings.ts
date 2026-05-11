@@ -65,6 +65,48 @@ const cases = [
     },
     expectWarning: false,
   },
+  {
+    label: 'The ttest1 case: rule named "Flow Completed follow-up", trigger=before_meeting, subject=application received',
+    rule: {
+      triggerType: 'before_meeting',
+      name: 'Flow Completed follow-up ttest1',
+      steps: [{ channel: 'email', emailTemplate: { subject: 'We received your application, {{candidate_name}}!' } }],
+    },
+    expectWarning: true,
+  },
+  {
+    label: 'Same body but correct flow_completed trigger',
+    rule: {
+      triggerType: 'flow_completed',
+      name: 'Flow Completed follow-up',
+      steps: [{ channel: 'email', emailTemplate: { subject: 'We received your application, {{candidate_name}}!' } }],
+    },
+    expectWarning: false,
+  },
+  {
+    label: 'Training-completion message wired to flow_completed (mistake)',
+    rule: {
+      triggerType: 'flow_completed',
+      steps: [{ channel: 'email', emailTemplate: { subject: 'You completed the training, {{candidate_name}}' } }],
+    },
+    expectWarning: true,
+  },
+  {
+    label: '"Book your interview" wired to before_meeting (mistake — should be training_completed or flow_completed)',
+    rule: {
+      triggerType: 'before_meeting',
+      steps: [{ channel: 'email', emailTemplate: { subject: 'Book your interview, {{candidate_name}}' } }],
+    },
+    expectWarning: true,
+  },
+  {
+    label: 'Pre-meeting reminder wired to meeting_ended (mistake)',
+    rule: {
+      triggerType: 'meeting_ended',
+      steps: [{ channel: 'sms', smsBody: 'Hi {{candidate_name}}, your interview starts in 15 minutes.' }],
+    },
+    expectWarning: true,
+  },
 ]
 
 let failed = 0

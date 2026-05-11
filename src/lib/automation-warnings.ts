@@ -39,6 +39,11 @@ export interface WarnableStep {
 
 export interface WarnableRule {
   triggerType: WarnableTriggerType
+  // Optional — when the editor passes the rule name, it's included in the
+  // lexical scan. Recruiters often label rules by intent ("Flow Completed
+  // follow-up") and forget to align the trigger, so the name itself is
+  // frequently the clearest hint that the trigger is wrong.
+  name?: string | null
   steps: WarnableStep[]
 }
 
@@ -118,16 +123,76 @@ const PATTERNS: Pattern[] = [
     topic: 'the candidate not showing up',
     suggestedTrigger: 'meeting_no_show',
   },
+
+  // Application-received / flow-completed language → only sensible right
+  // after the candidate finishes the application flow.
+  {
+    test: /\b(received your application|thanks for applying|we'?ll review|we'?ll be in touch)\b/,
+    expectedTriggers: ['flow_completed', 'flow_passed'],
+    topic: 'receiving the candidate\'s application',
+    suggestedTrigger: 'flow_completed',
+  },
+  {
+    test: /\b(flow[- ]completed|application (received|completed|submitted))\b/,
+    expectedTriggers: ['flow_completed', 'flow_passed'],
+    topic: 'the candidate completing the application flow',
+    suggestedTrigger: 'flow_completed',
+  },
+
+  // Training language → only sensible on training_* or automation_completed
+  // (the chain trigger that follows the post-flow scheduling email).
+  {
+    test: /\b(your training is ready|start the training|begin the training|watch the training)\b/,
+    expectedTriggers: ['flow_completed', 'flow_passed', 'training_started', 'automation_completed'],
+    topic: 'starting the training',
+    suggestedTrigger: 'flow_completed',
+  },
+  {
+    test: /\b(finished the training|completed the training|training is complete|training is done)\b/,
+    expectedTriggers: ['training_completed'],
+    topic: 'completing the training',
+    suggestedTrigger: 'training_completed',
+  },
+
+  // Scheduling / "book your interview" language → sensible at the point
+  // the candidate is invited to schedule (training_completed in the
+  // standard flow, or right after flow_completed for "skip training" funnels).
+  {
+    test: /\b(book your interview|schedule your interview|pick a time|choose a time)\b/,
+    expectedTriggers: ['training_completed', 'flow_completed', 'flow_passed', 'background_check_passed'],
+    topic: 'inviting the candidate to schedule',
+    suggestedTrigger: 'training_completed',
+  },
+
+  // Pre-meeting reminder language → only sensible on before_meeting
+  // (and arguably meeting_scheduled for the immediate confirmation).
+  {
+    test: /\b(your interview (starts|begins) in|reminder:? your interview|interview is coming up|interview starts in (\d+|a few) )\b/,
+    expectedTriggers: ['before_meeting', 'meeting_scheduled'],
+    topic: 'an upcoming meeting reminder',
+    suggestedTrigger: 'before_meeting',
+  },
 ]
 
 function collectText(rule: WarnableRule): string {
   const parts: string[] = []
+  if (rule.name) parts.push(rule.name)
   for (const step of rule.steps) {
     if (step.smsBody) parts.push(step.smsBody)
     if (step.emailTemplate?.subject) parts.push(step.emailTemplate.subject)
   }
   return parts.join('\n').toLowerCase()
 }
+
+// Triggers that are emitted by the Meet Tracker extension's attendance
+// path (or the equivalent Workspace Events / sync-on-read fallback).
+// Mentioning the extension only makes sense for these — for lifecycle
+// triggers like flow_completed/training_completed the extension isn't
+// involved at all.
+const MEET_TRACKER_TRIGGERS = new Set<WarnableTriggerType>([
+  'meeting_scheduled', 'meeting_rescheduled', 'before_meeting',
+  'meeting_started', 'meeting_ended', 'meeting_no_show',
+])
 
 export function detectAutomationWarnings(rule: WarnableRule): string[] {
   const text = collectText(rule)
@@ -137,14 +202,13 @@ export function detectAutomationWarnings(rule: WarnableRule): string[] {
   for (const p of PATTERNS) {
     if (!p.test.test(text)) continue
     if (p.expectedTriggers.includes(rule.triggerType)) continue
-    // Dedupe by topic — a body that mentions "rescheduled" three times
-    // shouldn't produce three identical warnings.
     if (seen.has(p.topic)) continue
     seen.add(p.topic)
+    const hint = MEET_TRACKER_TRIGGERS.has(p.suggestedTrigger)
+      ? `Use the "${p.suggestedTrigger}" trigger so the Meet Tracker fires this at the right moment.`
+      : `Use the "${p.suggestedTrigger}" trigger so this fires at the right point in the candidate's journey.`
     out.push(
-      `This message mentions ${p.topic}, but the trigger is "${rule.triggerType}". ` +
-      `The Meet Tracker extension fires "${p.suggestedTrigger}" when this actually happens — ` +
-      `using a different trigger will send this message at the wrong time.`,
+      `This message mentions ${p.topic}, but the trigger is "${rule.triggerType}". ${hint}`,
     )
   }
   return out

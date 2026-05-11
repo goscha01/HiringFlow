@@ -631,6 +631,7 @@ export default function AutomationsPage() {
     // "Save anyway" once warnings have been shown.
     const warnings = detectAutomationWarnings({
       triggerType,
+      name,
       steps: steps.map((s) => ({
         channel: s.channel,
         smsBody: s.smsBody,
