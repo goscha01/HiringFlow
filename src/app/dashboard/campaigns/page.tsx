@@ -895,16 +895,6 @@ export default function CampaignsPage() {
                     <label className="block text-xs text-grey-40 mb-1">Body</label>
                     <textarea value={adBody} onChange={(e) => setAdBody(e.target.value)} rows={5} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Requirements (optional)</label>
-                      <textarea value={adRequirements} onChange={(e) => setAdRequirements(e.target.value)} rows={3} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-grey-40 mb-1">Benefits (optional)</label>
-                      <textarea value={adBenefits} onChange={(e) => setAdBenefits(e.target.value)} rows={3} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                    </div>
-                  </div>
                   <div>
                     <label className="block text-xs text-grey-40 mb-1">Call to Action</label>
                     <input type="text" value={adCta} onChange={(e) => setAdCta(e.target.value)} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
