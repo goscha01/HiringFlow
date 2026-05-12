@@ -13,6 +13,7 @@ import { detectAutomationWarnings } from '@/lib/automation-warnings'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string; bodyHtml?: string; bodyText?: string | null }
+interface SmsTemplateItem { id: string; name: string; body: string }
 interface TrainingItem { id: string; title: string; slug: string }
 interface SchedulingItem { id: string; name: string; schedulingUrl: string }
 
@@ -23,6 +24,7 @@ interface StepShape {
   timingMode: 'trigger' | 'before_meeting' | 'after_meeting'
   channel: 'email' | 'sms' | 'both'
   emailTemplateId: string | null
+  smsTemplateId: string | null
   smsBody: string | null
   emailDestination: 'applicant' | 'company' | 'specific'
   emailDestinationAddress: string | null
@@ -34,6 +36,7 @@ interface StepShape {
   schedulingConfigId: string | null
   // For UI display only — populated by the API on GET.
   emailTemplate?: Template | null
+  smsTemplate?: SmsTemplateItem | null
   training?: TrainingItem | null
   schedulingConfig?: SchedulingItem | null
 }
@@ -228,6 +231,7 @@ function newStep(order: number, defaultTemplateId?: string): StepShape {
     timingMode: 'trigger',
     channel: 'email',
     emailTemplateId: defaultTemplateId ?? null,
+    smsTemplateId: null,
     smsBody: null,
     emailDestination: 'applicant',
     emailDestinationAddress: null,
@@ -255,6 +259,7 @@ export default function AutomationsPage() {
   const [rules, setRules] = useState<Rule[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
+  const [smsTemplates, setSmsTemplates] = useState<SmsTemplateItem[]>([])
   const [trainings, setTrainings] = useState<TrainingItem[]>([])
   const [schedulingConfigs, setSchedulingConfigs] = useState<SchedulingItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -328,11 +333,12 @@ export default function AutomationsPage() {
       fetch('/api/automations').then(r => r.json()),
       fetch('/api/flows').then(r => r.json()),
       fetch('/api/email-templates').then(r => r.json()),
+      fetch('/api/sms-templates').then(r => r.ok ? r.json() : []),
       fetch('/api/trainings').then(r => r.json()),
       fetch('/api/scheduling').then(r => r.json()),
       fetch('/api/workspace/settings').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([r, f, t, tr, sc, ws]) => {
-      setRules(r); setFlows(f); setTemplates(t); setTrainings(tr); setSchedulingConfigs(sc)
+    ]).then(([r, f, t, st, tr, sc, ws]) => {
+      setRules(r); setFlows(f); setTemplates(t); setSmsTemplates(st); setTrainings(tr); setSchedulingConfigs(sc)
       setCompanyEmail(ws?.senderEmail || null)
       const rawStages = (ws?.settings as { funnelStages?: unknown } | null)?.funnelStages
       setStages(normalizeStages(rawStages))
@@ -582,6 +588,7 @@ export default function AutomationsPage() {
         timingMode: 'trigger',
         channel: r.channel === 'sms' ? 'sms' : 'email',
         emailTemplateId: r.emailTemplateId ?? null,
+        smsTemplateId: null,
         smsBody: r.smsBody ?? null,
         emailDestination: (r.emailDestination as StepShape['emailDestination']) || 'applicant',
         emailDestinationAddress: r.emailDestinationAddress ?? null,
@@ -1248,6 +1255,7 @@ export default function AutomationsPage() {
                       isFirst={idx === 0}
                       triggerType={triggerType}
                       templates={templates}
+                      smsTemplates={smsTemplates}
                       trainings={trainings}
                       schedulingConfigs={schedulingConfigs}
                       companyEmail={companyEmail}
@@ -1518,6 +1526,7 @@ function StepCard(props: {
   isFirst: boolean
   triggerType: string
   templates: Template[]
+  smsTemplates: SmsTemplateItem[]
   trainings: TrainingItem[]
   schedulingConfigs: SchedulingItem[]
   companyEmail: string | null
@@ -1538,12 +1547,14 @@ function StepCard(props: {
   isEditingTemplate: boolean
   editorSlot: React.ReactNode
 }) {
-  const { step, idx, total, isFirst, triggerType, templates, trainings, schedulingConfigs, companyEmail, companyPhone } = props
+  const { step, idx, total, isFirst, triggerType, templates, smsTemplates, trainings, schedulingConfigs, companyEmail, companyPhone } = props
   const wantsEmail = step.channel === 'email' || step.channel === 'both'
   const wantsSms = step.channel === 'sms' || step.channel === 'both'
   const delayLocked = isFirst && triggerType === 'before_meeting'
   const canPreviewEmail = wantsEmail && !!step.emailTemplateId
-  const canPreviewSms = wantsSms && !!step.smsBody && step.smsBody.trim().length > 0
+  // An SMS step is previewable if it has either a saved-template id or an
+  // inline body — mirrors the executor's resolution rule.
+  const canPreviewSms = wantsSms && (!!step.smsTemplateId || (!!step.smsBody && step.smsBody.trim().length > 0))
 
   return (
     <div className="border border-surface-border rounded-[10px] p-4 bg-white">
@@ -1820,18 +1831,68 @@ function StepCard(props: {
                 onClick={() => props.onPreview('sms')}
                 disabled={!canPreviewSms || props.previewLoading}
                 className="text-[11px] text-purple-700 hover:text-purple-900 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                title={!canPreviewSms ? 'Type an SMS body first' : 'Preview rendered SMS'}
+                title={!canPreviewSms ? 'Pick a template or type a body first' : 'Preview rendered SMS'}
               >
                 {props.previewLoading ? 'Loading…' : 'Preview SMS'}
               </button>
+            </div>
+            {/* Template picker — mirrors the email template dropdown. Picking a
+                saved template populates the textarea with the template body so
+                the recruiter can see what'll be sent (and tweak inline if
+                they want a one-off variant). Editing the textarea afterwards
+                detaches the smsTemplateId so the inline edit is what sends. */}
+            <div>
+              <label className="block text-xs text-grey-40 mb-1">Template</label>
+              <select
+                value={step.smsTemplateId || ''}
+                onChange={(e) => {
+                  const id = e.target.value || null
+                  if (!id) {
+                    props.onChange({ smsTemplateId: null })
+                    return
+                  }
+                  const picked = smsTemplates.find((t) => t.id === id)
+                  if (!picked) { props.onChange({ smsTemplateId: id }); return }
+                  const detected = detectLinkType(picked.body)
+                  props.onChange({
+                    smsTemplateId: id,
+                    smsBody: picked.body,
+                    ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
+                  })
+                }}
+                className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="">{smsTemplates.length === 0 ? 'No saved templates — type a body below' : 'Inline body (no saved template)'}</option>
+                {smsTemplates.length > 0 && (
+                  <optgroup label="Saved templates">
+                    {smsTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </optgroup>
+                )}
+              </select>
+              <div className="flex items-center justify-between mt-1.5">
+                <a
+                  href="/dashboard/automations/sms-templates"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-purple-700 hover:text-purple-900 font-medium"
+                >+ Manage SMS templates →</a>
+                {step.smsTemplateId && (
+                  <span className="text-[11px] text-grey-40">Editing below will detach the template.</span>
+                )}
+              </div>
             </div>
             <textarea
               value={step.smsBody || ''}
               onChange={(e) => {
                 const body = e.target.value
                 const detected = detectLinkType(body)
+                // If the user is editing away from a saved template's body,
+                // detach the template so the rule sends the inline edit.
+                const linkedTpl = step.smsTemplateId ? smsTemplates.find((t) => t.id === step.smsTemplateId) : null
+                const detach = linkedTpl ? linkedTpl.body !== body : false
                 props.onChange({
                   smsBody: body,
+                  ...(detach ? { smsTemplateId: null } : {}),
                   ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
                 })
               }}

@@ -44,6 +44,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
           timingMode: s.timingMode,
           channel: s.channel,
           emailTemplateId: s.emailTemplateId,
+          smsTemplateId: s.smsTemplateId,
           smsBody: s.smsBody,
           emailDestination: s.emailDestination,
           emailDestinationAddress: s.emailDestinationAddress,

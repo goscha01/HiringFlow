@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null) as {
     channel?: 'email' | 'sms'
     emailTemplateId?: string | null
+    smsTemplateId?: string | null
     smsBody?: string | null
     nextStepType?: 'training' | 'scheduling' | 'meet_link' | null
     trainingId?: string | null
@@ -45,7 +46,12 @@ export async function POST(request: NextRequest) {
   if (!body) return NextResponse.json({ error: 'Bad JSON' }, { status: 400 })
 
   const channel = body.channel === 'sms' ? 'sms' : 'email'
-  if (channel === 'sms' && (!body.smsBody || body.smsBody.trim().length === 0)) {
+  // For SMS preview we accept either a saved-template id or an inline body —
+  // exact same resolution rule the executor uses, so what you preview is
+  // exactly what the candidate would receive.
+  const smsHasTemplate = !!body.smsTemplateId
+  const smsHasBody = !!(body.smsBody && body.smsBody.trim().length > 0)
+  if (channel === 'sms' && !smsHasTemplate && !smsHasBody) {
     return NextResponse.json({ error: 'SMS body is empty' }, { status: 400 })
   }
   if (channel === 'email' && !body.emailTemplateId) {
@@ -66,6 +72,15 @@ export async function POST(request: NextRequest) {
     : null
   if (channel === 'email' && !template) {
     return NextResponse.json({ error: 'Email template not found in this workspace' }, { status: 404 })
+  }
+  const smsTemplate = channel === 'sms' && body.smsTemplateId
+    ? await prisma.smsTemplate.findFirst({
+        where: { id: body.smsTemplateId, workspaceId: ws.workspaceId },
+        select: { id: true, name: true, body: true },
+      })
+    : null
+  if (channel === 'sms' && body.smsTemplateId && !smsTemplate) {
+    return NextResponse.json({ error: 'SMS template not found in this workspace' }, { status: 404 })
   }
 
   const training = body.nextStepType === 'training' && body.trainingId
@@ -117,7 +132,11 @@ export async function POST(request: NextRequest) {
   }
 
   if (channel === 'sms') {
-    const renderedBody = renderTemplate(body.smsBody as string, variables)
+    // Match the executor's resolution rule: template wins over inline body.
+    const rawBody = (smsTemplate?.body && smsTemplate.body.trim().length > 0)
+      ? smsTemplate.body
+      : (body.smsBody as string)
+    const renderedBody = renderTemplate(rawBody, variables)
     const smsRecipient = body.smsDestination === 'company'
       ? (workspace?.phone || '(no company phone configured)')
       : body.smsDestination === 'specific'
@@ -128,7 +147,7 @@ export async function POST(request: NextRequest) {
       smsBody: renderedBody,
       recipient: smsRecipient,
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
-      templateName: 'SMS body',
+      templateName: smsTemplate?.name ?? 'SMS body',
       variables,
       length: renderedBody.length,
       segments: Math.max(1, Math.ceil(renderedBody.length / 160)),

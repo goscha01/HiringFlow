@@ -1061,6 +1061,7 @@ export async function executeStep(
     where: { id: stepId },
     include: {
       emailTemplate: true,
+      smsTemplate: true,
       training: true,
       schedulingConfig: true,
       rule: {
@@ -1301,7 +1302,14 @@ export async function executeStep(
 
   if (channel === 'sms') {
     provider = 'sigcore'
-    if (!step.smsBody || step.smsBody.trim().length === 0) {
+    // Resolve SMS body: prefer the saved SmsTemplate (named, reusable) over
+    // the legacy inline step.smsBody (one-off / pre-template). The template's
+    // body wins when smsTemplateId is set, even if smsBody is also populated.
+    const resolvedSmsBody =
+      (step.smsTemplate?.body && step.smsTemplate.body.trim().length > 0)
+        ? step.smsTemplate.body
+        : (step.smsBody ?? '')
+    if (!resolvedSmsBody || resolvedSmsBody.trim().length === 0) {
       await prisma.automationExecution.update({
         where: { id: execution.id },
         data: { status: 'failed', errorMessage: 'SMS step has no body configured', channel, provider },
@@ -1338,7 +1346,7 @@ export async function executeStep(
       })
       return
     }
-    const body = renderTemplate(step.smsBody, variables)
+    const body = renderTemplate(resolvedSmsBody, variables)
     // Note: if the recruiter set "Includes link to" but the body doesn't
     // contain the matching {{xxx_link}} token, the link silently won't
     // appear. The rule editor surfaces this as an inline warning so the

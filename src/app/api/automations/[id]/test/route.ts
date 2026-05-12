@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       id: true, flowId: true, triggerType: true, name: true,
       steps: {
         orderBy: { order: 'asc' },
-        select: { id: true, channel: true, emailTemplateId: true, smsBody: true },
+        select: { id: true, channel: true, emailTemplateId: true, smsTemplateId: true, smsBody: true },
       },
     },
   })
@@ -50,7 +50,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const firstStep = rule.steps[0]
   const testChannel: 'email' | 'sms' = firstStep.channel === 'sms' ? 'sms' : 'email'
   if (testChannel === 'email' && !firstStep.emailTemplateId) return NextResponse.json({ error: 'Email template missing on first step' }, { status: 400 })
-  if (testChannel === 'sms' && (!firstStep.smsBody || firstStep.smsBody.trim().length === 0)) return NextResponse.json({ error: 'SMS body missing on first step' }, { status: 400 })
+  // Test mode only needs the step to be "sendable" — either a saved template
+  // or an inline body. The executor itself does the final resolution.
+  if (testChannel === 'sms' && !firstStep.smsTemplateId && (!firstStep.smsBody || firstStep.smsBody.trim().length === 0)) {
+    return NextResponse.json({ error: 'SMS template or body missing on first step' }, { status: 400 })
+  }
 
   if (testChannel === 'email' && !to.includes('@')) {
     return NextResponse.json({ error: 'Valid recipient email required' }, { status: 400 })

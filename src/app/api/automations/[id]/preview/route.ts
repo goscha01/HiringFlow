@@ -30,6 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         orderBy: { order: 'asc' },
         include: {
           emailTemplate: true,
+          smsTemplate: true,
           training: { select: { id: true, slug: true, title: true } },
           schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
         },
@@ -48,7 +49,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   else channel = step.channel === 'sms' ? 'sms' : 'email'
 
   if (channel === 'email' && !step.emailTemplate) return NextResponse.json({ error: 'Email template missing on this step' }, { status: 400 })
-  if (channel === 'sms' && (!step.smsBody || step.smsBody.trim().length === 0)) return NextResponse.json({ error: 'SMS body missing on this step' }, { status: 400 })
+  // SMS body resolution: prefer template, fall back to inline body — same as executor.
+  const resolvedSmsBody = (step.smsTemplate?.body && step.smsTemplate.body.trim().length > 0)
+    ? step.smsTemplate.body
+    : (step.smsBody ?? '')
+  if (channel === 'sms' && (!resolvedSmsBody || resolvedSmsBody.trim().length === 0)) {
+    return NextResponse.json({ error: 'SMS body missing on this step' }, { status: 400 })
+  }
 
   const resolved = await resolveSchedulingUrl(step.schedulingConfigId, ws.workspaceId).catch(() => null)
   const sampleScheduleLink = step.nextStepType === 'scheduling'
@@ -86,7 +93,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   if (channel === 'sms') {
-    const body = renderTemplate(step.smsBody as string, variables)
+    const body = renderTemplate(resolvedSmsBody, variables)
     const smsRecipient = step.smsDestination === 'company'
       ? (rule.workspace?.phone || '(no company phone configured)')
       : step.smsDestination === 'specific'
@@ -99,7 +106,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       smsBody: body,
       recipient: smsRecipient,
       from: { name: 'HireFunnel SMS', email: 'sigcore-pool' },
-      templateName: 'SMS body',
+      templateName: step.smsTemplate?.name ?? 'SMS body',
       variables,
       length: body.length,
       segments: Math.max(1, Math.ceil(body.length / 160)),

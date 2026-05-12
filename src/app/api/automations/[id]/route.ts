@@ -9,6 +9,7 @@ interface StepInput {
   timingMode?: 'trigger' | 'before_meeting' | 'after_meeting'
   channel?: 'email' | 'sms' | 'both'
   emailTemplateId?: string | null
+  smsTemplateId?: string | null
   smsBody?: string | null
   emailDestination?: 'applicant' | 'company' | 'specific'
   emailDestinationAddress?: string | null
@@ -32,7 +33,11 @@ function validateSteps(steps: unknown): { ok: true; steps: StepInput[] } | { ok:
     const wantsEmail = channel === 'email' || channel === 'both'
     const wantsSms = channel === 'sms' || channel === 'both'
     if (wantsEmail && !raw.emailTemplateId) return { ok: false, error: `Step ${i + 1}: email channel requires an email template` }
-    if (wantsSms && (!raw.smsBody || raw.smsBody.trim().length === 0)) return { ok: false, error: `Step ${i + 1}: SMS channel requires a body` }
+    const hasSmsTemplate = !!raw.smsTemplateId
+    const hasSmsBody = !!(raw.smsBody && raw.smsBody.trim().length > 0)
+    if (wantsSms && !hasSmsTemplate && !hasSmsBody) {
+      return { ok: false, error: `Step ${i + 1}: SMS channel requires a template or body` }
+    }
     const delayMinutes = Number.isFinite(raw.delayMinutes) ? Math.max(0, Math.floor(raw.delayMinutes as number)) : 0
     out.push({
       order: i,
@@ -40,6 +45,7 @@ function validateSteps(steps: unknown): { ok: true; steps: StepInput[] } | { ok:
       timingMode: (raw.timingMode === 'before_meeting' || raw.timingMode === 'after_meeting') ? raw.timingMode : 'trigger',
       channel,
       emailTemplateId: wantsEmail ? raw.emailTemplateId ?? null : null,
+      smsTemplateId: wantsSms ? raw.smsTemplateId ?? null : null,
       smsBody: wantsSms ? raw.smsBody ?? null : null,
       emailDestination: raw.emailDestination ?? 'applicant',
       emailDestinationAddress: raw.emailDestination === 'specific' ? (raw.emailDestinationAddress || null) : null,
@@ -147,6 +153,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
           timingMode: s.timingMode ?? 'trigger',
           channel: s.channel ?? 'email',
           emailTemplateId: s.emailTemplateId ?? null,
+          smsTemplateId: s.smsTemplateId ?? null,
           smsBody: s.smsBody ?? null,
           emailDestination: s.emailDestination ?? 'applicant',
           emailDestinationAddress: s.emailDestinationAddress ?? null,
@@ -185,6 +192,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         orderBy: { order: 'asc' },
         include: {
           emailTemplate: { select: { id: true, name: true, subject: true } },
+          smsTemplate: { select: { id: true, name: true, body: true } },
           training: { select: { id: true, title: true, slug: true } },
           schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
         },
