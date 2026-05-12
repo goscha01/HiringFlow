@@ -1871,7 +1871,7 @@ function StepCard(props: {
               </select>
               <div className="flex items-center justify-between mt-1.5">
                 <a
-                  href="/dashboard/automations/sms-templates"
+                  href="/dashboard/automations/templates?tab=sms"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[11px] text-purple-700 hover:text-purple-900 font-medium"

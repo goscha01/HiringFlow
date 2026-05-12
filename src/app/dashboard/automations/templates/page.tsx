@@ -2,121 +2,230 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { MANUAL_MEETING_NUDGE_TEMPLATE_NAME } from '@/lib/email-templates-seed'
 
-interface Template { id: string; name: string; subject: string; bodyHtml: string; bodyText: string | null; isActive: boolean; updatedAt: string }
+interface EmailTemplate { id: string; name: string; subject: string; bodyHtml: string; bodyText: string | null; isActive: boolean; updatedAt: string }
+interface SmsTemplate { id: string; name: string; body: string; isActive: boolean; updatedAt: string }
 
 const VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_link}}', '{{meeting_time}}', '{{source}}', '{{ad_name}}']
 
-export default function EmailTemplatesPage() {
-  const [templates, setTemplates] = useState<Template[]>([])
+type Tab = 'email' | 'sms'
+
+export default function TemplatesPage() {
+  const searchParams = useSearchParams()
+  const initialTab: Tab = searchParams?.get('tab') === 'sms' ? 'sms' : 'email'
+  const [tab, setTab] = useState<Tab>(initialTab)
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing] = useState<Template | null>(null)
-  const [name, setName] = useState('')
-  const [subject, setSubject] = useState('')
-  const [bodyHtml, setBodyHtml] = useState('')
-  const [bodyText, setBodyText] = useState('')
+
+  // Email modal state
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [editingEmail, setEditingEmail] = useState<EmailTemplate | null>(null)
+  const [emailName, setEmailName] = useState('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBodyHtml, setEmailBodyHtml] = useState('')
+  const [emailBodyText, setEmailBodyText] = useState('')
+
+  // SMS modal state
+  const [showSmsModal, setShowSmsModal] = useState(false)
+  const [editingSms, setEditingSms] = useState<SmsTemplate | null>(null)
+  const [smsName, setSmsName] = useState('')
+  const [smsBody, setSmsBody] = useState('')
+
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => { fetch('/api/email-templates').then(r => r.json()).then(d => { setTemplates(d); setLoading(false) }) }, [])
-  const refresh = async () => { const r = await fetch('/api/email-templates'); if (r.ok) setTemplates(await r.json()) }
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/email-templates').then(r => r.ok ? r.json() : []),
+      fetch('/api/sms-templates').then(r => r.ok ? r.json() : []),
+    ]).then(([e, s]) => { setEmailTemplates(e); setSmsTemplates(s); setLoading(false) })
+  }, [])
 
-  const openCreate = () => {
-    setEditing(null); setName(''); setSubject(''); setBodyHtml('<p>Hi {{candidate_name}},</p>\n<p>Thank you for completing the application.</p>\n<p><a href="{{training_link}}">Start your training</a></p>'); setBodyText(''); setShowModal(true)
-  }
-  const openEdit = (t: Template) => {
-    setEditing(t); setName(t.name); setSubject(t.subject); setBodyHtml(t.bodyHtml); setBodyText(t.bodyText || ''); setShowModal(true)
-  }
+  const refreshEmail = async () => { const r = await fetch('/api/email-templates'); if (r.ok) setEmailTemplates(await r.json()) }
+  const refreshSms = async () => { const r = await fetch('/api/sms-templates'); if (r.ok) setSmsTemplates(await r.json()) }
 
-  const save = async () => {
-    if (!name.trim() || !subject.trim() || !bodyHtml.trim()) return
+  // ─── Email ─────────────────────────────────────────────────────────────
+  const openCreateEmail = () => {
+    setEditingEmail(null); setEmailName(''); setEmailSubject('')
+    setEmailBodyHtml('<p>Hi {{candidate_name}},</p>\n<p>Thank you for completing the application.</p>\n<p><a href="{{training_link}}">Start your training</a></p>')
+    setEmailBodyText(''); setShowEmailModal(true)
+  }
+  const openEditEmail = (t: EmailTemplate) => {
+    setEditingEmail(t); setEmailName(t.name); setEmailSubject(t.subject)
+    setEmailBodyHtml(t.bodyHtml); setEmailBodyText(t.bodyText || ''); setShowEmailModal(true)
+  }
+  const saveEmail = async () => {
+    if (!emailName.trim() || !emailSubject.trim() || !emailBodyHtml.trim()) return
     setSaving(true)
-    const body = { name, subject, bodyHtml, bodyText: bodyText || null }
-    if (editing) {
-      await fetch(`/api/email-templates/${editing.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const body = { name: emailName, subject: emailSubject, bodyHtml: emailBodyHtml, bodyText: emailBodyText || null }
+    if (editingEmail) {
+      await fetch(`/api/email-templates/${editingEmail.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     } else {
       await fetch('/api/email-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     }
-    setSaving(false); setShowModal(false); refresh()
+    setSaving(false); setShowEmailModal(false); refreshEmail()
+  }
+  const removeEmail = async (id: string) => {
+    if (!confirm('Delete this email template?')) return
+    await fetch(`/api/email-templates/${id}`, { method: 'DELETE' }); refreshEmail()
   }
 
-  const remove = async (id: string) => {
-    if (!confirm('Delete this template?')) return
-    await fetch(`/api/email-templates/${id}`, { method: 'DELETE' }); refresh()
+  // ─── SMS ───────────────────────────────────────────────────────────────
+  const openCreateSms = () => {
+    setEditingSms(null); setSmsName(''); setSmsBody('Hi {{candidate_name}}, '); setShowSmsModal(true)
+  }
+  const openEditSms = (t: SmsTemplate) => {
+    setEditingSms(t); setSmsName(t.name); setSmsBody(t.body); setShowSmsModal(true)
+  }
+  const saveSms = async () => {
+    if (!smsName.trim() || !smsBody.trim()) return
+    setSaving(true)
+    const payload = { name: smsName, body: smsBody }
+    if (editingSms) {
+      await fetch(`/api/sms-templates/${editingSms.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    } else {
+      await fetch('/api/sms-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    }
+    setSaving(false); setShowSmsModal(false); refreshSms()
+  }
+  const removeSms = async (id: string) => {
+    if (!confirm('Delete this SMS template? Any rule still using it will fall back to its inline SMS body.')) return
+    await fetch(`/api/sms-templates/${id}`, { method: 'DELETE' }); refreshSms()
   }
 
   if (loading) return <div className="text-center py-12 text-grey-40">Loading...</div>
 
+  const smsBodyLen = smsBody.length
+  const smsSegments = Math.max(1, Math.ceil(smsBodyLen / 160))
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
             <Link href="/dashboard/automations" className="text-grey-40 hover:text-grey-15">&larr; Automations</Link>
           </div>
-          <h1 className="text-[36px] font-semibold text-grey-15">Email Templates</h1>
-          <p className="text-grey-35 mt-1">Create reusable email templates for automations</p>
+          <h1 className="text-[36px] font-semibold text-grey-15">Templates</h1>
+          <p className="text-grey-35 mt-1">Reusable email and SMS bodies for automations</p>
         </div>
-        <button onClick={openCreate} className="btn-primary">+ Create Template</button>
+        <button onClick={tab === 'email' ? openCreateEmail : openCreateSms} className="btn-primary">
+          + Create {tab === 'email' ? 'Email' : 'SMS'} Template
+        </button>
       </div>
 
-      {templates.length === 0 ? (
-        <div className="section-card text-center py-16">
-          <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-[8px] flex items-center justify-center">
-            <svg className="w-8 h-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-          </div>
-          <h2 className="text-xl font-semibold text-grey-15 mb-2">No templates yet</h2>
-          <p className="text-grey-35 mb-6">Create your first email template</p>
-          <button onClick={openCreate} className="btn-primary">+ Create Template</button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {templates.map((t) => (
-            <div key={t.id} className="bg-white rounded-lg border border-surface-border p-5 hover:shadow-md transition-shadow">
-              <h3 className="font-medium text-grey-15 mb-1">{t.name}</h3>
-              <p className="text-sm text-grey-40 mb-3 truncate">Subject: {t.subject}</p>
-              <div className="flex items-center gap-3">
-                <button onClick={() => openEdit(t)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Edit</button>
-                <button onClick={() => remove(t.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
-              </div>
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-surface-border mb-6">
+        <button
+          onClick={() => setTab('email')}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === 'email' ? 'border-brand-500 text-brand-700' : 'border-transparent text-grey-40 hover:text-grey-15'
+          }`}
+        >
+          Email <span className="ml-1.5 text-xs text-grey-40">({emailTemplates.length})</span>
+        </button>
+        <button
+          onClick={() => setTab('sms')}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            tab === 'sms' ? 'border-purple-500 text-purple-700' : 'border-transparent text-grey-40 hover:text-grey-15'
+          }`}
+        >
+          SMS <span className="ml-1.5 text-xs text-grey-40">({smsTemplates.length})</span>
+        </button>
+      </div>
+
+      {/* Email list */}
+      {tab === 'email' && (
+        emailTemplates.length === 0 ? (
+          <div className="section-card text-center py-16">
+            <div className="w-16 h-16 mx-auto mb-4 bg-brand-50 rounded-[8px] flex items-center justify-center">
+              <svg className="w-8 h-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
             </div>
-          ))}
-        </div>
+            <h2 className="text-xl font-semibold text-grey-15 mb-2">No email templates yet</h2>
+            <p className="text-grey-35 mb-6">Create your first email template</p>
+            <button onClick={openCreateEmail} className="btn-primary">+ Create Email Template</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {emailTemplates.map((t) => (
+              <div key={t.id} className="bg-white rounded-lg border border-surface-border p-5 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="font-medium text-grey-15">{t.name}</h3>
+                  <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-brand-50 text-brand-700">Email</span>
+                </div>
+                <p className="text-sm text-grey-40 mb-3 truncate">Subject: {t.subject}</p>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => openEditEmail(t)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Edit</button>
+                  <button onClick={() => removeEmail(t.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       )}
 
-      {/* Modal */}
-      {showModal && (
+      {/* SMS list */}
+      {tab === 'sms' && (
+        smsTemplates.length === 0 ? (
+          <div className="section-card text-center py-16">
+            <div className="w-16 h-16 mx-auto mb-4 bg-purple-50 rounded-[8px] flex items-center justify-center">
+              <svg className="w-8 h-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+            </div>
+            <h2 className="text-xl font-semibold text-grey-15 mb-2">No SMS templates yet</h2>
+            <p className="text-grey-35 mb-6">Create your first SMS template</p>
+            <button onClick={openCreateSms} className="btn-primary">+ Create SMS Template</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {smsTemplates.map((t) => (
+              <div key={t.id} className="bg-white rounded-lg border border-surface-border p-5 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="font-medium text-grey-15">{t.name}</h3>
+                  <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">SMS</span>
+                </div>
+                <p className="text-sm text-grey-40 mb-3 line-clamp-2 whitespace-pre-wrap">{t.body}</p>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => openEditSms(t)} className="text-xs text-purple-700 hover:text-purple-900 font-medium">Edit</button>
+                  <button onClick={() => removeSms(t.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Email Modal */}
+      {showEmailModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
           <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-xl font-semibold text-grey-15 mb-6">{editing ? 'Edit Template' : 'Create Template'}</h2>
+            <h2 className="text-xl font-semibold text-grey-15 mb-6">{editingEmail ? 'Edit Email Template' : 'Create Email Template'}</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Template Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <input type="text" value={emailName} onChange={(e) => setEmailName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">Subject Line</label>
-                <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Your training is ready, {{candidate_name}}!" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="e.g. Your training is ready, {{candidate_name}}!" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-sm font-medium text-grey-20">HTML Body</label>
                 </div>
-                <textarea value={bodyHtml} onChange={(e) => setBodyHtml(e.target.value)} rows={10} placeholder="<p>Hi {{candidate_name}},</p>" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                <textarea value={emailBodyHtml} onChange={(e) => setEmailBodyHtml(e.target.value)} rows={10} placeholder="<p>Hi {{candidate_name}},</p>" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-grey-20 mb-1.5">
-                  {name === MANUAL_MEETING_NUDGE_TEMPLATE_NAME ? 'Plain text / SMS body' : 'Plain Text (optional)'}
+                  {emailName === MANUAL_MEETING_NUDGE_TEMPLATE_NAME ? 'Plain text / SMS body' : 'Plain Text (optional)'}
                 </label>
-                <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={4} placeholder="Hi {{candidate_name}}, ..." className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                {name === MANUAL_MEETING_NUDGE_TEMPLATE_NAME && (
+                <textarea value={emailBodyText} onChange={(e) => setEmailBodyText(e.target.value)} rows={4} placeholder="Hi {{candidate_name}}, ..." className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                {emailName === MANUAL_MEETING_NUDGE_TEMPLATE_NAME && (
                   <p className="mt-1.5 text-xs text-grey-40">
                     For this template, the plain-text field is also sent as the SMS body when a recruiter clicks <span className="font-medium text-grey-20">Send reminder</span> on the candidate page (and the candidate has a phone on file). Keep it short.
                   </p>
                 )}
               </div>
-              {/* Available variables */}
               <div className="bg-surface rounded-[8px] p-4">
                 <label className="text-xs font-medium text-grey-40 uppercase mb-2 block">Available Variables</label>
                 <div className="flex flex-wrap gap-2">
@@ -129,8 +238,46 @@ export default function EmailTemplatesPage() {
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={save} disabled={saving || !name.trim() || !subject.trim() || !bodyHtml.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editing ? 'Save' : 'Create'}</button>
+              <button onClick={() => setShowEmailModal(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={saveEmail} disabled={saving || !emailName.trim() || !emailSubject.trim() || !emailBodyHtml.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editingEmail ? 'Save' : 'Create'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SMS Modal */}
+      {showSmsModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
+          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[640px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold text-grey-15 mb-6">{editingSms ? 'Edit SMS Template' : 'Create SMS Template'}</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-grey-20 mb-1.5">Template Name</label>
+                <input type="text" value={smsName} onChange={(e) => setSmsName(e.target.value)} placeholder="e.g. 1-hour Reminder" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-grey-20">SMS Body</label>
+                  <span className={`text-[11px] font-mono ${smsBodyLen > 320 ? 'text-amber-700' : smsBodyLen > 160 ? 'text-grey-15' : 'text-grey-40'}`}>
+                    {smsBodyLen} chars · {smsSegments} seg
+                  </span>
+                </div>
+                <textarea value={smsBody} onChange={(e) => setSmsBody(e.target.value)} rows={5} placeholder="Hi {{candidate_name}}, your interview starts at {{meeting_time}}. Join: {{meeting_link}}" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono" />
+              </div>
+              <div className="bg-surface rounded-[8px] p-4">
+                <label className="text-xs font-medium text-grey-40 uppercase mb-2 block">Available Variables</label>
+                <div className="flex flex-wrap gap-2">
+                  {VARIABLES.map(v => (
+                    <button key={v} onClick={() => { navigator.clipboard.writeText(v) }} className="text-xs px-2.5 py-1 bg-white border border-surface-border rounded-[8px] text-grey-15 font-mono hover:bg-brand-50 hover:border-brand-200" title="Click to copy">
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setShowSmsModal(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={saveSms} disabled={saving || !smsName.trim() || !smsBody.trim()} className="btn-primary flex-1 disabled:opacity-50">{saving ? 'Saving...' : editingSms ? 'Save' : 'Create'}</button>
             </div>
           </div>
         </div>
