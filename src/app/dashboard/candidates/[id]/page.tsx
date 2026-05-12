@@ -24,6 +24,7 @@ import { InterviewPanel } from './_InterviewPanel'
 import { NotesPanel } from './_NotesPanel'
 import { CurrentActivityCard } from './_CurrentActivityCard'
 import { BackgroundCheckCard } from './_BackgroundCheckCard'
+import { CapturesPanel } from './_CapturesPanel'
 import CapturePlayback from '@/components/CapturePlayback'
 
 interface CaptureSummary {
@@ -187,12 +188,13 @@ export default function CandidateDetailPage() {
   // one rule at a time without dismissing the modal — keyed by ruleId.
   const [perRuleState, setPerRuleState] = useState<Record<string, { firing: boolean; result?: { ok: boolean; message: string } }>>({})
 
-  // Lazy-load captures the first time the user opens the Captures tab. The
-  // candidate detail endpoint doesn't include them (keeps the main payload
-  // tight), and the playback URLs themselves are minted per-click anyway.
+  // Load captures eagerly on mount so the top-level CapturesPanel can render
+  // alongside InterviewPanel without waiting for a tab click. Same fetch
+  // powers the Captures tab too — shared state, single network call.
+  // Tight payload: list endpoint already returns one row per step (latest
+  // active take) plus a 5-min signed playbackUrl per row.
   useEffect(() => {
-    if (tab !== 'captures') return
-    if (captures !== null) return
+    if (!id) return
     let cancelled = false
     setCapturesLoading(true)
     fetch(`/api/captures/session/${id}`)
@@ -209,7 +211,7 @@ export default function CandidateDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [tab, captures, id])
+  }, [id])
 
   const loadCandidate = useCallback(async () => {
     const res = await fetch(`/api/candidates/${id}`)
@@ -1419,6 +1421,12 @@ export default function CandidateDetailPage() {
           the panel self-hides if the feature flag / scopes aren't active, so
           this never affects workspaces still on the Calendly flow) */}
       <InterviewPanel candidateId={id} candidateEmail={candidate.candidateEmail} isRebook={candidate.isRebook} onCandidateChanged={loadCandidate} />
+
+      {/* Audio capture answers — first-class candidate activity. Self-hides
+          when there are no recordings, so candidates who never hit a
+          capture step don't see an empty card. Shares the same fetch as
+          the Captures tab below; single network call. */}
+      <CapturesPanel captures={captures} loading={capturesLoading} />
 
       {/* Background check — Certn integration; self-hides gracefully if the
           workspace hasn't connected Certn yet (the order button just returns
