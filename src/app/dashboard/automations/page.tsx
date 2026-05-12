@@ -555,13 +555,21 @@ export default function AutomationsPage() {
     // Synthesize a single step from the legacy rule fields in that case so
     // the editor stays usable until the backfill runs.
     if (r.steps && r.steps.length > 0) {
+      // Force all follow-ups to inherit step 0's timingMode — the picker is
+      // hidden on follow-ups, so a saved inconsistency would otherwise be
+      // invisible to the recruiter.
+      const tm0 = (r.steps[0] as StepShape).timingMode
+      const parentMode: StepShape['timingMode'] =
+        tm0 === 'before_meeting' || tm0 === 'after_meeting' ? tm0 : 'trigger'
       setSteps(r.steps.map((s, i) => {
         const tm = (s as StepShape).timingMode
+        const ownMode: StepShape['timingMode'] =
+          tm === 'before_meeting' || tm === 'after_meeting' ? tm : 'trigger'
         return {
           ...s,
           order: i,
           channel: (s.channel === 'sms' || s.channel === 'both') ? s.channel : 'email',
-          timingMode: (tm === 'before_meeting' || tm === 'after_meeting') ? tm : 'trigger',
+          timingMode: i === 0 ? ownMode : parentMode,
           emailDestination: (s.emailDestination as StepShape['emailDestination']) || 'applicant',
           smsDestination: (s.smsDestination as StepShape['smsDestination']) || 'applicant',
           smsDestinationNumber: s.smsDestinationNumber ?? null,
@@ -593,11 +601,21 @@ export default function AutomationsPage() {
   }
 
   const updateStep = (idx: number, patch: Partial<StepShape>) => {
-    setSteps((prev) => prev.map((s, i) => i === idx ? { ...s, ...patch } : s))
+    setSteps((prev) => prev.map((s, i) => {
+      if (i === idx) return { ...s, ...patch }
+      // When step 0's timingMode changes, follow-ups silently inherit it —
+      // the picker is hidden for them precisely so they always match.
+      if (idx === 0 && i > 0 && patch.timingMode !== undefined) {
+        return { ...s, timingMode: patch.timingMode }
+      }
+      return s
+    }))
   }
   const addStep = () => {
     setSteps((prev) => [...prev, {
       ...newStep(prev.length, templates[0]?.id),
+      // Inherit timingMode from step 0 so the (hidden) picker is consistent.
+      timingMode: prev[0]?.timingMode ?? 'trigger',
       delayMinutes: 1440, // follow-ups default to 1 day after the trigger
     }])
   }
@@ -1592,8 +1610,11 @@ function StepCard(props: {
               : `Fires ${formatDelay(step.delayMinutes)} after the trigger event.`
           return (
           <div>
-            {/* Timing-mode picker — only meaningful when the trigger is meeting-related */}
-            {isMeetingTrigger && (
+            {/* Timing-mode picker — only meaningful when the trigger is meeting-related.
+                Hidden on follow-ups: they inherit the mode from the first step,
+                because mixing "before meeting" and "after trigger" within one rule
+                would be incoherent for a recruiter to reason about. */}
+            {isMeetingTrigger && isFirst && (
               <div className="mb-2">
                 <label className="block text-xs font-medium text-grey-20 mb-1.5">When to fire</label>
                 <div className="flex gap-2">
