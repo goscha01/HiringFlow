@@ -369,9 +369,11 @@ model Flow {
   // Null → use the platform DEFAULT_TIMEOUTS in src/lib/candidate-status.ts.
   // Roles with longer hiring loops (e.g. specialty trades) can extend these
   // without affecting other flows in the same workspace.
-  videoInterviewTimeoutDays Int?              @map("video_interview_timeout_days")
-  trainingTimeoutDays       Int?              @map("training_timeout_days")
-  noShowTimeoutHours        Int?              @map("no_show_timeout_hours")
+  videoInterviewTimeoutDays  Int?             @map("video_interview_timeout_days")
+  trainingTimeoutDays        Int?             @map("training_timeout_days")
+  noShowTimeoutHours         Int?             @map("no_show_timeout_hours")
+  schedulingTimeoutHours     Int?             @map("scheduling_timeout_hours")
+  backgroundCheckTimeoutDays Int?             @map("background_check_timeout_days")
   createdAt                 DateTime          @default(now()) @map("created_at")
   steps                     FlowStep[]
   sessions                  Session[]

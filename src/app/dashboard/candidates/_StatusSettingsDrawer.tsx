@@ -51,6 +51,8 @@ interface FlowRow {
   videoInterviewTimeoutDays: number | null
   trainingTimeoutDays: number | null
   noShowTimeoutHours: number | null
+  schedulingTimeoutHours: number | null
+  backgroundCheckTimeoutDays: number | null
 }
 
 interface Props {
@@ -82,6 +84,8 @@ export function StatusSettingsDrawer({ open, onClose, initialCustomStatuses, onS
           videoInterviewTimeoutDays: typeof f.videoInterviewTimeoutDays === 'number' ? f.videoInterviewTimeoutDays : null,
           trainingTimeoutDays: typeof f.trainingTimeoutDays === 'number' ? f.trainingTimeoutDays : null,
           noShowTimeoutHours: typeof f.noShowTimeoutHours === 'number' ? f.noShowTimeoutHours : null,
+          schedulingTimeoutHours: typeof f.schedulingTimeoutHours === 'number' ? f.schedulingTimeoutHours : null,
+          backgroundCheckTimeoutDays: typeof f.backgroundCheckTimeoutDays === 'number' ? f.backgroundCheckTimeoutDays : null,
         })))
       })
       .catch(() => setError('Failed to load flows'))
@@ -123,6 +127,8 @@ export function StatusSettingsDrawer({ open, onClose, initialCustomStatuses, onS
             videoInterviewTimeoutDays: f.videoInterviewTimeoutDays,
             trainingTimeoutDays: f.trainingTimeoutDays,
             noShowTimeoutHours: f.noShowTimeoutHours,
+            schedulingTimeoutHours: f.schedulingTimeoutHours,
+            backgroundCheckTimeoutDays: f.backgroundCheckTimeoutDays,
           }),
         }).then((r) => {
           if (!r.ok) throw new Error(`Failed to save timeouts for "${f.name}"`)
@@ -181,7 +187,9 @@ export function StatusSettingsDrawer({ open, onClose, initialCustomStatuses, onS
             <div className="text-[13px] font-semibold text-ink mb-1">Stalled detection rules</div>
             <p className="text-[12px] text-grey-40 mb-4">
               The daily cron flags a candidate as <strong>Stalled</strong> when a checkpoint stays quiet for this long.
-              Leave blank to use the platform default ({DEFAULT_TIMEOUTS.videoInterviewTimeoutDays} d / {DEFAULT_TIMEOUTS.trainingTimeoutDays} d / {DEFAULT_TIMEOUTS.noShowTimeoutHours} h).
+              The same thresholds drive the &quot;Candidate didn&apos;t complete X&quot; entries in the timeline.
+              Leave blank to use the platform default
+              ({DEFAULT_TIMEOUTS.videoInterviewTimeoutDays} d / {DEFAULT_TIMEOUTS.trainingTimeoutDays} d / {DEFAULT_TIMEOUTS.noShowTimeoutHours} h / {DEFAULT_TIMEOUTS.schedulingTimeoutHours} h / {DEFAULT_TIMEOUTS.backgroundCheckTimeoutDays} d).
             </p>
             {loading ? (
               <div className="py-6 text-center text-sm text-grey-40">Loading flows…</div>
@@ -213,6 +221,20 @@ export function StatusSettingsDrawer({ open, onClose, initialCustomStatuses, onS
                         defaultValue={DEFAULT_TIMEOUTS.noShowTimeoutHours}
                         value={flow.noShowTimeoutHours}
                         onChange={(v) => updateFlowField(flow.id, 'noShowTimeoutHours', v)}
+                      />
+                      <TimeoutInput
+                        label="Scheduling invite not booked"
+                        suffix="hours"
+                        defaultValue={DEFAULT_TIMEOUTS.schedulingTimeoutHours}
+                        value={flow.schedulingTimeoutHours}
+                        onChange={(v) => updateFlowField(flow.id, 'schedulingTimeoutHours', v)}
+                      />
+                      <TimeoutInput
+                        label="Background check not completed"
+                        suffix="days"
+                        defaultValue={DEFAULT_TIMEOUTS.backgroundCheckTimeoutDays}
+                        value={flow.backgroundCheckTimeoutDays}
+                        onChange={(v) => updateFlowField(flow.id, 'backgroundCheckTimeoutDays', v)}
                       />
                     </div>
                   </div>

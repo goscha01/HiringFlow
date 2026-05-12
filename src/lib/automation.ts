@@ -592,6 +592,63 @@ export async function cancelPendingStepsForSession(
 }
 
 /**
+ * Cancel queued executions whose rule is pinned to a stage that no longer
+ * matches the session's current pipeline status. Called after every
+ * `applyStageTrigger` so a session that advances past stage X automatically
+ * sheds any pending follow-ups belonging to X (or any other stage that
+ * isn't X' the new one).
+ *
+ * Generalizes the per-trigger cancellation: instead of every dispatcher
+ * having to know which rules to nuke, we sweep by the pinned-stage
+ * invariant the guard already enforces. The guard would skip these at
+ * dispatch time anyway — cancelling here just stops the row from sitting
+ * in `queued` for days and keeps the timeline clean.
+ *
+ * Rules with stageId=null (stage-agnostic, e.g. "fires regardless") are
+ * left alone — the guard never blocks them on stage, so they're still
+ * valid for the candidate at their new stage.
+ */
+export async function cancelStageMismatchedQueued(
+  sessionId: string,
+  newStageId: string,
+): Promise<number> {
+  const queued = await prisma.automationExecution.findMany({
+    where: {
+      sessionId,
+      status: { in: ['queued', 'pending'] },
+      automationRule: {
+        stageId: { not: null },
+        NOT: { stageId: newStageId },
+      },
+    },
+    select: {
+      id: true,
+      qstashMessageId: true,
+      automationRule: { select: { stageId: true, name: true } },
+    },
+  })
+  if (queued.length === 0) return 0
+  for (const e of queued) {
+    if (e.qstashMessageId && qstash) {
+      try {
+        await (qstash.messages as unknown as { delete: (id: string) => Promise<unknown> }).delete(e.qstashMessageId)
+      } catch (err) {
+        console.warn('[Automation] qstash.messages.delete failed during stage-mismatch cancel:', (err as Error).message)
+      }
+    }
+    await prisma.automationExecution.update({
+      where: { id: e.id },
+      data: {
+        status: 'cancelled',
+        errorMessage: `Rule "${e.automationRule.name}" pinned to stage "${e.automationRule.stageId}"; session advanced to "${newStageId}"`,
+      },
+    }).catch(() => {})
+  }
+  console.log(`[Automation] Cancelled ${queued.length} stage-mismatched queued execution(s) for session ${sessionId} (now in ${newStageId})`)
+  return queued.length
+}
+
+/**
  * Cancel queued follow-ups whose value depended on the meeting still
  * happening — i.e. delayed steps from rules with triggerType
  * `meeting_scheduled` or `meeting_rescheduled` (e.g. "thanks for booking,

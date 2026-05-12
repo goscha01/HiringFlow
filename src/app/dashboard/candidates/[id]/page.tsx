@@ -13,6 +13,7 @@ import {
   STATUS_DISPLAY,
   DISPOSITION_DISPLAY,
   CANDIDATE_DISPOSITION_REASONS,
+  DEFAULT_TIMEOUTS,
   normalizeCustomStatuses,
   type CandidateStatus,
   type CandidateDispositionReason,
@@ -112,13 +113,22 @@ interface CandidateDetail {
   stalledAt: string | null; lostAt: string | null; hiredAt: string | null
   source: string | null; campaign: string | null; addedManually: boolean
   rejectionReason: string | null; rejectionReasonAt: string | null
-  flow: { id: string; name: string; slug: string } | null
+  flow: {
+    id: string; name: string; slug: string
+    videoInterviewTimeoutDays?: number | null
+    trainingTimeoutDays?: number | null
+    noShowTimeoutHours?: number | null
+    schedulingTimeoutHours?: number | null
+    backgroundCheckTimeoutDays?: number | null
+  } | null
   lastStep: { id: string; title: string; stepOrder: number; stepType: string; questionType: string } | null
   flowStepCount: number
   ad: { id: string; name: string; source: string } | null
   answers: Answer[]; submissions: Submission[]
   trainingEnrollments: TrainingEnrollment[]; schedulingEvents: SchedulingEvent[]
   automationExecutions?: AutomationExec[]
+  interviewMeetings?: { id: string; actualStart: string | null; actualEnd: string | null; scheduledStart: string; scheduledEnd: string; meetingUri: string | null; confirmedAt: string | null; createdAt: string }[]
+  backgroundChecks?: { id: string; status: string; overallScore: string | null; createdAt: string }[]
   formFieldLabels?: Record<string, string>
   isRebook?: boolean
   siblingSessions?: SiblingSession[]
@@ -731,11 +741,82 @@ export default function CandidateDetailPage() {
     } else if (e.status === 'queued' && e.scheduledFor) {
       timeline.push({ label: `${base} — scheduled`, detail: `${bits} · Fires at ${new Date(e.scheduledFor).toLocaleString()}`, time: e.scheduledFor, type: 'scheduled' })
     } else if (e.status === 'cancelled') {
-      timeline.push({ label: `${base} — cancelled`, detail: bits, time: e.createdAt, type: 'info' })
+      timeline.push({ label: `${base} — cancelled${e.errorMessage ? `: ${e.errorMessage}` : ''}`, detail: bits, time: e.createdAt, type: 'info' })
     } else {
       timeline.push({ label: `${base} — pending`, detail: bits, time: e.createdAt, type: 'info' })
     }
   })
+
+  // ─── Synthetic candidate-step entries ──────────────────────────────────
+  // For each successfully-sent automation whose step expected the candidate
+  // to do something next (book a meeting, open training, complete a BG check),
+  // surface a derived timeline entry that goes:
+  //   waiting → completed (outcome event fired after sentAt) — silent, the
+  //             outcome event already shows up on its own
+  //   waiting → failed   (deadline elapsed, no outcome) — "Candidate didn't X"
+  //   waiting → pending  (deadline still ahead) — "Waiting for candidate to X"
+  //
+  // Deadlines are pulled from the flow's per-type timeouts (with platform
+  // defaults as fallback). Pure render-time logic — no DB writes, no cron.
+  const nowMs = Date.now()
+  const schedulingHours = candidate.flow?.schedulingTimeoutHours ?? DEFAULT_TIMEOUTS.schedulingTimeoutHours
+  const trainingDays = candidate.flow?.trainingTimeoutDays ?? DEFAULT_TIMEOUTS.trainingTimeoutDays
+  const bgCheckDays = candidate.flow?.backgroundCheckTimeoutDays ?? DEFAULT_TIMEOUTS.backgroundCheckTimeoutDays
+
+  const fmtRemaining = (msUntil: number) => {
+    const h = Math.round(msUntil / 3600_000)
+    if (h >= 24) return `${Math.round(h / 24)}d`
+    if (h >= 1) return `${h}h`
+    const m = Math.max(1, Math.round(msUntil / 60_000))
+    return `${m}m`
+  }
+
+  ;(candidate.automationExecutions || [])
+    .filter(e => e.status === 'sent' && e.sentAt && e.step?.nextStepType)
+    .forEach(e => {
+      const nextType = e.step!.nextStepType!
+      const sentAt = new Date(e.sentAt!).getTime()
+      let label = ''
+      let deadlineMs = 0
+      let completed = false
+
+      if (nextType === 'scheduling') {
+        label = 'book a meeting'
+        deadlineMs = sentAt + schedulingHours * 3600_000
+        completed = (candidate.interviewMeetings ?? []).some(m => new Date(m.createdAt).getTime() >= sentAt)
+          || candidate.schedulingEvents.some(ev => ev.eventType === 'meeting_scheduled' && new Date(ev.eventAt).getTime() >= sentAt)
+      } else if (nextType === 'training') {
+        label = 'open training'
+        deadlineMs = sentAt + trainingDays * 86400_000
+        completed = candidate.trainingEnrollments.some(en => en.status !== 'not_started' && new Date(en.startedAt).getTime() >= sentAt)
+      } else if (nextType === 'background_check') {
+        label = 'complete background check'
+        deadlineMs = sentAt + bgCheckDays * 86400_000
+        completed = (candidate.backgroundChecks ?? []).some(bc => bc.overallScore !== null && new Date(bc.createdAt).getTime() >= sentAt)
+      } else {
+        return // not a candidate-action nextStepType
+      }
+
+      if (completed) return // outcome event already renders elsewhere
+
+      const detail = `Automation: ${e.automationRule.name}`
+      if (nowMs > deadlineMs) {
+        timeline.push({
+          label: `Candidate didn't ${label}`,
+          detail: `${detail} · Expected within ${nextType === 'scheduling' ? `${schedulingHours}h` : nextType === 'training' ? `${trainingDays}d` : `${bgCheckDays}d`} of send`,
+          time: new Date(deadlineMs).toISOString(),
+          type: 'error',
+        })
+      } else {
+        timeline.push({
+          label: `Waiting for candidate to ${label}`,
+          detail: `${detail} · Expires in ${fmtRemaining(deadlineMs - nowMs)}`,
+          time: new Date(deadlineMs).toISOString(),
+          type: 'info',
+        })
+      }
+    })
+
   timeline.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
 
   return (

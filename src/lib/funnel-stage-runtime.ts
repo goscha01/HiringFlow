@@ -134,6 +134,16 @@ export async function applyStageTrigger(opts: {
     }).catch(() => {})
   }
 
+  // The session is now in `stage.id`. Sweep any queued automation executions
+  // whose rule is pinned to a different stage — the guard would skip them at
+  // dispatch anyway, this just stops them from sitting in `queued` until they
+  // expire. Dynamic import to avoid a circular dep (automation.ts imports
+  // funnel-stage-runtime via applyStageTrigger).
+  const { cancelStageMismatchedQueued } = await import('./automation')
+  await cancelStageMismatchedQueued(opts.sessionId, stage.id).catch((err) => {
+    console.error('[funnel-stage-runtime] cancelStageMismatchedQueued failed:', err)
+  })
+
   return stage.id
 }
 

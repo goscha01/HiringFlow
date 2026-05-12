@@ -20,7 +20,19 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   const session = await prisma.session.findFirst({
     where: { id: params.id, workspaceId: ws.workspaceId },
     include: {
-      flow: { select: { id: true, name: true, slug: true } },
+      flow: {
+        select: {
+          id: true, name: true, slug: true,
+          // Timeouts drive the "Candidate didn't complete X" entries the
+          // timeline synthesizes from sent automations. Null → platform
+          // default in src/lib/candidate-status.ts.
+          videoInterviewTimeoutDays: true,
+          trainingTimeoutDays: true,
+          noShowTimeoutHours: true,
+          schedulingTimeoutHours: true,
+          backgroundCheckTimeoutDays: true,
+        },
+      },
       // Step the candidate is currently sitting on. Drives the "Step X of Y"
       // progress card on the dashboard. Null once the flow is finished.
       lastStep: { select: { id: true, title: true, stepOrder: true, stepType: true, questionType: true } },
@@ -194,8 +206,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   //     candidate activity, so weighted lower in label only)
   const interviewMeetings = await prisma.interviewMeeting.findMany({
     where: { sessionId: params.id },
-    select: { actualStart: true, actualEnd: true, scheduledStart: true },
+    select: { id: true, actualStart: true, actualEnd: true, scheduledStart: true, scheduledEnd: true, meetingUri: true, confirmedAt: true, createdAt: true },
     orderBy: { scheduledStart: 'desc' },
+  })
+
+  // Background checks — surfaced so the timeline can detect whether a sent
+  // `nextStepType='background_check'` automation produced a completed case.
+  const backgroundChecks = await prisma.backgroundCheck.findMany({
+    where: { sessionId: params.id },
+    select: { id: true, status: true, overallScore: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
   })
 
   const candidateActivityCandidates: Array<Date | null | undefined> = [
@@ -220,6 +240,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json({
     ...session,
     automationExecutions,
+    interviewMeetings,
+    backgroundChecks,
     formFieldLabels,
     isRebook,
     siblingSessions,

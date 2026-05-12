@@ -164,6 +164,8 @@ export const DEFAULT_TIMEOUTS = {
   videoInterviewTimeoutDays: 3,
   trainingTimeoutDays: 5,
   noShowTimeoutHours: 24,
+  schedulingTimeoutHours: 48,
+  backgroundCheckTimeoutDays: 7,
 } as const
 
 /**
