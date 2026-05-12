@@ -92,9 +92,12 @@ export async function PATCH(
       videoInterviewTimeoutDays?: number | null
       trainingTimeoutDays?: number | null
       noShowTimeoutHours?: number | null
+      schedulingTimeoutHours?: number | null
+      backgroundCheckTimeoutDays?: number | null
     }
     const { name, isPublished, startMessage, endMessage, branding,
-      videoInterviewTimeoutDays, trainingTimeoutDays, noShowTimeoutHours } = body
+      videoInterviewTimeoutDays, trainingTimeoutDays, noShowTimeoutHours,
+      schedulingTimeoutHours, backgroundCheckTimeoutDays } = body
 
     // Only allow positive integers (or null to clear). Reject other shapes
     // so a typo in the drawer doesn't write garbage to the DB.
@@ -109,6 +112,12 @@ export async function PATCH(
     if (noShowTimeoutHours !== undefined && !validTimeout(noShowTimeoutHours)) {
       return NextResponse.json({ error: 'noShowTimeoutHours must be a positive integer or null' }, { status: 400 })
     }
+    if (schedulingTimeoutHours !== undefined && !validTimeout(schedulingTimeoutHours)) {
+      return NextResponse.json({ error: 'schedulingTimeoutHours must be a positive integer or null' }, { status: 400 })
+    }
+    if (backgroundCheckTimeoutDays !== undefined && !validTimeout(backgroundCheckTimeoutDays)) {
+      return NextResponse.json({ error: 'backgroundCheckTimeoutDays must be a positive integer or null' }, { status: 400 })
+    }
 
     const updated = await prisma.flow.update({
       where: { id: params.id },
@@ -121,6 +130,8 @@ export async function PATCH(
         ...(videoInterviewTimeoutDays !== undefined && { videoInterviewTimeoutDays }),
         ...(trainingTimeoutDays !== undefined && { trainingTimeoutDays }),
         ...(noShowTimeoutHours !== undefined && { noShowTimeoutHours }),
+        ...(schedulingTimeoutHours !== undefined && { schedulingTimeoutHours }),
+        ...(backgroundCheckTimeoutDays !== undefined && { backgroundCheckTimeoutDays }),
       },
     })
 
