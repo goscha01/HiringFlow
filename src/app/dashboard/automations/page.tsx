@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { DEFAULT_EMAIL_TEMPLATES } from '@/lib/email-templates-seed'
+import { DEFAULT_SMS_TEMPLATES } from '@/lib/sms-templates-seed'
 import { Button, PageHeader } from '@/components/design'
 import {
   DEFAULT_FUNNEL_STAGES,
@@ -298,8 +299,11 @@ export default function AutomationsPage() {
     items: ExecutionRow[]
     error?: string
   }>(null)
-  // Index of the step the inline template creator is currently bound to.
+  // Index of the step the inline template creator is currently bound to,
+  // plus which channel's editor is open (email = full subject+body editor,
+  // sms = simpler name+body editor). At most one editor open at a time.
   const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
+  const [templateEditorChannel, setTemplateEditorChannel] = useState<'email' | 'sms'>('email')
   // When the editor opens (idx becomes non-null), pull it into view AND
   // clear any stale save error from a previous attempt.
   useEffect(() => {
@@ -322,10 +326,14 @@ export default function AutomationsPage() {
   const [saveWarnings, setSaveWarnings] = useState<string[]>([])
   const [warningsAcked, setWarningsAcked] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
-  // Inline template creator
+  // Inline template creator — email shares name with SMS (one state) so the
+  // recruiter can keep typing if they switch channels mid-edit. The
+  // channel-specific fields (subject/html for email, body for SMS) live in
+  // separate state so neither clobbers the other.
   const [newTplName, setNewTplName] = useState('')
   const [newTplSubject, setNewTplSubject] = useState('')
   const [newTplBody, setNewTplBody] = useState('<p>Hi {{candidate_name}},</p>\n<p></p>')
+  const [newSmsTplBody, setNewSmsTplBody] = useState('Hi {{candidate_name}}, ')
   const [savingTpl, setSavingTpl] = useState(false)
 
   useEffect(() => {
@@ -756,6 +764,53 @@ export default function AutomationsPage() {
       }
       setTemplateEditorStepIdx(null)
       setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
+    } catch (err) {
+      setTplSaveError(err instanceof Error ? err.message : 'Save failed')
+      return
+    } finally {
+      setSavingTpl(false)
+    }
+  }
+
+  // SMS template inline-create mirror of createTemplate. Name uniqueness is
+  // scoped to SMS templates (you can have an email named "Reminder" and an
+  // SMS also named "Reminder" — different drawers, different lists).
+  const resolveUniqueSmsTemplateName = (candidate: string, list: { name: string }[]): string => {
+    const taken = new Set(list.map((t) => t.name))
+    if (!taken.has(candidate)) return candidate
+    for (let i = 2; i < 1000; i++) {
+      const next = `${candidate} (${i})`
+      if (!taken.has(next)) return next
+    }
+    return `${candidate} (custom ${Date.now()})`
+  }
+  const createSmsTemplate = async () => {
+    setTplSaveError(null)
+    if (!newTplName.trim()) { setTplSaveError('Template name is required'); return }
+    if (!newSmsTplBody.trim()) { setTplSaveError('Body is required'); return }
+    setSavingTpl(true)
+    const finalName = resolveUniqueSmsTemplateName(newTplName.trim(), smsTemplates)
+    try {
+      const r = await fetch('/api/sms-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: finalName, body: newSmsTplBody }),
+      })
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        setTplSaveError(data.error || `Save failed (${r.status})`)
+        return
+      }
+      const newTpl = await r.json()
+      const tplRes = await fetch('/api/sms-templates')
+      if (tplRes.ok) setSmsTemplates(await tplRes.json())
+      // Bind to the step that opened the editor, and also drop the body into
+      // smsBody so the step's textarea reflects the saved content.
+      if (templateEditorStepIdx !== null) {
+        updateStep(templateEditorStepIdx, { smsTemplateId: newTpl.id, smsBody: newTpl.body })
+      }
+      setTemplateEditorStepIdx(null)
+      setNewTplName(''); setNewSmsTplBody('Hi {{candidate_name}}, ')
     } catch (err) {
       setTplSaveError(err instanceof Error ? err.message : 'Save failed')
       return
@@ -1261,7 +1316,8 @@ export default function AutomationsPage() {
                       companyEmail={companyEmail}
                       companyPhone={companyPhone}
                       previewLoading={draftPreviewLoading}
-                      isEditingTemplate={templateEditorStepIdx === idx}
+                      isEditingTemplate={templateEditorStepIdx === idx && templateEditorChannel === 'email'}
+                      isEditingSmsTemplate={templateEditorStepIdx === idx && templateEditorChannel === 'sms'}
                       onChange={(patch) => updateStep(idx, patch)}
                       onRemove={() => removeStep(idx)}
                       onMoveUp={() => moveStep(idx, -1)}
@@ -1273,14 +1329,69 @@ export default function AutomationsPage() {
                       onInsertTokenInTemplate={insertTokenInTemplate}
                       onInsertTokenInSmsBody={(kind) => insertTokenInSmsBody(idx, kind)}
                       onCreateTemplate={() => {
+                        setTemplateEditorChannel('email')
                         setTemplateEditorStepIdx(idx)
                         setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
                       }}
                       onPickDefaultTemplate={(tpl) => {
+                        setTemplateEditorChannel('email')
                         setTemplateEditorStepIdx(idx)
                         setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml)
                       }}
-                      editorSlot={templateEditorStepIdx === idx ? (
+                      onCreateSmsTemplate={() => {
+                        setTemplateEditorChannel('sms')
+                        setTemplateEditorStepIdx(idx)
+                        setNewTplName(''); setNewSmsTplBody('Hi {{candidate_name}}, ')
+                      }}
+                      onPickDefaultSmsTemplate={(tpl) => {
+                        setTemplateEditorChannel('sms')
+                        setTemplateEditorStepIdx(idx)
+                        setNewTplName(tpl.name); setNewSmsTplBody(tpl.body)
+                      }}
+                      smsEditorSlot={templateEditorStepIdx === idx && templateEditorChannel === 'sms' ? (
+                        <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-purple-300/60">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs font-medium text-grey-15">SMS template editor</div>
+                            <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-grey-40 mb-1">Template Name</label>
+                            <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. 1-hour Reminder" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-purple-500" />
+                            {(() => {
+                              const trimmed = newTplName.trim()
+                              if (!trimmed) return null
+                              const conflict = smsTemplates.some((t) => t.name === trimmed)
+                              if (!conflict) return null
+                              const final = resolveUniqueSmsTemplateName(trimmed, smsTemplates)
+                              return (
+                                <p className="mt-1 text-[11px] text-purple-700">
+                                  ℹ A template named &ldquo;{trimmed}&rdquo; already exists — saving as <span className="font-mono font-semibold">{final}</span>.
+                                </p>
+                              )
+                            })()}
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-xs text-grey-40">Body</label>
+                              <span className={`text-[10px] font-mono ${newSmsTplBody.length > 320 ? 'text-amber-700' : newSmsTplBody.length > 160 ? 'text-grey-15' : 'text-grey-40'}`}>
+                                {newSmsTplBody.length}c · {Math.max(1, Math.ceil(newSmsTplBody.length / 160))}s
+                              </span>
+                            </div>
+                            <textarea value={newSmsTplBody} onChange={e => setNewSmsTplBody(e.target.value)} rows={4} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-purple-500" />
+                          </div>
+                          <div className="bg-white rounded-[6px] p-2">
+                            <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
+                            <div className="flex flex-wrap gap-1">{['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_link}}', '{{meeting_time}}', '{{source}}', '{{ad_name}}'].map(v => <button key={v} type="button" onClick={() => navigator.clipboard.writeText(v)} className="text-[10px] px-2 py-0.5 bg-surface border border-surface-border rounded text-grey-15 font-mono hover:bg-purple-50">{v}</button>)}</div>
+                          </div>
+                          {tplSaveError && (
+                            <div className="px-3 py-2 rounded-[6px] bg-red-50 border border-red-200 text-xs text-red-700">
+                              {tplSaveError}
+                            </div>
+                          )}
+                          <button onClick={createSmsTemplate} disabled={savingTpl} className="w-full py-2.5 text-xs bg-purple-600 text-white rounded-[6px] hover:bg-purple-700 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Assign to step'}</button>
+                        </div>
+                      ) : null}
+                      editorSlot={templateEditorStepIdx === idx && templateEditorChannel === 'email' ? (
                         <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-brand-300/50">
                           <div className="flex items-center justify-between">
                             <div className="text-xs font-medium text-grey-15">Template editor</div>
@@ -1544,8 +1655,12 @@ function StepCard(props: {
   onInsertTokenInSmsBody: (kind: 'training' | 'scheduling' | 'meet_link' | 'background_check') => void
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
+  onCreateSmsTemplate: () => void
+  onPickDefaultSmsTemplate: (tpl: { name: string; body: string }) => void
   isEditingTemplate: boolean
+  isEditingSmsTemplate: boolean
   editorSlot: React.ReactNode
+  smsEditorSlot: React.ReactNode
 }) {
   const { step, idx, total, isFirst, triggerType, templates, smsTemplates, trainings, schedulingConfigs, companyEmail, companyPhone } = props
   const wantsEmail = step.channel === 'email' || step.channel === 'both'
@@ -1836,21 +1951,33 @@ function StepCard(props: {
                 {props.previewLoading ? 'Loading…' : 'Preview SMS'}
               </button>
             </div>
-            {/* Template picker — mirrors the email template dropdown. Picking a
-                saved template populates the textarea with the template body so
-                the recruiter can see what'll be sent (and tweak inline if
-                they want a one-off variant). Editing the textarea afterwards
+            {/* Template picker — mirrors the email template dropdown.
+                When the inline editor is open for this step, swap the
+                dropdown for the editor (props.smsEditorSlot). Otherwise
+                show the dropdown, defaults, "+ New template" link, and the
+                manage-templates shortcut. Selecting a saved template OR a
+                default populates the textarea below; editing the textarea
                 detaches the smsTemplateId so the inline edit is what sends. */}
+            {props.isEditingSmsTemplate ? (
+              props.smsEditorSlot
+            ) : (
             <div>
               <label className="block text-xs text-grey-40 mb-1">Template</label>
               <select
                 value={step.smsTemplateId || ''}
                 onChange={(e) => {
-                  const id = e.target.value || null
-                  if (!id) {
-                    props.onChange({ smsTemplateId: null })
+                  const value = e.target.value
+                  // "default:<name>" → open the inline editor seeded with
+                  // the picked default. Matches the email flow exactly.
+                  if (value.startsWith('default:')) {
+                    const name = value.slice('default:'.length)
+                    const defTpl = DEFAULT_SMS_TEMPLATES.find((t) => t.name === name)
+                    if (!defTpl) return
+                    props.onPickDefaultSmsTemplate(defTpl)
                     return
                   }
+                  const id = value || null
+                  if (!id) { props.onChange({ smsTemplateId: null }); return }
                   const picked = smsTemplates.find((t) => t.id === id)
                   if (!picked) { props.onChange({ smsTemplateId: id }); return }
                   const detected = detectLinkType(picked.body)
@@ -1860,7 +1987,7 @@ function StepCard(props: {
                     ...(detected && !step.nextStepType ? { nextStepType: detected } : {}),
                   })
                 }}
-                className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value="">{smsTemplates.length === 0 ? 'No saved templates — type a body below' : 'Inline body (no saved template)'}</option>
                 {smsTemplates.length > 0 && (
@@ -1868,19 +1995,71 @@ function StepCard(props: {
                     {smsTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </optgroup>
                 )}
+                {(() => {
+                  // Surface defaults whose names aren't already taken by a
+                  // saved template, so the dropdown stays useful even before
+                  // the recruiter has saved anything.
+                  const missing = DEFAULT_SMS_TEMPLATES.filter((d) => !smsTemplates.some((t) => t.name === d.name))
+                  if (missing.length === 0) return null
+                  return (
+                    <optgroup label="Add a default (one-click)">
+                      {missing.map((tpl) => (
+                        <option key={tpl.name} value={`default:${tpl.name}`}>{tpl.name}</option>
+                      ))}
+                    </optgroup>
+                  )
+                })()}
               </select>
-              <div className="flex items-center justify-between mt-1.5">
+              {/* Inline preview of the selected template — like email has.
+                  Lets the recruiter eyeball the saved body without scrolling
+                  down to the textarea, and "Edit" copies it into the inline
+                  editor so they can save a variant. */}
+              {(() => {
+                const sel = smsTemplates.find((t) => t.id === step.smsTemplateId)
+                if (!sel) return null
+                return (
+                  <div className="mt-2 p-2.5 bg-white border border-surface-border rounded-[6px] text-[11px] space-y-1">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-grey-35 line-clamp-2 whitespace-pre-wrap">{sel.body}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => props.onPickDefaultSmsTemplate({ name: sel.name, body: sel.body })}
+                        className="text-[11px] text-purple-700 hover:text-purple-900 font-medium whitespace-nowrap flex-shrink-0"
+                        title={`Edit "${sel.name}" — saves as a new template (auto-suffixed if the name collides)`}
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                )
+              })()}
+              <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                <button type="button" onClick={props.onCreateSmsTemplate} className="text-[11px] text-purple-700 hover:text-purple-900 font-medium">+ New template…</button>
+                <span className="text-[11px] text-grey-40">or pick a default:</span>
+                {DEFAULT_SMS_TEMPLATES.slice(0, 4).map((tpl, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => props.onPickDefaultSmsTemplate(tpl)}
+                    className="text-[11px] text-grey-35 hover:text-purple-700 underline-offset-2 hover:underline"
+                  >
+                    {tpl.name}
+                  </button>
+                ))}
                 <a
                   href="/dashboard/automations/templates?tab=sms"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] text-purple-700 hover:text-purple-900 font-medium"
-                >+ Manage SMS templates →</a>
-                {step.smsTemplateId && (
-                  <span className="text-[11px] text-grey-40">Editing below will detach the template.</span>
-                )}
+                  className="ml-auto text-[11px] text-purple-700 hover:text-purple-900 font-medium"
+                >Manage →</a>
               </div>
+              {step.smsTemplateId && (
+                <p className="mt-1 text-[11px] text-grey-40">Editing the body below will detach the template.</p>
+              )}
             </div>
+            )}
             <textarea
               value={step.smsBody || ''}
               onChange={(e) => {

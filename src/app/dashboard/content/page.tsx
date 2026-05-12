@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { SubNav } from '../_components/SubNav'
 import { DEFAULT_EMAIL_TEMPLATES, type DefaultEmailTemplate } from '@/lib/email-templates-seed'
+import { DEFAULT_SMS_TEMPLATES, type DefaultSmsTemplate } from '@/lib/sms-templates-seed'
 import { Badge, Button, PageHeader } from '@/components/design'
 
 const ASSETS_NAV = [
@@ -11,9 +12,11 @@ const ASSETS_NAV = [
 ]
 
 interface EmailTemplate { id: string; name: string; subject: string; bodyHtml: string; bodyText: string | null; isActive: boolean; updatedAt: string }
+interface SmsTemplate { id: string; name: string; body: string; isActive: boolean; updatedAt: string }
 interface AdTemplate { id: string; name: string; source: string; headline: string; bodyText: string; requirements: string | null; benefits: string | null; callToAction: string | null; isActive: boolean; updatedAt: string }
 
 const EMAIL_VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '{{schedule_link}}', '{{meeting_time}}', '{{meeting_link}}', '{{source}}', '{{ad_name}}']
+const SMS_VARIABLES = EMAIL_VARIABLES
 const SOURCES = ['general', 'indeed', 'facebook', 'craigslist', 'google', 'linkedin', 'instagram', 'tiktok', 'other']
 
 // Recruiters compose in plain text with optional lightweight markdown markers
@@ -187,6 +190,7 @@ function MarkdownToolbar({ textareaRef, value, onChange }: {
 }
 
 const EMAIL_DEFAULTS: Array<DefaultEmailTemplate & { category: 'email' }> = DEFAULT_EMAIL_TEMPLATES.map(t => ({ ...t, category: 'email' as const }))
+const SMS_DEFAULTS: Array<DefaultSmsTemplate & { category: 'sms' }> = DEFAULT_SMS_TEMPLATES.map(t => ({ ...t, category: 'sms' as const }))
 
 const AD_DEFAULTS = [
   { name: 'Indeed - General Hiring', source: 'indeed', headline: 'Now Hiring — Join Our Team!', bodyText: 'We are looking for motivated team members to join our growing company.\n\nGreat opportunity for career growth.', requirements: '- Authorized to work\n- Reliable transportation\n- Positive attitude', benefits: '- Competitive pay\n- Flexible schedule\n- Growth opportunities', callToAction: 'Apply now — takes less than 5 minutes!' },
@@ -197,9 +201,10 @@ const AD_DEFAULTS = [
 
 export default function ContentPage() {
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([])
   const [adTemplates, setAdTemplates] = useState<AdTemplate[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'email' | 'ad'>('all')
+  const [filter, setFilter] = useState<'all' | 'email' | 'sms' | 'ad'>('all')
   const [sourceFilter, setSourceFilter] = useState('all')
 
   // Email modal
@@ -211,6 +216,14 @@ export default function ContentPage() {
   const [emailSaving, setEmailSaving] = useState(false)
   const [previewEmail, setPreviewEmail] = useState<EmailTemplate | null>(null)
   const emailBodyRef = useRef<HTMLTextAreaElement>(null)
+
+  // SMS modal
+  const [showSmsModal, setShowSmsModal] = useState(false)
+  const [editingSms, setEditingSms] = useState<SmsTemplate | null>(null)
+  const [smsName, setSmsName] = useState('')
+  const [smsBody, setSmsBody] = useState('')
+  const [smsSaving, setSmsSaving] = useState(false)
+  const [previewSms, setPreviewSms] = useState<SmsTemplate | null>(null)
 
   // Ad modal
   const [showAdModal, setShowAdModal] = useState(false)
@@ -229,12 +242,35 @@ export default function ContentPage() {
   useEffect(() => {
     Promise.all([
       fetch('/api/email-templates').then(r => r.json()),
+      fetch('/api/sms-templates').then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/ad-templates').then(r => r.json()).catch(() => []),
-    ]).then(([e, a]) => { setEmailTemplates(e); setAdTemplates(a); setLoading(false) })
+    ]).then(([e, s, a]) => { setEmailTemplates(e); setSmsTemplates(s); setAdTemplates(a); setLoading(false) })
   }, [])
 
   const refreshEmails = async () => { const r = await fetch('/api/email-templates'); if (r.ok) setEmailTemplates(await r.json()) }
+  const refreshSms = async () => { const r = await fetch('/api/sms-templates'); if (r.ok) setSmsTemplates(await r.json()) }
   const refreshAds = async () => { const r = await fetch('/api/ad-templates'); if (r.ok) setAdTemplates(await r.json()) }
+
+  // SMS CRUD — much simpler than email: just name + body, plus a char/segment counter.
+  const openCreateSms = (starter?: DefaultSmsTemplate & { category?: 'sms' }) => {
+    setEditingSms(null); setSmsName(starter?.name || ''); setSmsBody(starter?.body || 'Hi {{candidate_name}}, ')
+    setShowSmsModal(true)
+  }
+  const openEditSms = (t: SmsTemplate) => {
+    setEditingSms(t); setSmsName(t.name); setSmsBody(t.body); setShowSmsModal(true)
+  }
+  const saveSms = async () => {
+    if (!smsName.trim() || !smsBody.trim()) return
+    setSmsSaving(true)
+    const body = { name: smsName, body: smsBody }
+    if (editingSms) { await fetch(`/api/sms-templates/${editingSms.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
+    else { await fetch('/api/sms-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
+    setSmsSaving(false); setShowSmsModal(false); refreshSms()
+  }
+  const deleteSms = async (id: string) => {
+    if (!confirm('Delete this SMS template? Any rule still using it will fall back to its inline body.')) return
+    await fetch(`/api/sms-templates/${id}`, { method: 'DELETE' }); refreshSms()
+  }
 
   // Email CRUD — recruiter composes in plain text; HTML is generated on save.
   // When a starter is picked, prefer its bodyText if provided (e.g. the
@@ -298,20 +334,27 @@ export default function ContentPage() {
   return (
     <div className="-mx-6 lg:-mx-[132px]">
       <PageHeader
-        eyebrow={`${emailTemplates.length + adTemplates.length} template${emailTemplates.length + adTemplates.length === 1 ? '' : 's'}`}
+        eyebrow={`${emailTemplates.length + smsTemplates.length + adTemplates.length} template${emailTemplates.length + smsTemplates.length + adTemplates.length === 1 ? '' : 's'}`}
         title="Assets"
         description="Reusable templates and media for your flows and campaigns."
         actions={
           <>
             <Button variant="secondary" size="sm" onClick={async () => {
-              const res = await fetch('/api/email-templates/seed', { method: 'POST' })
-              const d = await res.json().catch(() => ({}))
-              if (res.ok) {
-                alert(`Added ${d.created} default template${d.created === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} already existed)` : ''}.`)
-                refreshEmails()
-              } else { alert('Failed to seed defaults') }
+              // Seed both Email + SMS defaults in one click. Each endpoint
+              // is idempotent (skips names that already exist).
+              const [eRes, sRes] = await Promise.all([
+                fetch('/api/email-templates/seed', { method: 'POST' }),
+                fetch('/api/sms-templates/seed', { method: 'POST' }),
+              ])
+              const eD = await eRes.json().catch(() => ({}))
+              const sD = await sRes.json().catch(() => ({}))
+              const emailCreated = eRes.ok ? (eD.created ?? 0) : 0
+              const smsCreated = sRes.ok ? (sD.created ?? 0) : 0
+              alert(`Added ${emailCreated} email + ${smsCreated} SMS defaults.`)
+              refreshEmails(); refreshSms()
             }}>+ Defaults</Button>
             <Button variant="secondary" size="sm" onClick={() => openCreateEmail()}>+ Email</Button>
+            <Button variant="secondary" size="sm" onClick={() => openCreateSms()}>+ SMS</Button>
             <Button size="sm" onClick={() => openCreateAd()}>+ Ad</Button>
           </>
         }
@@ -323,7 +366,7 @@ export default function ContentPage() {
       <div className="flex items-end justify-between mb-4">
         <div>
           <div className="eyebrow mb-0.5">Templates</div>
-          <div className="text-[15px] font-semibold text-ink">Emails &amp; job ads</div>
+          <div className="text-[15px] font-semibold text-ink">Emails, SMS &amp; job ads</div>
           <p className="text-grey-35 text-[12px] mt-0.5">Click a default to start, or build from scratch.</p>
         </div>
       </div>
@@ -331,7 +374,7 @@ export default function ContentPage() {
       {/* Type + Source filters */}
       <div className="flex items-center gap-4 mb-6">
         <div className="flex gap-1 bg-surface rounded-[8px] p-1 border border-surface-border">
-          {[{ v: 'all' as const, l: 'All' }, { v: 'email' as const, l: 'Emails' }, { v: 'ad' as const, l: 'Ads' }].map(f => (
+          {[{ v: 'all' as const, l: 'All' }, { v: 'email' as const, l: 'Emails' }, { v: 'sms' as const, l: 'SMS' }, { v: 'ad' as const, l: 'Ads' }].map(f => (
             <button key={f.v} onClick={() => setFilter(f.v)} className={`px-4 py-1.5 text-xs rounded-[6px] font-medium transition-colors ${filter === f.v ? 'bg-white text-grey-15 shadow-sm' : 'text-grey-40 hover:text-grey-20'}`}>{f.l}</button>
           ))}
         </div>
@@ -356,6 +399,15 @@ export default function ContentPage() {
               <div className="text-xs text-grey-40 truncate mt-0.5">{s.subject}</div>
             </button>
           ))}
+          {(filter === 'all' || filter === 'sms') && SMS_DEFAULTS.map((s, i) => (
+            <button key={`s${i}`} onClick={() => openCreateSms(s)} className="bg-white rounded-[8px] border border-surface-border p-4 text-left hover:shadow-md hover:border-brand-300 transition-all">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">SMS</span>
+              </div>
+              <div className="text-sm font-medium text-grey-15 mt-1">{s.name}</div>
+              <div className="text-xs text-grey-40 line-clamp-2 mt-0.5">{s.body}</div>
+            </button>
+          ))}
           {(filter === 'all' || filter === 'ad') && filteredAdDefaults.map((s, i) => (
             <button key={`a${i}`} onClick={() => openCreateAd(s)} className="bg-white rounded-[8px] border border-surface-border p-4 text-left hover:shadow-md hover:border-brand-300 transition-all">
               <div className="flex items-center gap-2 mb-1">
@@ -370,7 +422,7 @@ export default function ContentPage() {
       </div>
 
       {/* YOUR TEMPLATES */}
-      {(emailTemplates.length > 0 || adTemplates.length > 0) && (
+      {(emailTemplates.length > 0 || smsTemplates.length > 0 || adTemplates.length > 0) && (
         <>
           <h3 className="text-sm font-semibold text-grey-20 mb-3">Your Templates</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -390,6 +442,27 @@ export default function ContentPage() {
                 </div>
               </div>
             ))}
+            {/* SMS templates */}
+            {(filter === 'all' || filter === 'sms') && smsTemplates.map(t => {
+              const len = t.body.length
+              const seg = Math.max(1, Math.ceil(len / 160))
+              return (
+                <div key={t.id} className="bg-white rounded-lg border border-surface-border p-5 hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">SMS</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${t.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-grey-40'}`}>{t.isActive ? 'Active' : 'Draft'}</span>
+                    <span className="text-[10px] text-grey-40 font-mono ml-auto">{len}c · {seg}s</span>
+                  </div>
+                  <h3 className="font-medium text-grey-15 mb-0.5">{t.name}</h3>
+                  <p className="text-xs text-grey-40 mb-3 line-clamp-2 whitespace-pre-wrap">{t.body}</p>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setPreviewSms(t)} className="text-xs text-brand-500 hover:text-brand-600 font-medium">Preview</button>
+                    <button onClick={() => openEditSms(t)} className="text-xs text-grey-35 hover:text-grey-15">Edit</button>
+                    <button onClick={() => deleteSms(t.id)} className="text-xs text-grey-35 hover:text-grey-15">Delete</button>
+                  </div>
+                </div>
+              )
+            })}
             {/* Ad templates */}
             {(filter === 'all' || filter === 'ad') && filteredAdTemplates.map(t => (
               <div key={t.id} className="bg-white rounded-lg border border-surface-border p-5 hover:shadow-md transition-shadow">
@@ -442,6 +515,52 @@ export default function ContentPage() {
             <div className="p-4 border-t border-surface-border flex justify-end">
               <button onClick={() => { copyAdText(previewAd); setPreviewAd(null) }} className="btn-primary text-sm">Copy Full Text</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SMS Preview */}
+      {previewSms && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50" onClick={() => setPreviewSms(null)}>
+          <div className="bg-white rounded-[12px] shadow-2xl w-full max-w-[480px] max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-surface-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-grey-15">{previewSms.name}</h3>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-medium">SMS</span>
+              </div>
+              <button onClick={() => setPreviewSms(null)} className="text-grey-40 hover:text-grey-15 text-xl">&times;</button>
+            </div>
+            <div className="p-6">
+              <div className="bg-purple-50/30 rounded-[12px] p-4 border border-purple-100 text-sm whitespace-pre-wrap font-mono text-grey-15">{previewSms.body}</div>
+              <div className="flex items-center justify-between mt-2 text-[11px] text-grey-40">
+                <span>{previewSms.body.length} chars</span>
+                <span>{Math.max(1, Math.ceil(previewSms.body.length / 160))} segment(s)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SMS Modal */}
+      {showSmsModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50">
+          <div className="bg-white rounded-[12px] shadow-2xl p-8 w-full max-w-[560px] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-semibold text-grey-15 mb-6">{editingSms ? 'Edit SMS Template' : 'New SMS Template'}</h2>
+            <div className="space-y-4">
+              <div><label className="block text-sm font-medium text-grey-20 mb-1.5">Name</label><input type="text" value={smsName} onChange={e => setSmsName(e.target.value)} placeholder="e.g. 1-hour Reminder" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-grey-20">Body</label>
+                  <span className={`text-[11px] font-mono ${smsBody.length > 320 ? 'text-amber-700' : smsBody.length > 160 ? 'text-grey-15' : 'text-grey-40'}`}>
+                    {smsBody.length} chars · {Math.max(1, Math.ceil(smsBody.length / 160))} seg
+                  </span>
+                </div>
+                <textarea value={smsBody} onChange={e => setSmsBody(e.target.value)} rows={5} placeholder="Hi {{candidate_name}}, your interview starts at {{meeting_time}}. Join: {{meeting_link}}" className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono" />
+                <p className="mt-1.5 text-xs text-grey-40">Each 160-char segment is billed as a separate SMS. Keep it concise.</p>
+              </div>
+              <div className="bg-surface rounded-[8px] p-3"><label className="text-xs font-medium text-grey-40 uppercase mb-2 block">Variables — click to copy</label><div className="flex flex-wrap gap-2">{SMS_VARIABLES.map(v => <button key={v} onClick={() => navigator.clipboard.writeText(v)} className="text-xs px-2.5 py-1 bg-white border border-surface-border rounded-[8px] text-grey-15 font-mono hover:bg-brand-50">{v}</button>)}</div></div>
+            </div>
+            <div className="flex gap-3 mt-6"><button onClick={() => setShowSmsModal(false)} className="btn-secondary flex-1">Cancel</button><button onClick={saveSms} disabled={smsSaving || !smsName.trim() || !smsBody.trim()} className="btn-primary flex-1 disabled:opacity-50">{smsSaving ? 'Saving...' : editingSms ? 'Save' : 'Create'}</button></div>
           </div>
         </div>
       )}
