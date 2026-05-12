@@ -40,6 +40,11 @@ interface CaptureSummary {
   aiScore: number | null
   errorMessage: string | null
   captureOrdinal: number
+  // Server-side signed playback URL (5 min TTL). Lets the audio/video
+  // element render inline without a "Load playback" click — same UX as
+  // legacy video submissions and inline meeting links.
+  playbackUrl: string | null
+  playbackExpiresAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -1540,6 +1545,7 @@ export default function CandidateDetailPage() {
                   durationSec={c.durationSec}
                   fileSizeBytes={c.fileSizeBytes}
                   captureOrdinal={c.captureOrdinal}
+                  playbackUrl={c.playbackUrl}
                 />
                 {c.errorMessage ? (
                   <div className="mt-2 text-xs text-red-600">{c.errorMessage}</div>

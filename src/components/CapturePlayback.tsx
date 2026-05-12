@@ -1,11 +1,15 @@
 'use client'
 
-// Recruiter-side playback for a single CaptureResponse. Mints a fresh
-// short-lived signed S3 URL on every Play click — never caches the URL.
-// Renders an <audio> element for audio captures and a <video> element for
-// video / audio_video; falls back to a download link for other modes if
-// they ever appear (Phase 1B only ships audio in the candidate UI but the
-// recruiter view stays mode-aware).
+// Recruiter-side playback for a single CaptureResponse.
+//
+// Renders inline — the parent (candidate detail page → Captures tab) gets
+// a short-lived signed playback URL from the list endpoint and passes it
+// in via `playbackUrl`. Same UX as the legacy Submissions tab where
+// candidate-uploaded videos render with a controls bar by default.
+//
+// Fallback: when the list call couldn't sign a URL for some reason (status
+// not playable, signing error), the component shows a small "Try again"
+// affordance that hits /api/captures/[id]/playback on click to re-mint.
 
 import { useCallback, useState } from 'react'
 
@@ -17,13 +21,11 @@ interface CapturePlaybackProps {
   durationSec?: number | null
   fileSizeBytes?: number | null
   captureOrdinal?: number
+  // Pre-signed playback URL from the list endpoint. Null when the row isn't
+  // in a playable state or the signing failed; the inline retry button
+  // hits the per-capture playback endpoint to mint a fresh URL.
+  playbackUrl?: string | null
 }
-
-type PlayState =
-  | { kind: 'idle' }
-  | { kind: 'loading' }
-  | { kind: 'ready'; url: string; mimeType: string | null; expiresAt: string }
-  | { kind: 'error'; message: string }
 
 function formatBytes(n: number | null | undefined): string | null {
   if (n == null) return null
@@ -40,31 +42,36 @@ function formatDuration(n: number | null | undefined): string | null {
 }
 
 export default function CapturePlayback(props: CapturePlaybackProps) {
-  const { captureId, mode, status, mimeType, durationSec, fileSizeBytes, captureOrdinal } = props
-  const [play, setPlay] = useState<PlayState>({ kind: 'idle' })
+  const { captureId, mode, status, mimeType, durationSec, fileSizeBytes, captureOrdinal, playbackUrl } = props
+  // Lazy fallback: if `playbackUrl` is null at render time, the recruiter
+  // can click "Try again" to re-mint via the per-capture playback endpoint.
+  const [fallbackUrl, setFallbackUrl] = useState<string | null>(null)
+  const [fallbackErr, setFallbackErr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
-  const fetchSigned = useCallback(async () => {
-    setPlay({ kind: 'loading' })
+  const effectiveUrl = playbackUrl || fallbackUrl
+  const isVideoMode = mode === 'video' || mode === 'audio_video'
+
+  const retry = useCallback(async () => {
+    setLoading(true)
+    setFallbackErr(null)
     try {
       const res = await fetch(`/api/captures/${captureId}/playback`, {
-        // Recruiter session cookie is enough; same-origin request.
         credentials: 'same-origin',
-        // Don't cache — we want a fresh URL each click.
         cache: 'no-store',
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as any))
         throw new Error(body?.error || `Playback failed (${res.status})`)
       }
-      const data = (await res.json()) as { url: string; mimeType: string | null; expiresAt: string }
-      setPlay({ kind: 'ready', url: data.url, mimeType: data.mimeType, expiresAt: data.expiresAt })
+      const data = (await res.json()) as { url: string }
+      setFallbackUrl(data.url)
     } catch (err: any) {
-      setPlay({ kind: 'error', message: err?.message || 'Could not load playback URL' })
+      setFallbackErr(err?.message || 'Could not load playback URL')
+    } finally {
+      setLoading(false)
     }
   }, [captureId])
-
-  const ready = play.kind === 'ready'
-  const isVideoMode = mode === 'video' || mode === 'audio_video'
 
   const metaBits: string[] = []
   if (captureOrdinal && captureOrdinal > 1) metaBits.push(`Take ${captureOrdinal}`)
@@ -76,6 +83,42 @@ export default function CapturePlayback(props: CapturePlaybackProps) {
 
   return (
     <div className="space-y-2">
+      {effectiveUrl ? (
+        isVideoMode ? (
+          <video
+            src={effectiveUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="w-full max-w-lg rounded-[8px] bg-black"
+          />
+        ) : (
+          <audio
+            src={effectiveUrl}
+            controls
+            preload="metadata"
+            className="w-full max-w-lg"
+          />
+        )
+      ) : status === 'processed' || status === 'uploaded' || status === 'processing' ? (
+        // Should have had a URL but didn't — show retry affordance.
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={retry}
+            disabled={loading}
+            className="rounded-lg border border-surface-border bg-white px-3 py-1.5 text-sm hover:bg-surface disabled:opacity-50"
+          >
+            {loading ? 'Loading…' : 'Try again'}
+          </button>
+          {fallbackErr ? <span className="text-xs text-red-600">{fallbackErr}</span> : null}
+        </div>
+      ) : (
+        <div className="text-xs text-grey-40">
+          {status === 'failed' ? 'Recording failed.' : 'Recording not ready yet.'}
+        </div>
+      )}
+
       <div className="flex items-center gap-2 text-xs text-grey-40">
         {metaBits.map((bit, i) => (
           <span key={i} className="rounded-full bg-surface px-2 py-0.5">{bit}</span>
@@ -86,41 +129,6 @@ export default function CapturePlayback(props: CapturePlaybackProps) {
           </span>
         ) : null}
       </div>
-
-      {!ready && status !== 'processed' && status !== 'uploaded' ? (
-        <div className="text-xs text-grey-40">
-          {status === 'failed'
-            ? 'Recording failed.'
-            : 'Recording not ready yet.'}
-        </div>
-      ) : !ready ? (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={fetchSigned}
-            disabled={play.kind === 'loading'}
-            className="rounded-lg border border-surface-border bg-white px-3 py-1.5 text-sm hover:bg-surface disabled:opacity-50"
-          >
-            {play.kind === 'loading' ? 'Loading…' : 'Load playback'}
-          </button>
-          {play.kind === 'error' ? (
-            <span className="text-xs text-red-600">{play.message}</span>
-          ) : null}
-        </div>
-      ) : isVideoMode ? (
-        <video
-          src={play.url}
-          controls
-          playsInline
-          className="w-full max-w-lg rounded-[8px] bg-black"
-        />
-      ) : (
-        <audio
-          src={play.url}
-          controls
-          className="w-full max-w-lg"
-        />
-      )}
     </div>
   )
 }

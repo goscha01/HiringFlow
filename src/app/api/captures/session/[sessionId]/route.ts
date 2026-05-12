@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { listSessionCaptures } from '@/lib/capture/capture-response.service'
 import { checkCaptureRateLimit, extractIp } from '@/lib/capture/capture-rate-limit'
+import { presignCapturePlayback } from '@/lib/capture/capture-storage.service'
 
 // Recruiter-facing list endpoint. Returns all CaptureResponse rows for a
 // session belonging to the caller's workspace. Default behavior collapses to
@@ -47,23 +48,65 @@ export async function GET(
     includeRetakes,
   })
 
-  return NextResponse.json({
-    captures: rows.map((r) => ({
-      id: r.id,
-      stepId: r.stepId,
-      mode: r.mode,
-      prompt: r.prompt,
-      status: r.status,
-      mimeType: r.mimeType,
-      fileSizeBytes: r.fileSizeBytes,
-      durationSec: r.durationSec,
-      transcript: r.transcript,
-      aiSummary: r.aiSummary,
-      aiScore: r.aiScore,
-      errorMessage: r.errorMessage,
-      captureOrdinal: r.captureOrdinal,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-    })),
-  })
+  // Mint signed playback URLs server-side so the candidate page can render
+  // the <audio>/<video> element inline without a "Load playback" click.
+  // Each URL is short-lived (5min, clamped in presignCapturePlayback) —
+  // the recorder UX should match the rest of the candidate dashboard where
+  // videos / meetings appear inline. A page kept open past the TTL just
+  // requires a refresh.
+  //
+  // Only signed for rows that actually have media (storageKey present,
+  // status in a playable state). Other rows return playbackUrl: null so
+  // the client can render an "in progress" / "failed" placeholder.
+  const PLAYABLE_STATUSES = new Set(['processed', 'processing', 'uploaded'])
+  const captures = await Promise.all(
+    rows.map(async (r) => {
+      let playbackUrl: string | null = null
+      let playbackExpiresAt: string | null = null
+      if (r.storageKey && PLAYABLE_STATUSES.has(r.status)) {
+        try {
+          const signed = await presignCapturePlayback({
+            key: r.storageKey,
+            mimeType: r.mimeType ?? undefined,
+          })
+          playbackUrl = signed.url
+          playbackExpiresAt = signed.expiresAt.toISOString()
+        } catch (err) {
+          // Don't fail the whole list if one URL can't be signed — surface
+          // the row with playbackUrl=null so the UI can show a retry CTA.
+          console.error('[captures/list] signing failed', { captureId: r.id, err })
+        }
+      }
+      return {
+        id: r.id,
+        stepId: r.stepId,
+        mode: r.mode,
+        prompt: r.prompt,
+        status: r.status,
+        mimeType: r.mimeType,
+        fileSizeBytes: r.fileSizeBytes,
+        durationSec: r.durationSec,
+        transcript: r.transcript,
+        aiSummary: r.aiSummary,
+        aiScore: r.aiScore,
+        errorMessage: r.errorMessage,
+        captureOrdinal: r.captureOrdinal,
+        playbackUrl,
+        playbackExpiresAt,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      }
+    })
+  )
+
+  return NextResponse.json(
+    { captures },
+    {
+      // Don't cache — signed URLs expire in 5 min, every list call should
+      // mint fresh ones. Same Cache-Control as the playback endpoint.
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      },
+    }
+  )
 }
