@@ -208,6 +208,16 @@ export default function CandidateDetailPage() {
 
   const loadCandidate = useCallback(async () => {
     const res = await fetch(`/api/candidates/${id}`)
+    // Hard non-OK guard: previously, a 404 / 500 response would still parse
+    // its `{ error: '...' }` body into `candidate`, which is truthy, slipping
+    // past `if (!candidate)` and crashing on `candidate.schedulingEvents.find`.
+    // Surfaces e.g. when a recruiter opens a URL for a session owned by a
+    // different workspace than their current login.
+    if (!res.ok) {
+      setCandidate(null)
+      setLoading(false)
+      return
+    }
     const d = await res.json()
     setCandidate(d)
     setLoading(false)
