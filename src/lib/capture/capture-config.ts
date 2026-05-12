@@ -115,8 +115,17 @@ export const MIME_TO_EXT: Record<string, string> = {
   'image/gif': 'gif',
 }
 
+// MediaRecorder emits MIMEs with codec params (e.g. `audio/mp4;codecs=opus`,
+// `audio/webm;codecs=opus`). Our allowlist + extension map are keyed by the
+// bare type only — `bareMime()` strips the suffix so callers don't have to.
+// Also normalises case + whitespace.
+function bareMime(mimeType: string): string {
+  const [base = mimeType] = mimeType.split(';')
+  return base.trim().toLowerCase()
+}
+
 export function extForMime(mimeType: string): string {
-  return MIME_TO_EXT[mimeType.toLowerCase()] || 'bin'
+  return MIME_TO_EXT[bareMime(mimeType)] || 'bin'
 }
 
 const captureConfigSchema = z
@@ -215,14 +224,15 @@ export function isCaptureStep(
   return tryParseCaptureConfig(step.captureConfig) !== null
 }
 
-// Server-side MIME guard. Returns true if the MIME is in the allowed set for
-// the given capture mode. text/ai_call are not file-bearing, so they reject
-// any MIME — those modes don't take uploads.
+// Server-side MIME guard. Returns true if the MIME (with or without codec
+// params) is in the allowed set for the given capture mode. text/ai_call
+// are not file-bearing, so they reject any MIME — those modes don't take
+// uploads.
 export function isMimeAllowed(mode: CaptureMode, mimeType: string): boolean {
   if (mode === 'text' || mode === 'ai_call') return false
   const allowed = ALLOWED_MIME_TYPES[mode]
   if (!allowed) return false
-  return allowed.includes(mimeType.toLowerCase())
+  return allowed.includes(bareMime(mimeType))
 }
 
 // Returns the MIME types Phase 1A accepts for the given mode. Used by the

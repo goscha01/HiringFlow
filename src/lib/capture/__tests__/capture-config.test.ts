@@ -204,6 +204,21 @@ describe('isMimeAllowed', () => {
     expect(isMimeAllowed('audio', 'AUDIO/WEBM')).toBe(true)
   })
 
+  it('accepts codec-suffixed MIMEs (real MediaRecorder output)', () => {
+    // Regression: real production bug — MediaRecorder emits
+    // `audio/mp4;codecs=opus` and `audio/webm;codecs=opus`. The presign
+    // route called isMimeAllowed against these strings and rejected them
+    // with mime_not_allowed (400) before this fix.
+    expect(isMimeAllowed('audio', 'audio/mp4;codecs=opus')).toBe(true)
+    expect(isMimeAllowed('audio', 'audio/webm;codecs=opus')).toBe(true)
+    expect(isMimeAllowed('video', 'video/webm;codecs=vp9,opus')).toBe(true)
+    expect(isMimeAllowed('audio_video', 'video/mp4;codecs=h264,opus')).toBe(true)
+  })
+
+  it('tolerates whitespace around codec params', () => {
+    expect(isMimeAllowed('audio', '  audio/webm  ; codecs=opus')).toBe(true)
+  })
+
   it('allowedMimesForMode returns the same set isMimeAllowed accepts', () => {
     for (const mode of ['audio', 'video', 'audio_video', 'upload'] as const) {
       for (const mime of allowedMimesForMode(mode)) {
@@ -230,6 +245,12 @@ describe('extForMime', () => {
 
   it('handles uppercase MIMEs', () => {
     expect(extForMime('AUDIO/WEBM')).toBe('webm')
+  })
+
+  it('strips codec params (real MediaRecorder output)', () => {
+    expect(extForMime('audio/mp4;codecs=opus')).toBe('m4a')
+    expect(extForMime('audio/webm;codecs=opus')).toBe('webm')
+    expect(extForMime('video/webm;codecs=vp9,opus')).toBe('webm')
   })
 })
 
