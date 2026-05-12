@@ -1,18 +1,18 @@
 /**
  * Regression coverage for the central automation execution guard.
  *
- * Per the architecture spec (Phase 1 acceptance criteria), the same invalid
- * automation attempt must be blocked through every execution path:
+ * Automatic paths — guard is authoritative, every check is enforced:
  *   1. direct trigger        — canExecuteAutomationStep called inline
  *   2. delayed QStash callback — executionMode='delayed_callback'
  *   3. chained rule          — executionMode='chained'
- *   4. manual rerun          — executionMode='manual_rerun' (with/without force)
- *   5. cron-triggered        — executionMode='cron'
+ *   4. cron-triggered        — executionMode='cron'
  *
- * The guard is the only place these checks live; callers cannot opt out.
- * `force` is only honoured for manual_rerun and debug, and only bypasses the
- * duplicate-send check — lifecycle, stage, prerequisite, and halt checks are
- * authoritative.
+ * Manual path — recruiter intent overrides every check:
+ *   5. manual rerun          — executionMode='manual_rerun' → always allowed.
+ *      The recruiter explicitly clicked "Run automations" on the candidate
+ *      detail page; the endpoint that produces manual_rerun is role-gated
+ *      upstream, so the guard short-circuits to allowed:true. There is NO
+ *      skipping for manual reruns — they always run and always record.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { PrismaClient } from '@prisma/client'
@@ -118,11 +118,16 @@ async function loadFixture(sessionId: string) {
   return { session, rule, step }
 }
 
-const ALL_MODES: ExecutionMode[] = [
+// Automatic modes — every check (halt/lifecycle/stage/prereq/idempotency) is
+// authoritative for these. `manual_rerun` is intentionally excluded: the
+// recruiter explicitly clicked "Run automations" and the endpoint that
+// produces manual_rerun is role-gated upstream, so the guard short-circuits
+// to allowed:true for it. The manual_rerun bypass is covered in its own suite
+// below.
+const AUTO_MODES: ExecutionMode[] = [
   'immediate',
   'delayed_callback',
   'chained',
-  'manual_rerun',
   'cron',
 ]
 
@@ -146,7 +151,7 @@ describe('canExecuteAutomationStep — halt kill-switch', () => {
     await haltSessionAutomations({ sessionId: session.id, reason: 'manual:test' })
 
     const { session: s, rule, step } = await loadFixture(session.id)
-    for (const mode of ALL_MODES) {
+    for (const mode of AUTO_MODES) {
       const result = await canExecuteAutomationStep({
         session: s, rule, step, channel: 'email',
         triggerType: 'training_completed',
@@ -160,7 +165,7 @@ describe('canExecuteAutomationStep — halt kill-switch', () => {
     }
   })
 
-  it('admin force does NOT bypass the halt check (lifecycle is authoritative)', async () => {
+  it('manual_rerun bypasses the halt check (recruiter explicitly clicked Run)', async () => {
     const session = await prisma.session.create({
       data: { workspaceId, flowId, candidateName: 'Halt Force', status: 'active' },
     })
@@ -175,10 +180,8 @@ describe('canExecuteAutomationStep — halt kill-switch', () => {
       triggerType: 'training_completed',
       triggerContext: { trainingId },
       executionMode: 'manual_rerun',
-      force: true,
     })
-    expect(result.allowed).toBe(false)
-    if (!result.allowed) expect(result.reason).toBe('skipped_cancelled')
+    expect(result.allowed).toBe(true)
   })
 
   it('resumeSessionAutomations clears the halt and the guard passes again', async () => {
@@ -214,7 +217,7 @@ describe('canExecuteAutomationStep — lifecycle status', () => {
       })
 
       const { session: s, rule, step } = await loadFixture(session.id)
-      for (const mode of ALL_MODES) {
+      for (const mode of AUTO_MODES) {
         const result = await canExecuteAutomationStep({
           session: s, rule, step, channel: 'email',
           triggerType: 'training_completed',
@@ -268,7 +271,7 @@ describe('canExecuteAutomationStep — prerequisite (training_completed)', () =>
     })
 
     const { session: s, rule, step } = await loadFixture(session.id)
-    for (const mode of ALL_MODES) {
+    for (const mode of AUTO_MODES) {
       const result = await canExecuteAutomationStep({
         session: s, rule, step, channel: 'email',
         triggerType: 'training_completed',
@@ -300,7 +303,7 @@ describe('canExecuteAutomationStep — prerequisite (training_completed)', () =>
     expect(result.allowed).toBe(true)
   })
 
-  it('admin force does NOT bypass the prerequisite (only duplicate-send)', async () => {
+  it('manual_rerun bypasses the prerequisite (recruiter explicitly clicked Run)', async () => {
     const session = await prisma.session.create({
       data: { workspaceId, flowId, candidateName: 'ForcePrereq', status: 'active' },
     })
@@ -314,10 +317,8 @@ describe('canExecuteAutomationStep — prerequisite (training_completed)', () =>
       triggerType: 'training_completed',
       triggerContext: { trainingId },
       executionMode: 'manual_rerun',
-      force: true,
     })
-    expect(result.allowed).toBe(false)
-    if (!result.allowed) expect(result.reason).toBe('skipped_missing_prerequisite')
+    expect(result.allowed).toBe(true)
   })
 })
 
@@ -384,27 +385,13 @@ describe('canExecuteAutomationStep — idempotency', () => {
     }
   })
 
-  it('blocks duplicate sends from manual_rerun WITHOUT force', async () => {
+  it('allows duplicate sends from manual_rerun (no force required)', async () => {
     const { session: s, rule, step } = await loadFixture(session.id)
     const result = await canExecuteAutomationStep({
       session: s, rule, step, channel: 'email',
       triggerType: 'training_completed',
       triggerContext: { trainingId },
       executionMode: 'manual_rerun',
-      force: false,
-    })
-    expect(result.allowed).toBe(false)
-    if (!result.allowed) expect(result.reason).toBe('skipped_duplicate')
-  })
-
-  it('allows duplicate sends from manual_rerun WITH force', async () => {
-    const { session: s, rule, step } = await loadFixture(session.id)
-    const result = await canExecuteAutomationStep({
-      session: s, rule, step, channel: 'email',
-      triggerType: 'training_completed',
-      triggerContext: { trainingId },
-      executionMode: 'manual_rerun',
-      force: true,
     })
     expect(result.allowed).toBe(true)
   })

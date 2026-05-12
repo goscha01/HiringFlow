@@ -4,10 +4,17 @@
  * Every code path that can produce an AutomationExecution row — immediate
  * trigger, delayed QStash callback, chained rule, manual rerun, cron, public
  * webhook, debug — MUST go through `canExecuteAutomationStep` before it
- * sends, promotes, chains, or enqueues. There are no local exceptions; if a
- * caller wants to bypass the guard it has to opt-in explicitly with
- * `force=true` AND prove privileged context (admin role + an
- * authenticated `manual_rerun` or `debug` executionMode).
+ * sends, promotes, chains, or enqueues. There are no local exceptions.
+ *
+ * Two policies live here:
+ *   - Automatic paths (immediate/delayed_callback/chained/cron/public_trigger):
+ *     halt, lifecycle, stage, prerequisite, and idempotency are all enforced.
+ *   - Manual rerun (`manual_rerun`): no skipping. The recruiter clicked the
+ *     "Run automations" button; the endpoint is role-gated upstream. The
+ *     guard returns allowed:true immediately so the step always runs and is
+ *     always recorded on the timeline.
+ *   - Debug (`debug`): can additionally pass `force=true` to bypass the
+ *     idempotency check (lifecycle/stage/prereq/halt still enforced).
  *
  * Design properties (per ARCHITECTURE.md / user requirements):
  *  - Authoritative: this is the only place lifecycle, stage, prerequisite,
@@ -58,10 +65,10 @@ export type GuardCtx = {
   triggerContext?: Record<string, unknown>
   executionMode: ExecutionMode
   /**
-   * Admin override. Only honoured when executionMode is `manual_rerun` or
-   * `debug` AND the caller verified an admin/operator role before invoking.
-   * Bypasses the idempotency (duplicate) guard ONLY. Lifecycle / stage /
-   * prerequisite / halt checks are NEVER bypassed; the engine is authoritative.
+   * Debug-only override. Honoured when executionMode is `debug` to bypass
+   * the idempotency (duplicate) guard. NOT needed for `manual_rerun` — that
+   * mode short-circuits above and bypasses every check unconditionally.
+   * Ignored for all other modes.
    */
   force?: boolean
   /** Used to stamp triggeredByUserId on the resulting AutomationExecution. */
@@ -306,6 +313,8 @@ const PREREQUISITES: Record<string, PrerequisitePredicate> = {
  * this session, given the trigger and execution mode?
  *
  * Order of checks (first failure wins):
+ *   0. Manual rerun short-circuit — executionMode='manual_rerun' is always
+ *      allowed; no other checks run. The recruiter's button click is intent.
  *   1. Halt — session.automationsHaltedAt set.
  *   2. Lifecycle status — session.status in BLOCKING_STATUSES unless
  *      rule.allowedForStatuses opts in.
@@ -320,6 +329,16 @@ const PREREQUISITES: Record<string, PrerequisitePredicate> = {
  */
 export async function canExecuteAutomationStep(ctx: GuardCtx): Promise<GuardResult> {
   const { session, rule, step, channel, triggerType, executionMode, force } = ctx
+
+  // 0. Manual rerun bypass — recruiter clicked "Run automations" on the
+  //    candidate detail page. They explicitly want this rule to fire NOW for
+  //    this candidate, regardless of halt / lifecycle / stage / prerequisite
+  //    / idempotency. The endpoint that produces `manual_rerun` is itself
+  //    role-gated (see /api/candidates/:id/run-stage-automations), so the
+  //    privilege check has already happened upstream.
+  if (executionMode === 'manual_rerun') {
+    return { allowed: true }
+  }
 
   // 1. Halt kill-switch
   if (session.automationsHaltedAt) {
@@ -378,15 +397,14 @@ export async function canExecuteAutomationStep(ctx: GuardCtx): Promise<GuardResu
   }
 
   // 5. Idempotency — never send twice for the same (step, session, channel)
-  //    unless an admin explicitly forced a manual rerun. force is only
-  //    honoured for `manual_rerun` and `debug` modes; other modes ignore it
-  //    so a buggy caller cannot pass it accidentally.
+  //    on the automatic paths. `manual_rerun` is short-circuited above so it
+  //    is not subject to this check. `debug` may still use `force` to bypass.
   const existing = await prisma.automationExecution.findUnique({
     where: { stepId_sessionId_channel: { stepId: step.id, sessionId: session.id, channel } },
     select: { id: true, status: true },
   })
   if (existing && existing.status === 'sent') {
-    const forceAllowed = force === true && (executionMode === 'manual_rerun' || executionMode === 'debug')
+    const forceAllowed = force === true && executionMode === 'debug'
     if (!forceAllowed) {
       return {
         allowed: false,
