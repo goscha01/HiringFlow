@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { MANUAL_MEETING_NUDGE_TEMPLATE_NAME } from '@/lib/email-templates-seed'
@@ -12,7 +12,20 @@ const VARIABLES = ['{{candidate_name}}', '{{flow_name}}', '{{training_link}}', '
 
 type Tab = 'email' | 'sms'
 
+// Next 14 requires anything calling useSearchParams() at module top level to
+// be wrapped in <Suspense> or the static-export pass during `next build`
+// fails with "useSearchParams() should be wrapped in a suspense boundary".
+// Without this wrap the prod deploy errored on prerender of this page (see
+// Vercel build log for commit 397c1a2 — it broke deploys until this fix).
 export default function TemplatesPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-grey-40">Loading templates…</div>}>
+      <TemplatesContent />
+    </Suspense>
+  )
+}
+
+function TemplatesContent() {
   const searchParams = useSearchParams()
   const initialTab: Tab = searchParams?.get('tab') === 'sms' ? 'sms' : 'email'
   const [tab, setTab] = useState<Tab>(initialTab)
