@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
+import { isCaptureStepsEnabledForWorkspace } from '@/lib/capture/capture-feature-flag'
 
 export async function GET(
   request: NextRequest,
@@ -25,6 +26,10 @@ export async function GET(
           },
         },
       },
+      // Pull the workspace settings JSON so the builder can derive
+      // captureStepsEnabled without a second fetch. Only the boolean is
+      // returned to the client — we don't leak the full settings blob.
+      workspace: { select: { settings: true } },
     },
   })
 
@@ -32,9 +37,15 @@ export async function GET(
     return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
   }
 
-  // Add video URLs
+  const captureStepsEnabled = isCaptureStepsEnabledForWorkspace({
+    workspaceSettings: flow.workspace?.settings,
+  })
+
+  // Add video URLs. Strip the raw workspace.settings off the response and
+  // surface only the derived capture flag.
+  const { workspace: _ws, ...flowWithoutWorkspace } = flow
   const flowWithUrls = {
-    ...flow,
+    ...flowWithoutWorkspace,
     steps: flow.steps.map((step) => ({
       ...step,
       video: step.video
@@ -44,6 +55,7 @@ export async function GET(
           }
         : null,
     })),
+    captureStepsEnabled,
   }
 
   return NextResponse.json(flowWithUrls)

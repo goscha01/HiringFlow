@@ -2419,6 +2419,7 @@ function drawNode(
     question: { accent: '#FF9500', light: '#FFEDD5' },
     form: { accent: '#FF9500', light: '#FFEDD5' },
     info: { accent: '#FF9500', light: '#FFEDD5' },
+    capture: { accent: '#FF9500', light: '#FFEDD5' },
   }
   const tc = typeColors[step.stepType] || typeColors.question
 
@@ -2652,7 +2653,7 @@ function drawNode(
       ctx.fillText(btnCfg.text || 'Continue', pos.x + 8 + tW / 2, barY + barH / 2)
     } else if (step.stepType !== 'info') {
       // Type label (skip for screen steps — they show everything in thumbnail)
-      const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form' }
+      const labels: Record<string, string> = { submission: 'Video', question: 'Question', form: 'Form', capture: 'Audio Answer' }
       ctx.font = '10px "Be Vietnam Pro", system-ui'
       ctx.fillStyle = '#59595A'
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle'

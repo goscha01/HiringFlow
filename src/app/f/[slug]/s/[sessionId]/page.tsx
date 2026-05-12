@@ -3,7 +3,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import VideoRecorder from '@/components/VideoRecorder'
+import CaptureRecorder from '@/components/CaptureRecorder'
 import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from '@/components/CaptionedVideo'
+
+interface CaptureStepConfig {
+  mode: 'text' | 'audio' | 'video' | 'audio_video' | 'upload' | 'ai_call'
+  prompt?: string | null
+  required?: boolean
+  maxDurationSec?: number | null
+  minDurationSec?: number | null
+  allowRetake?: boolean
+  maxRetakes?: number | null
+  transcriptionEnabled?: boolean
+  aiAnalysisEnabled?: boolean
+}
 
 interface StepOption {
   optionId: string
@@ -57,6 +70,11 @@ interface StepData {
   segments?: Segment[]
   formEnabled?: boolean
   formConfig?: { fields: FormField[] } | null
+  captureConfig?: CaptureStepConfig | null
+  // Server-side composite gate: global env flag AND
+  // workspace.settings.captureStepsEnabled. The candidate page never reads
+  // env or workspace settings on the client; this boolean is the only signal.
+  captureStepsEnabled?: boolean
   combinedStep?: CombinedStepData | null
   options: StepOption[]
   finished?: boolean
@@ -463,6 +481,58 @@ export default function SessionPlayerPage() {
                 </button>
               </>
             )}
+          </div>
+        )}
+
+        {/* Capture step — graceful unavailable state when the composite
+            feature gate is off (either global env or workspace opt-in).
+            The candidate sees a clear message instead of a broken recorder.
+            Recording finalize + recruiter playback are intentionally NOT
+            gated (in-flight uploads complete; prior recordings stay
+            playable). */}
+        {step.stepType === 'capture' && !step.captureStepsEnabled && (
+          <div className={`${overlay ? '' : 'max-w-md mx-auto'} rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800`}>
+            This recording step is temporarily unavailable. Please contact the hiring team if you need to continue.
+          </div>
+        )}
+
+        {/* Capture step — generic Capture Engine (Phase 1B ships audio mode) */}
+        {step.stepType === 'capture' && step.captureStepsEnabled && step.captureConfig && step.captureConfig.mode === 'audio' && (
+          <div className={overlay ? '' : 'max-w-md mx-auto'}>
+            <CaptureRecorder
+              sessionId={sessionId}
+              stepId={step.stepId}
+              mode="audio"
+              prompt={step.captureConfig.prompt ?? step.questionText ?? null}
+              allowRetake={step.captureConfig.allowRetake ?? true}
+              maxRetakes={step.captureConfig.maxRetakes ?? null}
+              maxDurationSec={step.captureConfig.maxDurationSec ?? null}
+              minDurationSec={step.captureConfig.minDurationSec ?? null}
+              onSubmitted={async () => {
+                // After the recorder finalizes the upload, advance the flow
+                // the same way info/submission steps do — POST /answer to
+                // register completion and either finish or load the next step.
+                setSubmitting(true)
+                const res = await fetch(`/api/public/sessions/${sessionId}/answer`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ stepId: step.stepId }),
+                })
+                if (res.ok) {
+                  const data = await res.json()
+                  if (data.finished) router.push(`/f/${slug}/s/${sessionId}/done`)
+                  else fetchStep()
+                }
+                setSubmitting(false)
+              }}
+            />
+          </div>
+        )}
+
+        {/* Capture step — non-audio modes not yet implemented in the UI */}
+        {step.stepType === 'capture' && step.captureStepsEnabled && step.captureConfig && step.captureConfig.mode !== 'audio' && (
+          <div className={`${overlay ? '' : 'max-w-md mx-auto'} rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800`}>
+            This step is configured for a capture mode that isn't available yet. Please contact the hiring team.
           </div>
         )}
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
+import { validateCaptureConfig } from '@/lib/capture/capture-config'
 
 export async function PATCH(
   request: NextRequest,
@@ -23,7 +24,24 @@ export async function PATCH(
 
   try {
     const body = await request.json()
-    const { title, videoId, questionText, stepOrder, stepType, questionType, formEnabled, formConfig, infoContent, buttonConfig, combinedWithId, captionsEnabled, captionStyle } = body
+    const { title, videoId, questionText, stepOrder, stepType, questionType, formEnabled, formConfig, infoContent, buttonConfig, combinedWithId, captionsEnabled, captionStyle, captureConfig } = body
+
+    // Validate captureConfig before write. Allow null to explicitly clear.
+    let captureConfigPatch: { captureConfig: unknown } | null = null
+    if (captureConfig !== undefined) {
+      if (captureConfig === null) {
+        captureConfigPatch = { captureConfig: null }
+      } else {
+        const parsed = validateCaptureConfig(captureConfig)
+        if (!parsed.ok) {
+          return NextResponse.json(
+            { error: 'Invalid captureConfig', issues: parsed.errors },
+            { status: 400 }
+          )
+        }
+        captureConfigPatch = { captureConfig: parsed.value }
+      }
+    }
 
     const updated = await prisma.flowStep.update({
       where: { id: params.stepId },
@@ -41,6 +59,7 @@ export async function PATCH(
         ...(combinedWithId !== undefined && { combinedWithId: combinedWithId || null }),
         ...(captionsEnabled !== undefined && { captionsEnabled }),
         ...(captionStyle !== undefined && { captionStyle }),
+        ...(captureConfigPatch !== null && { captureConfig: captureConfigPatch.captureConfig as any }),
       },
       include: {
         video: true,

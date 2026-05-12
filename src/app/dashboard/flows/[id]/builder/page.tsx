@@ -8,6 +8,8 @@ import StepEditorPanel from '@/components/StepEditorPanel'
 import StepPreviewModal from '@/components/StepPreviewModal'
 import BrandingEditor from '@/components/BrandingEditor'
 import { type BrandingConfig } from '@/lib/branding'
+import { validateCaptureConfig } from '@/lib/capture/capture-config'
+import CaptureStepConfigPanel from './_CaptureStepConfigPanel'
 
 interface Video {
   id: string
@@ -38,6 +40,7 @@ interface Step {
   combinedWithId?: string | null
   captionsEnabled?: boolean
   captionStyle?: any
+  captureConfig?: unknown
   options: Option[]
 }
 
@@ -50,6 +53,11 @@ interface Flow {
   endMessage: string
   branding: Record<string, unknown> | null
   steps: Step[]
+  // Composite flag (global env AND workspace.settings.captureStepsEnabled).
+  // Builder hides the Audio Answer tile when this is false. The server is
+  // the source of truth — we never read env or workspace settings on the
+  // client.
+  captureStepsEnabled?: boolean
 }
 
 export default function FlowBuilderPage() {
@@ -66,6 +74,16 @@ export default function FlowBuilderPage() {
     searchParams.get('view') === 'schema' ? 'schema' : 'editor'
   )
   const [popupStepId, setPopupStepId] = useState<string | null>(null)
+  // True while the capture popup panel has unresolved validation errors. The
+  // popup's Save button is disabled in this state — replaces the prior
+  // alert()-on-bad-config UX.
+  const [capturePanelInvalid, setCapturePanelInvalid] = useState(false)
+  // Reset capture validity whenever the popup closes or jumps to a different
+  // step, so a previously-invalid state never leaks into the next popup.
+  useEffect(() => {
+    if (!popupStepId) setCapturePanelInvalid(false)
+    else setCapturePanelInvalid(false)
+  }, [popupStepId])
   const [combineEnabled, setCombineEnabled] = useState(false)
   const [previewStepId, setPreviewStepId] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
@@ -159,6 +177,16 @@ export default function FlowBuilderPage() {
   ])
   const [addStepInfoText, setAddStepInfoText] = useState('')
   const [addStepImageUrl, setAddStepImageUrl] = useState<string | null>(null)
+  // Capture step (Phase 1C ships audio mode). The recruiter never touches the
+  // raw JSON — these fields feed validateCaptureConfig() before persistence so
+  // a malformed config can never reach the DB.
+  const [addStepCapturePrompt, setAddStepCapturePrompt] = useState('')
+  const [addStepCaptureRequired, setAddStepCaptureRequired] = useState(true)
+  const [addStepCaptureMinDuration, setAddStepCaptureMinDuration] = useState<string>('')
+  const [addStepCaptureMaxDuration, setAddStepCaptureMaxDuration] = useState<string>('120')
+  const [addStepCaptureAllowRetake, setAddStepCaptureAllowRetake] = useState(true)
+  const [addStepCaptureMaxRetakes, setAddStepCaptureMaxRetakes] = useState<string>('2')
+  const [addStepCaptureError, setAddStepCaptureError] = useState<string | null>(null)
   const [addStepButtonEnabled, setAddStepButtonEnabled] = useState(false)
   const [addStepButtonText, setAddStepButtonText] = useState('Continue')
   // Action-button "next step" target. null = auto, '__end__' = End, else stepId.
@@ -207,6 +235,21 @@ export default function FlowBuilderPage() {
         { id: 'phone', label: 'Phone', type: 'phone', required: false, enabled: true, isBuiltIn: true },
       ] } },
       info: { title: `Welcome`, stepType: 'info', infoContent: '' },
+      capture: {
+        title: `Audio answer ${stepNum}`,
+        stepType: 'capture',
+        // Default config is intentionally permissive — recruiter can tune
+        // duration / retake limits in the edit panel after creation.
+        captureConfig: {
+          mode: 'audio',
+          required: true,
+          allowRetake: true,
+          maxRetakes: 2,
+          maxDurationSec: 120,
+          transcriptionEnabled: false,
+          aiAnalysisEnabled: false,
+        },
+      },
     }
     const body = { ...defaults[stepType], ...config }
 
@@ -442,6 +485,9 @@ export default function FlowBuilderPage() {
       finalTitle = addStepTitle.trim() || 'Application Form'
     } else if (addStepType === 'info') {
       finalTitle = addStepTitle.trim() || 'Welcome'
+    } else if (addStepType === 'capture') {
+      const promptSnippet = addStepCapturePrompt.trim() ? addStepCapturePrompt.trim().slice(0, 50) : ''
+      finalTitle = addStepTitle.trim() || promptSnippet || 'Audio answer'
     }
     finalTitle = makeUnique(finalTitle)
     setTitleWarning(false)
@@ -470,6 +516,34 @@ export default function FlowBuilderPage() {
       config.infoContent = addStepInfoText
       if (addStepImageUrl) config.formConfig = { imageUrl: addStepImageUrl }
       if (addStepButtonEnabled) config.buttonConfig = buttonConfigBase()
+    } else if (addStepType === 'capture') {
+      // Build a CaptureConfig draft from form state and run it through the
+      // Zod validator before we send. Empty number fields become undefined
+      // so the schema doesn't have to deal with NaN.
+      const draft: Record<string, unknown> = {
+        mode: 'audio',
+        prompt: addStepCapturePrompt.trim() || undefined,
+        required: addStepCaptureRequired,
+        allowRetake: addStepCaptureAllowRetake,
+        transcriptionEnabled: false,
+        aiAnalysisEnabled: false,
+      }
+      const minD = parseInt(addStepCaptureMinDuration, 10)
+      if (Number.isFinite(minD) && minD > 0) draft.minDurationSec = minD
+      const maxD = parseInt(addStepCaptureMaxDuration, 10)
+      if (Number.isFinite(maxD) && maxD > 0) draft.maxDurationSec = maxD
+      if (addStepCaptureAllowRetake) {
+        const r = parseInt(addStepCaptureMaxRetakes, 10)
+        if (Number.isFinite(r) && r > 0) draft.maxRetakes = r
+      }
+      const parsed = validateCaptureConfig(draft)
+      if (!parsed.ok) {
+        setAddStepCaptureError(parsed.errors.join('; '))
+        return
+      }
+      setAddStepCaptureError(null)
+      config.title = finalTitle
+      config.captureConfig = parsed.value
     }
     createStep(addStepType, config)
   }
@@ -928,7 +1002,7 @@ export default function FlowBuilderPage() {
           return partner ? (
             <div className="flex items-center gap-2 p-2.5 bg-brand-50 rounded-[8px] border border-brand-200">
               <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-brand-100 text-brand-600">
-                {partner.stepType === 'submission' ? 'Video' : partner.stepType === 'question' ? 'Question' : partner.stepType === 'form' ? 'Form' : 'Screen'}
+                {partner.stepType === 'submission' ? 'Video' : partner.stepType === 'question' ? 'Question' : partner.stepType === 'form' ? 'Form' : partner.stepType === 'capture' ? 'Audio Answer' : 'Screen'}
               </span>
               <span className="text-sm text-grey-15 flex-1 truncate">{partner.title}</span>
             </div>
@@ -1251,7 +1325,8 @@ export default function FlowBuilderPage() {
                        popupStep?.stepType === 'submission' ? 'Video' :
                        popupStep?.stepType === 'question' ? 'Question' :
                        popupStep?.stepType === 'form' ? 'Form' :
-                       popupStep?.stepType === 'info' ? 'Screen' : 'Step'}
+                       popupStep?.stepType === 'info' ? 'Screen' :
+                       popupStep?.stepType === 'capture' ? 'Audio Answer' : 'Step'}
                     </span>
                     {popupStepId === '__start__' && (
                       <span className="text-lg font-semibold text-grey-15">Start Screen</span>
@@ -1497,6 +1572,16 @@ export default function FlowBuilderPage() {
                     })()}
 
                     {/* === INFO/SCREEN STEP === */}
+                    {/* === CAPTURE STEP (audio answer) === */}
+                    {popupStep.stepType === 'capture' && (
+                      <CaptureStepConfigPanel
+                        stepId={popupStep.id}
+                        captureConfig={(popupStep as any).captureConfig}
+                        onPatch={(cfg) => updateStep(popupStep.id, { captureConfig: cfg } as any)}
+                        onValidityChange={(invalid) => setCapturePanelInvalid(invalid)}
+                      />
+                    )}
+
                     {popupStep.stepType === 'info' && (
                       <div className="space-y-4">
                         <div>
@@ -1546,19 +1631,27 @@ export default function FlowBuilderPage() {
                 ) : null}
 
                 {/* Save / Cancel bar */}
-                <div className="flex gap-3 mt-6 pt-4 border-t border-surface-border">
-                  <button
-                    onClick={() => setPopupStepId(null)}
-                    className="flex-1 py-2.5 text-sm border border-surface-border rounded-[8px] text-grey-35 hover:bg-surface font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => { fetchFlow(); setPopupStepId(null) }}
-                    className="flex-1 py-2.5 text-sm bg-brand-500 text-white rounded-[8px] hover:bg-brand-600 font-medium"
-                  >
-                    Save
-                  </button>
+                <div className="mt-6 pt-4 border-t border-surface-border space-y-2">
+                  {capturePanelInvalid && (
+                    <div className="text-[12px] text-red-600">
+                      Fix the highlighted fields before saving.
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setPopupStepId(null)}
+                      className="flex-1 py-2.5 text-sm border border-surface-border rounded-[8px] text-grey-35 hover:bg-surface font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => { fetchFlow(); setPopupStepId(null) }}
+                      disabled={capturePanelInvalid}
+                      className="flex-1 py-2.5 text-sm bg-brand-500 text-white rounded-[8px] hover:bg-brand-600 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1621,6 +1714,8 @@ export default function FlowBuilderPage() {
                   <div className="text-xs text-gray-500">
                     {step.stepType === 'submission' ? (
                       <span className="text-purple-600">Submission</span>
+                    ) : step.stepType === 'capture' ? (
+                      <span className="text-brand-600">Audio answer</span>
                     ) : (
                       <>
                         {step.options.length} option{step.options.length !== 1 && 's'}
@@ -1697,7 +1792,7 @@ export default function FlowBuilderPage() {
                   <button onClick={() => setAddStepType(null)} className="text-grey-40 hover:text-grey-15">&larr;</button>
                 )}
                 <h2 className="text-xl font-semibold text-grey-15">
-                  {!addStepType ? 'Add Step' : addStepType === 'submission' ? 'Video Step' : addStepType === 'question' ? 'Question Step' : addStepType === 'form' ? 'Form Step' : 'Screen Step'}
+                  {!addStepType ? 'Add Step' : addStepType === 'submission' ? 'Video Step' : addStepType === 'question' ? 'Question Step' : addStepType === 'form' ? 'Form Step' : addStepType === 'capture' ? 'Audio Answer Step' : 'Screen Step'}
                 </h2>
               </div>
               <button onClick={() => { setShowAddStepModal(false); setPendingArrowInsertion(null) }} className="text-grey-40 hover:text-grey-15 text-xl">&times;</button>
@@ -1725,6 +1820,19 @@ export default function FlowBuilderPage() {
                       { type: 'question', label: 'Question', desc: 'Quiz with options', color: 'blue', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
                       { type: 'form', label: 'Form', desc: 'Collect candidate info', color: 'green', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
                       { type: 'info', label: 'Screen', desc: 'Text, instructions, image', color: 'purple', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+                      // `color` is part of the templated class names above; we reuse
+                      // an already-emitted palette ('brand') so the JIT picks up the
+                      // classes without a tailwind safelist change.
+                      // Audio Answer tile is hidden when EITHER the global
+                      // env flag is off OR the workspace's
+                      // settings.captureStepsEnabled !== true. The server
+                      // composites both into flow.captureStepsEnabled so the
+                      // client just reads one boolean. Existing capture
+                      // steps in the flow keep rendering; the recruiter
+                      // just can't add new ones while the gate is closed.
+                      ...(flow.captureStepsEnabled
+                        ? [{ type: 'capture', label: 'Audio Answer', desc: 'Candidate records spoken answer', color: 'brand', icon: 'M19 11a7 7 0 01-14 0m7 7v3m-4 0h8M12 4a3 3 0 00-3 3v4a3 3 0 006 0V7a3 3 0 00-3-3z' }]
+                        : []),
                     ].map(({ type, label, desc, color, icon }) => (
                       <button
                         key={type}
@@ -2101,6 +2209,157 @@ export default function FlowBuilderPage() {
                     )}
                   </div>
                   <button onClick={submitAddStep} className="w-full btn-primary py-3">Add Screen Step</button>
+                </div>
+              )}
+
+              {/* Phase 2: Capture (audio answer) config */}
+              {addStepType === 'capture' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Step Title</label>
+                    <input
+                      type="text"
+                      value={addStepTitle}
+                      onChange={(e) => setAddStepTitle(e.target.value)}
+                      placeholder="e.g. Tell us about yourself"
+                      className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-grey-20 mb-1.5">Prompt for candidate</label>
+                    <textarea
+                      value={addStepCapturePrompt}
+                      onChange={(e) => setAddStepCapturePrompt(e.target.value)}
+                      rows={3}
+                      placeholder="e.g. Record a 30-second introduction about your experience and what motivates you."
+                      className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                    <p className="text-[11px] text-grey-50 mt-1">Shown above the recorder. The candidate can preview before submitting.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-grey-20 mb-1.5">Min duration (sec)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={addStepCaptureMinDuration}
+                        onChange={(e) => setAddStepCaptureMinDuration(e.target.value)}
+                        placeholder="optional"
+                        className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-grey-20 mb-1.5">Max duration (sec)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={addStepCaptureMaxDuration}
+                        onChange={(e) => setAddStepCaptureMaxDuration(e.target.value)}
+                        placeholder="e.g. 120"
+                        className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="border-t border-surface-border pt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-grey-20">Required</label>
+                      <button
+                        onClick={() => setAddStepCaptureRequired(!addStepCaptureRequired)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${addStepCaptureRequired ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${addStepCaptureRequired ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-grey-20">Allow retakes</label>
+                      <button
+                        onClick={() => setAddStepCaptureAllowRetake(!addStepCaptureAllowRetake)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${addStepCaptureAllowRetake ? 'bg-[#FF9500]' : 'bg-gray-300'}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${addStepCaptureAllowRetake ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                    {addStepCaptureAllowRetake && (
+                      <div>
+                        <label className="block text-sm font-medium text-grey-20 mb-1.5">Max retakes</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={addStepCaptureMaxRetakes}
+                          onChange={(e) => setAddStepCaptureMaxRetakes(e.target.value)}
+                          placeholder="leave blank for unlimited"
+                          className="w-full px-4 py-2.5 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                        <p className="text-[11px] text-grey-50 mt-1">Retakes beyond the first attempt. Leave blank for unlimited.</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t border-surface-border pt-4 space-y-2">
+                    <div className="flex items-center justify-between opacity-60">
+                      <label className="text-sm text-grey-35">
+                        Auto-transcribe answers
+                        <span className="ml-2 text-[11px] uppercase tracking-wide text-grey-40">Coming soon</span>
+                      </label>
+                      <button
+                        disabled
+                        className="relative inline-flex h-5 w-9 items-center rounded-full bg-gray-300 cursor-not-allowed"
+                      >
+                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-0.5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between opacity-60">
+                      <label className="text-sm text-grey-35">
+                        AI analysis &amp; score
+                        <span className="ml-2 text-[11px] uppercase tracking-wide text-grey-40">Coming soon</span>
+                      </label>
+                      <button
+                        disabled
+                        className="relative inline-flex h-5 w-9 items-center rounded-full bg-gray-300 cursor-not-allowed"
+                      >
+                        <span className="inline-block h-3.5 w-3.5 transform rounded-full bg-white translate-x-0.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {addStepCaptureError && (
+                    <div className="rounded-[8px] border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {addStepCaptureError}
+                    </div>
+                  )}
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => { setShowAddStepModal(false); setPendingArrowInsertion(null); setAddStepCaptureError(null) }} className="btn-secondary flex-1">Cancel</button>
+                    {(() => {
+                      // Re-validate live so the button toggles as the user
+                      // fixes inputs, not just after they click submit.
+                      const draft: Record<string, unknown> = {
+                        mode: 'audio',
+                        prompt: addStepCapturePrompt.trim() || undefined,
+                        required: addStepCaptureRequired,
+                        allowRetake: addStepCaptureAllowRetake,
+                        transcriptionEnabled: false,
+                        aiAnalysisEnabled: false,
+                      }
+                      const minD = parseInt(addStepCaptureMinDuration, 10)
+                      if (Number.isFinite(minD) && minD > 0) draft.minDurationSec = minD
+                      const maxD = parseInt(addStepCaptureMaxDuration, 10)
+                      if (Number.isFinite(maxD) && maxD > 0) draft.maxDurationSec = maxD
+                      if (addStepCaptureAllowRetake) {
+                        const r = parseInt(addStepCaptureMaxRetakes, 10)
+                        if (Number.isFinite(r) && r > 0) draft.maxRetakes = r
+                      }
+                      const live = validateCaptureConfig(draft)
+                      const disabled = !live.ok
+                      return (
+                        <button
+                          onClick={submitAddStep}
+                          disabled={disabled}
+                          className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add Audio Step
+                        </button>
+                      )
+                    })()}
+                  </div>
                 </div>
               )}
             </div>

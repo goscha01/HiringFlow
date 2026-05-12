@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getVideoUrl } from '@/lib/storage'
+import { tryParseCaptureConfig } from '@/lib/capture/capture-config'
+import { isCaptureStepsEnabledForWorkspace } from '@/lib/capture/capture-feature-flag'
 
 export async function GET(
   request: NextRequest,
@@ -10,6 +12,11 @@ export async function GET(
     where: { id: params.sessionId },
     include: {
       flow: true,
+      // Pull workspace.settings so the response can advertise whether the
+      // capture feature is on for this tenant. The candidate UI uses this
+      // boolean (rather than the global env flag) to decide whether to
+      // render the recorder or the graceful-unavailable notice.
+      workspace: { select: { settings: true } },
       lastStep: {
         include: {
           video: true,
@@ -107,6 +114,19 @@ export async function GET(
     }
   }
 
+  // Parse the capture config through the validator so the client only ever
+  // receives a known shape (or null). Anything malformed in DB is treated as
+  // "not a capture step" by isCaptureStep and falls through to the legacy
+  // behaviour, preserving non-regression on older rows.
+  const captureConfig =
+    step.stepType === 'capture' ? tryParseCaptureConfig((step as any).captureConfig) : null
+
+  // Composite gate: global env + workspace opt-in. Client renders the
+  // recorder only when this is true.
+  const captureStepsEnabled = isCaptureStepsEnabledForWorkspace({
+    workspaceSettings: session.workspace?.settings,
+  })
+
   return NextResponse.json({
     stepId: step.id,
     title: step.title,
@@ -120,6 +140,8 @@ export async function GET(
     segments: step.captionsEnabled && step.video ? (step.video as any).segments || [] : [],
     formEnabled: step.formEnabled || step.stepType === 'form',
     formConfig: step.formConfig,
+    captureConfig,
+    captureStepsEnabled,
     progress: { current: currentStepOrder + 1, total: totalSteps },
     stepIds: allSteps.map(s => s.id),
     combinedStep,

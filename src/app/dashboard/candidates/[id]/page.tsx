@@ -23,6 +23,25 @@ import { InterviewPanel } from './_InterviewPanel'
 import { NotesPanel } from './_NotesPanel'
 import { CurrentActivityCard } from './_CurrentActivityCard'
 import { BackgroundCheckCard } from './_BackgroundCheckCard'
+import CapturePlayback from '@/components/CapturePlayback'
+
+interface CaptureSummary {
+  id: string
+  stepId: string
+  mode: string
+  prompt: string | null
+  status: string
+  mimeType: string | null
+  fileSizeBytes: number | null
+  durationSec: number | null
+  transcript: string | null
+  aiSummary: string | null
+  aiScore: number | null
+  errorMessage: string | null
+  captureOrdinal: number
+  createdAt: string
+  updatedAt: string
+}
 
 interface Answer {
   id: string; answeredAt: string
@@ -129,7 +148,9 @@ export default function CandidateDetailPage() {
   const id = params.id as string
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'answers' | 'submissions' | 'timeline'>('answers')
+  const [tab, setTab] = useState<'answers' | 'submissions' | 'captures' | 'timeline'>('answers')
+  const [captures, setCaptures] = useState<CaptureSummary[] | null>(null)
+  const [capturesLoading, setCapturesLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
   const [customReasons, setCustomReasons] = useState<string[]>([])
@@ -150,6 +171,30 @@ export default function CandidateDetailPage() {
   // Per-rule status for the "Run" button on each row. Lets the recruiter fire
   // one rule at a time without dismissing the modal — keyed by ruleId.
   const [perRuleState, setPerRuleState] = useState<Record<string, { firing: boolean; result?: { ok: boolean; message: string } }>>({})
+
+  // Lazy-load captures the first time the user opens the Captures tab. The
+  // candidate detail endpoint doesn't include them (keeps the main payload
+  // tight), and the playback URLs themselves are minted per-click anyway.
+  useEffect(() => {
+    if (tab !== 'captures') return
+    if (captures !== null) return
+    let cancelled = false
+    setCapturesLoading(true)
+    fetch(`/api/captures/session/${id}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => {
+        if (!cancelled) setCaptures(Array.isArray(data?.captures) ? data.captures : [])
+      })
+      .catch(() => {
+        if (!cancelled) setCaptures([])
+      })
+      .finally(() => {
+        if (!cancelled) setCapturesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tab, captures, id])
 
   const loadCandidate = useCallback(async () => {
     const res = await fetch(`/api/candidates/${id}`)
@@ -1313,6 +1358,9 @@ export default function CandidateDetailPage() {
         {[
           { key: 'answers' as const, label: `Answers (${candidate.answers.length})` },
           { key: 'submissions' as const, label: `Submissions (${candidate.submissions.length})` },
+          // Captures count is loaded lazily on tab open; show '…' until the
+          // fetch lands. The lazy load keeps the main candidate payload tight.
+          { key: 'captures' as const, label: `Captures (${captures == null ? '…' : captures.length})` },
           { key: 'timeline' as const, label: `Timeline (${timeline.length})` },
         ].map(t => (
           <button
@@ -1373,6 +1421,44 @@ export default function CandidateDetailPage() {
               <div className="text-xs text-grey-50 mt-2">{new Date(s.submittedAt).toLocaleString()}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Captures tab */}
+      {tab === 'captures' && (
+        <div className="space-y-4">
+          {capturesLoading && captures === null ? (
+            <div className="bg-white rounded-[12px] border border-surface-border p-8 text-center text-grey-40">
+              Loading captures…
+            </div>
+          ) : captures == null || captures.length === 0 ? (
+            <div className="bg-white rounded-[12px] border border-surface-border p-8 text-center text-grey-40">
+              No captures
+            </div>
+          ) : (
+            captures.map((c) => (
+              <div key={c.id} className="bg-white rounded-[8px] border border-surface-border p-4">
+                {c.prompt ? (
+                  <p className="text-sm text-grey-35 mb-3 whitespace-pre-wrap">{c.prompt}</p>
+                ) : null}
+                <CapturePlayback
+                  captureId={c.id}
+                  mode={c.mode}
+                  status={c.status}
+                  mimeType={c.mimeType}
+                  durationSec={c.durationSec}
+                  fileSizeBytes={c.fileSizeBytes}
+                  captureOrdinal={c.captureOrdinal}
+                />
+                {c.errorMessage ? (
+                  <div className="mt-2 text-xs text-red-600">{c.errorMessage}</div>
+                ) : null}
+                <div className="text-xs text-grey-50 mt-2">
+                  {new Date(c.createdAt).toLocaleString()}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 

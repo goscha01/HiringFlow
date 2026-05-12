@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { validateCaptureConfig } from '@/lib/capture/capture-config'
 
 export async function POST(
   request: NextRequest,
@@ -22,7 +23,23 @@ export async function POST(
 
   try {
     const body = await request.json()
-    const { title, videoId, questionText, stepType, questionType, formEnabled, formConfig, infoContent, buttonConfig, options } = body
+    const { title, videoId, questionText, stepType, questionType, formEnabled, formConfig, infoContent, buttonConfig, captureConfig, options } = body
+
+    // Validate captureConfig through the Zod schema before persisting. This
+    // is the only path that writes the column; the schema's tryParseCaptureConfig
+    // protects reads, but writes must be hard-rejected so malformed configs
+    // never reach the DB.
+    let validatedCaptureConfig: unknown = undefined
+    if (captureConfig !== undefined && captureConfig !== null) {
+      const parsed = validateCaptureConfig(captureConfig)
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { error: 'Invalid captureConfig', issues: parsed.errors },
+          { status: 400 }
+        )
+      }
+      validatedCaptureConfig = parsed.value
+    }
 
     // Get current max step order
     const maxOrder = await prisma.flowStep.aggregate({
@@ -43,6 +60,7 @@ export async function POST(
         ...(formConfig !== undefined && { formConfig }),
         ...(infoContent !== undefined && { infoContent }),
         ...(buttonConfig !== undefined && { buttonConfig }),
+        ...(validatedCaptureConfig !== undefined && { captureConfig: validatedCaptureConfig as any }),
         // Create answer options if provided
         ...(options && Array.isArray(options) && options.length > 0 && {
           options: {
