@@ -11,6 +11,7 @@ import {
   normalizeStages,
 } from '@/lib/funnel-stages'
 import { detectAutomationWarnings } from '@/lib/automation-warnings'
+import RichTextEditor from '@/components/RichTextEditor'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string; bodyHtml?: string; bodyText?: string | null }
@@ -1664,8 +1665,8 @@ export default function AutomationsPage() {
                             <input type="text" value={newTplSubject} onChange={e => setNewTplSubject(e.target.value)} placeholder="e.g. Next step: {{flow_name}}" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
                           </div>
                           <div>
-                            <label className="block text-xs text-grey-40 mb-1">Body (HTML)</label>
-                            <textarea value={newTplBody} onChange={e => setNewTplBody(e.target.value)} rows={8} className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 font-mono focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                            <label className="block text-xs text-grey-40 mb-1">Body</label>
+                            <RichTextEditor value={newTplBody} onChange={setNewTplBody} rows={8} />
                           </div>
                           <div className="bg-white rounded-[6px] p-2">
                             <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
