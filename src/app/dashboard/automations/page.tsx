@@ -344,6 +344,13 @@ export default function AutomationsPage() {
   const [saveWarnings, setSaveWarnings] = useState<string[]>([])
   const [warningsAcked, setWarningsAcked] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
+  // In-app test-send modal. Replaces the native window.prompt() so the recruiter
+  // gets a real UI (validation, error display, paste-friendly) instead of a
+  // chrome-style dialog. The recipient is persisted to localStorage per channel
+  // so they don't retype every time.
+  const [testModal, setTestModal] = useState<{ rule: Rule; isSms: boolean } | null>(null)
+  const [testRecipient, setTestRecipient] = useState('')
+  const [testResult, setTestResult] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null)
   // Inline template creator — email shares name with SMS (one state) so the
   // recruiter can keep typing if they switch channels mid-edit. The
   // channel-specific fields (subject/html for email, body for SMS) live in
@@ -1003,16 +1010,35 @@ export default function AutomationsPage() {
     }, 2000)
   }
 
-  const runTest = async (r: Rule) => {
+  // localStorage keys for the remembered test recipient. Stored per channel so
+  // email and SMS lists don't collide (recruiter usually has one go-to address
+  // and one go-to phone for testing).
+  const TEST_EMAIL_KEY = 'hiringflow:test_email'
+  const TEST_PHONE_KEY = 'hiringflow:test_phone'
+
+  const openTestModal = (r: Rule) => {
     const firstStepChannel = r.steps?.[0]?.channel ?? r.channel ?? 'email'
     const isSms = firstStepChannel === 'sms'
-    const promptText = isSms
-      ? `Send a test SMS for "${r.name}" to (E.164, e.g. +15551234567):`
-      : `Send a test email for "${r.name}" to:`
-    const to = prompt(promptText, '')
-    if (!to) return
-    if (isSms ? !/^\+?\d[\d\s().-]{6,}$/.test(to) : !to.includes('@')) return
+    let remembered = ''
+    if (typeof window !== 'undefined') {
+      remembered = window.localStorage.getItem(isSms ? TEST_PHONE_KEY : TEST_EMAIL_KEY) ?? ''
+    }
+    setTestRecipient(remembered)
+    setTestResult(null)
+    setTestModal({ rule: r, isSms })
+  }
+
+  const submitTest = async () => {
+    if (!testModal) return
+    const { rule: r, isSms } = testModal
+    const to = testRecipient.trim()
+    if (!to) { setTestResult({ kind: 'err', message: 'Enter an email or phone' }); return }
+    if (isSms ? !/^\+?\d[\d\s().-]{6,}$/.test(to) : !to.includes('@')) {
+      setTestResult({ kind: 'err', message: isSms ? 'Phone should look like +15551234567' : 'That doesn’t look like an email' })
+      return
+    }
     setTestingId(r.id)
+    setTestResult(null)
     try {
       const res = await fetch(`/api/automations/${r.id}/test`, {
         method: 'POST',
@@ -1021,12 +1047,17 @@ export default function AutomationsPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.success) {
-        alert(`Test sent to ${data.sentTo}.\nA tracked candidate was created (source: test) — view it in Candidates to follow the path.`)
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(isSms ? TEST_PHONE_KEY : TEST_EMAIL_KEY, to)
+        }
+        setTestResult({ kind: 'ok', message: `Sent to ${data.sentTo}. A tracked candidate was created (source: test) — view it in Candidates to follow the path.` })
       } else if (res.ok && data.sessionId) {
-        alert(`Candidate was created but the message did not send: ${data.error || 'unknown error'}.\nYou can still view the candidate in Candidates.`)
+        setTestResult({ kind: 'err', message: `Candidate created but the message did not send: ${data.error || 'unknown error'}. You can still view the candidate in Candidates.` })
       } else {
-        alert(`Test failed: ${data.error || 'Unknown error'}`)
+        setTestResult({ kind: 'err', message: data.error || 'Test failed' })
       }
+    } catch (err) {
+      setTestResult({ kind: 'err', message: err instanceof Error ? err.message : 'Test failed' })
     } finally {
       setTestingId(null)
     }
@@ -1370,7 +1401,7 @@ export default function AutomationsPage() {
                         <button onClick={() => openPreview(r)} disabled={previewLoading === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
                           {previewLoading === r.id ? 'Loading…' : 'Preview'}
                         </button>
-                        <button onClick={() => runTest(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                        <button onClick={() => openTestModal(r)} disabled={testingId === r.id} className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-50">
                           {testingId === r.id ? 'Sending…' : 'Test'}
                         </button>
                         <button onClick={() => duplicate(r)} className="text-xs text-grey-35 hover:text-grey-15">Duplicate</button>
@@ -1829,6 +1860,61 @@ export default function AutomationsPage() {
                 className="btn-primary flex-1 disabled:opacity-50"
               >
                 {saving ? 'Saving...' : saveWarnings.length > 0 ? 'Save anyway' : editing ? 'Save' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {testModal && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[60] p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) { setTestModal(null); setTestResult(null) } }}
+        >
+          <div className="bg-white rounded-[12px] shadow-2xl p-6 w-full max-w-[460px]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-grey-15 mb-1">
+              Send test {testModal.isSms ? 'SMS' : 'email'}
+            </h3>
+            <p className="text-sm text-grey-40 mb-4 truncate">
+              For automation: <span className="text-grey-15 font-medium">{testModal.rule.name}</span>
+            </p>
+            <label className="block text-xs text-grey-40 mb-1.5">
+              {testModal.isSms ? 'Send to (phone, E.164 e.g. +15551234567)' : 'Send to (email)'}
+            </label>
+            <input
+              type={testModal.isSms ? 'tel' : 'email'}
+              value={testRecipient}
+              onChange={(e) => { setTestRecipient(e.target.value); if (testResult) setTestResult(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !testingId) submitTest() }}
+              placeholder={testModal.isSms ? '+15551234567' : 'you@example.com'}
+              autoFocus
+              className="w-full px-3 py-2 border border-surface-border rounded-[8px] text-sm text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="text-[11px] text-grey-40 mt-1.5">
+              Remembered for next time. Sending creates a tracked candidate with source = <span className="font-mono">test</span>.
+            </p>
+            {testResult && (
+              <div className={`mt-3 px-3 py-2 rounded-[6px] text-xs border ${
+                testResult.kind === 'ok'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-red-50 text-red-700 border-red-200'
+              }`}>
+                {testResult.message}
+              </div>
+            )}
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => { setTestModal(null); setTestResult(null) }}
+                className="btn-secondary flex-1"
+              >
+                Close
+              </button>
+              <button
+                onClick={submitTest}
+                disabled={!!testingId || !testRecipient.trim()}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                {testingId === testModal.rule.id ? 'Sending…' : `Send ${testModal.isSms ? 'SMS' : 'email'}`}
               </button>
             </div>
           </div>
