@@ -300,6 +300,14 @@ export default function FlowSchemaView({
           .filter((id) => !visited.has(id))
           .filter((id, i, arr) => arr.indexOf(id) === i)
 
+        // Combined partner: treat as a "next" step in the chain so we
+        // also BFS into anything it points to. Place it in the same row
+        // immediately to the right (combine-snap tightens the exact X).
+        const partnerId = step.combinedWithId
+        if (partnerId && !visited.has(partnerId)) {
+          queue.push({ stepId: partnerId, col: col + 1, row: actualRow })
+        }
+
         children.forEach((childId, i) => {
           queue.push({ stepId: childId, col: col + 1, row: actualRow + i })
         })
