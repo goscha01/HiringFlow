@@ -63,6 +63,27 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
         })),
       },
     },
+    // Match the shape the list endpoint returns so the client can splice the
+    // new row into local state without a refetch. Without these includes the
+    // page crashes trying to read r.steps[0] / r._count.executions on the
+    // returned object.
+    include: {
+      flow: { select: { id: true, name: true } },
+      pipeline: { select: { id: true, name: true, isDefault: true } },
+      emailTemplate: { select: { id: true, name: true, subject: true } },
+      training: { select: { id: true, title: true, slug: true } },
+      schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
+      steps: {
+        orderBy: { order: 'asc' },
+        include: {
+          emailTemplate: { select: { id: true, name: true, subject: true } },
+          smsTemplate: { select: { id: true, name: true, body: true } },
+          training: { select: { id: true, title: true, slug: true } },
+          schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },
+        },
+      },
+      _count: { select: { executions: true } },
+    },
   })
 
   return NextResponse.json(copy)
