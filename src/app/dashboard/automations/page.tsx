@@ -10,7 +10,7 @@ import {
   type FunnelStage,
   normalizeStages,
 } from '@/lib/funnel-stages'
-import { detectAutomationWarnings } from '@/lib/automation-warnings'
+import { detectAutomationWarnings, deriveFeaturesFromStageTriggers } from '@/lib/automation-warnings'
 import RichTextEditor from '@/components/RichTextEditor'
 
 interface Flow { id: string; name: string }
@@ -43,7 +43,7 @@ interface StepShape {
   schedulingConfig?: SchedulingItem | null
 }
 
-interface PipelineLite { id: string; name: string; isDefault: boolean }
+interface PipelineLite { id: string; name: string; isDefault: boolean; stages?: FunnelStage[] }
 interface Rule {
   id: string; name: string; triggerType: string; flowId: string | null
   // Pipeline scope (added 2026-05-13). Null = "any pipeline" — rule fires
@@ -725,12 +725,24 @@ export default function AutomationsPage() {
       if (wantsSms && (!s.smsBody || !s.smsBody.trim())) { setSaveError(`Step ${i + 1}: SMS body is required`); return }
     }
 
-    // Soft guard: surface body/trigger mismatches that interfere with the
-    // Meet Tracker extension's lifecycle events. User can override via
-    // "Save anyway" once warnings have been shown.
+    // Soft guard: surface body/trigger mismatches. When the rule is scoped
+    // to a specific pipeline, derive that pipeline's feature footprint from
+    // its stage triggers so we suppress warnings whose topic isn't reachable
+    // there (e.g. don't warn about "starting the training" for a rule pinned
+    // to a pipeline with no training stages). Empty pipelineId = any pipeline
+    // → no filtering, all patterns apply.
+    const scopedPipeline = pipelineIdField
+      ? pipelines.find((p) => p.id === pipelineIdField) ?? null
+      : null
+    const pipelineFeatures = scopedPipeline
+      ? deriveFeaturesFromStageTriggers(
+          (scopedPipeline.stages ?? []).flatMap((s) => (s.triggers ?? []).map((t) => t.event)),
+        )
+      : null
     const warnings = detectAutomationWarnings({
       triggerType,
       name,
+      pipelineFeatures,
       steps: steps.map((s) => ({
         channel: s.channel,
         smsBody: s.smsBody,
@@ -1697,7 +1709,7 @@ export default function AutomationsPage() {
                 <div className="flex items-start gap-2">
                   <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
                   <div className="space-y-1">
-                    <div className="font-medium">This automation may interfere with the Meet Tracker flow:</div>
+                    <div className="font-medium">This message&apos;s wording may not match its trigger:</div>
                     <ul className="list-disc list-inside space-y-1">
                       {saveWarnings.map((w, i) => <li key={i}>{w}</li>)}
                     </ul>

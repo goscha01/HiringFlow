@@ -37,6 +37,22 @@ export interface WarnableStep {
   emailTemplate?: { subject?: string | null } | null
 }
 
+/**
+ * Pipeline-feature footprint. When the rule is scoped to a specific pipeline,
+ * the caller derives this from the pipeline's stage triggers (see
+ * derivePipelineFeatures in src/app/dashboard/automations/page.tsx). If a
+ * pattern requires a feature the pipeline doesn't have, we skip the warning —
+ * e.g. don't tell the recruiter "you should use flow_completed for training"
+ * if their pipeline has no training stages at all.
+ *
+ * Null/undefined ⇒ "any pipeline" ⇒ no filtering, all patterns apply.
+ */
+export interface PipelineFeatures {
+  hasTraining: boolean
+  hasMeetings: boolean
+  hasBackgroundCheck: boolean
+}
+
 export interface WarnableRule {
   triggerType: WarnableTriggerType
   // Optional — when the editor passes the rule name, it's included in the
@@ -45,6 +61,7 @@ export interface WarnableRule {
   // frequently the clearest hint that the trigger is wrong.
   name?: string | null
   steps: WarnableStep[]
+  pipelineFeatures?: PipelineFeatures | null
 }
 
 interface Pattern {
@@ -59,6 +76,11 @@ interface Pattern {
   // Concrete trigger the recruiter probably meant. Surfaced in the
   // suggestion so the warning is actionable.
   suggestedTrigger: WarnableTriggerType
+  // Pipeline feature required for this pattern to be relevant. When the rule
+  // is pipeline-scoped and the pipeline lacks this feature, we skip the
+  // warning — the topic literally can't apply to candidates in that pipeline.
+  // Undefined = universal (always relevant; e.g. flow_completed).
+  requiresFeature?: keyof PipelineFeatures
 }
 
 const PATTERNS: Pattern[] = [
@@ -68,18 +90,21 @@ const PATTERNS: Pattern[] = [
     expectedTriggers: ['meeting_rescheduled'],
     topic: 'rescheduling',
     suggestedTrigger: 'meeting_rescheduled',
+    requiresFeature: 'hasMeetings',
   },
   {
     test: /\bmoved to\b/,
     expectedTriggers: ['meeting_rescheduled'],
     topic: 'a meeting being moved',
     suggestedTrigger: 'meeting_rescheduled',
+    requiresFeature: 'hasMeetings',
   },
   {
     test: /\bnew (time|link|meeting link|meet link)\b/,
     expectedTriggers: ['meeting_rescheduled'],
     topic: 'a new time / link',
     suggestedTrigger: 'meeting_rescheduled',
+    requiresFeature: 'hasMeetings',
   },
 
   // Post-meeting follow-up language → only sensible on meeting_ended /
@@ -90,18 +115,21 @@ const PATTERNS: Pattern[] = [
     expectedTriggers: ['meeting_ended', 'recording_ready', 'transcript_ready'],
     topic: 'thanking the candidate after the meeting',
     suggestedTrigger: 'meeting_ended',
+    requiresFeature: 'hasMeetings',
   },
   {
     test: /\bafter our (interview|meeting|call|chat)\b/,
     expectedTriggers: ['meeting_ended', 'recording_ready', 'transcript_ready'],
     topic: 'a follow-up after the meeting',
     suggestedTrigger: 'meeting_ended',
+    requiresFeature: 'hasMeetings',
   },
   {
     test: /\b(great|nice) (speaking|talking|chatting)\b/,
     expectedTriggers: ['meeting_ended', 'recording_ready', 'transcript_ready'],
     topic: 'a post-meeting follow-up',
     suggestedTrigger: 'meeting_ended',
+    requiresFeature: 'hasMeetings',
   },
 
   // No-show language → only sensible on meeting_no_show
@@ -110,22 +138,26 @@ const PATTERNS: Pattern[] = [
     expectedTriggers: ['meeting_no_show'],
     topic: 'a missed meeting',
     suggestedTrigger: 'meeting_no_show',
+    requiresFeature: 'hasMeetings',
   },
   {
     test: /\bno[- ]show\b/,
     expectedTriggers: ['meeting_no_show'],
     topic: 'a no-show',
     suggestedTrigger: 'meeting_no_show',
+    requiresFeature: 'hasMeetings',
   },
   {
     test: /\b(didn'?t make it|couldn'?t make it|weren'?t able to join|we missed you)\b/,
     expectedTriggers: ['meeting_no_show'],
     topic: 'the candidate not showing up',
     suggestedTrigger: 'meeting_no_show',
+    requiresFeature: 'hasMeetings',
   },
 
   // Application-received / flow-completed language → only sensible right
-  // after the candidate finishes the application flow.
+  // after the candidate finishes the application flow. Universal — every
+  // pipeline has flow_completed/flow_passed stages.
   {
     test: /\b(received your application|thanks for applying|we'?ll review|we'?ll be in touch)\b/,
     expectedTriggers: ['flow_completed', 'flow_passed'],
@@ -146,12 +178,14 @@ const PATTERNS: Pattern[] = [
     expectedTriggers: ['flow_completed', 'flow_passed', 'training_started', 'automation_completed'],
     topic: 'starting the training',
     suggestedTrigger: 'flow_completed',
+    requiresFeature: 'hasTraining',
   },
   {
     test: /\b(finished the training|completed the training|training is complete|training is done)\b/,
     expectedTriggers: ['training_completed'],
     topic: 'completing the training',
     suggestedTrigger: 'training_completed',
+    requiresFeature: 'hasTraining',
   },
 
   // Scheduling / "book your interview" language → sensible at the point
@@ -162,6 +196,7 @@ const PATTERNS: Pattern[] = [
     expectedTriggers: ['training_completed', 'flow_completed', 'flow_passed', 'background_check_passed'],
     topic: 'inviting the candidate to schedule',
     suggestedTrigger: 'training_completed',
+    requiresFeature: 'hasMeetings',
   },
 
   // Pre-meeting reminder language → only sensible on before_meeting
@@ -171,6 +206,7 @@ const PATTERNS: Pattern[] = [
     expectedTriggers: ['before_meeting', 'meeting_scheduled'],
     topic: 'an upcoming meeting reminder',
     suggestedTrigger: 'before_meeting',
+    requiresFeature: 'hasMeetings',
   },
 ]
 
@@ -197,11 +233,17 @@ const MEET_TRACKER_TRIGGERS = new Set<WarnableTriggerType>([
 export function detectAutomationWarnings(rule: WarnableRule): string[] {
   const text = collectText(rule)
   if (!text.trim()) return []
+  const features = rule.pipelineFeatures ?? null
   const seen = new Set<string>()
   const out: string[] = []
   for (const p of PATTERNS) {
     if (!p.test.test(text)) continue
     if (p.expectedTriggers.includes(rule.triggerType)) continue
+    // When the rule is pipeline-scoped, only fire patterns whose topic is
+    // reachable in that pipeline. A "you should use flow_completed for
+    // training" hint is just noise on a pipeline that doesn't have training
+    // stages — the recruiter has explicitly excluded that workflow.
+    if (features && p.requiresFeature && !features[p.requiresFeature]) continue
     if (seen.has(p.topic)) continue
     seen.add(p.topic)
     const hint = MEET_TRACKER_TRIGGERS.has(p.suggestedTrigger)
@@ -212,4 +254,26 @@ export function detectAutomationWarnings(rule: WarnableRule): string[] {
     )
   }
   return out
+}
+
+/**
+ * Derive a PipelineFeatures footprint from a pipeline's stage trigger list.
+ * Exported so the editor (and any other warning caller) can compute it
+ * consistently. `stageTriggerEvents` is the flat set of `event` strings
+ * pulled off each FunnelStage.triggers[].
+ */
+export function deriveFeaturesFromStageTriggers(stageTriggerEvents: Iterable<string>): PipelineFeatures {
+  const events = new Set(stageTriggerEvents)
+  return {
+    hasTraining:
+      events.has('training_started') || events.has('training_completed'),
+    hasMeetings:
+      events.has('meeting_scheduled') || events.has('meeting_confirmed') ||
+      events.has('meeting_cancelled') || events.has('meeting_started') ||
+      events.has('meeting_ended') || events.has('meeting_no_show'),
+    hasBackgroundCheck:
+      events.has('background_check_passed') ||
+      events.has('background_check_failed') ||
+      events.has('background_check_needs_review'),
+  }
 }
