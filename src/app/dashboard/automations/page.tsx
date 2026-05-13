@@ -372,9 +372,29 @@ export default function AutomationsPage() {
       const pipelineStages = (ps as Array<{ id: string; stages?: FunnelStage[] }>).find((p) => p.id === defaultPipeline?.id)?.stages
       setStages(Array.isArray(pipelineStages) && pipelineStages.length > 0 ? pipelineStages : DEFAULT_FUNNEL_STAGES)
       setPipelines(ps as PipelineLite[])
+      // Restore the last-picked pipeline filter. We share localStorage key
+      // with the kanban (`hiringflow:pipeline`) so flipping to Dispatcher
+      // on /candidates carries over here. 'workspace' is the synthetic
+      // any-pipeline selection — only meaningful here, not on the kanban.
+      try {
+        const saved = localStorage.getItem('hiringflow:automations-pipeline')
+          ?? localStorage.getItem('hiringflow:pipeline')
+        if (saved === 'workspace' || (ps as PipelineLite[]).find((p) => p.id === saved)) {
+          setPipelineFilter(saved!)
+        }
+      } catch {}
       setLoading(false)
     })
   }, [])
+
+  // Persist the pipeline filter to its own key so a saved 'workspace' here
+  // doesn't bleed into the kanban (which has no 'workspace' option).
+  useEffect(() => {
+    try {
+      if (pipelineFilter) localStorage.setItem('hiringflow:automations-pipeline', pipelineFilter)
+      else localStorage.removeItem('hiringflow:automations-pipeline')
+    } catch {}
+  }, [pipelineFilter])
 
   const refresh = async () => {
     const params = new URLSearchParams()
@@ -991,6 +1011,58 @@ export default function AutomationsPage() {
         </div>
       )}
 
+      {/* Pipeline tabs — primary scope picker. Mirrors the kanban switcher
+          so a recruiter viewing the Cleaner kanban can flip to the Cleaner
+          automations page and see only those rules. Persisted in
+          localStorage; the 'workspace' synthetic pipeline shows rules with
+          pipelineId=null (any-pipeline). */}
+      {pipelines.length > 0 && (
+        <div data-no-pan className="flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-[11px] font-mono uppercase text-grey-35 tracking-wider mr-1">Pipeline</span>
+          <button
+            onClick={() => setPipelineFilter('')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border text-[12px] font-medium transition-colors ${
+              pipelineFilter === ''
+                ? 'bg-ink text-white border-ink'
+                : 'bg-white text-grey-35 border-surface-border hover:border-grey-50 hover:text-ink'
+            }`}
+          >
+            All
+            <span className={`font-mono text-[10px] tabular-nums ${pipelineFilter === '' ? 'text-white/80' : 'text-grey-50'}`}>
+              {rules.length}
+            </span>
+          </button>
+          {pipelines.map((p) => {
+            const isActive = pipelineFilter === p.id
+            return (
+              <button
+                key={p.id}
+                onClick={() => setPipelineFilter(p.id)}
+                title={p.isDefault ? 'Default pipeline — rules here apply to flows without an explicit pipeline.' : undefined}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border text-[12px] font-medium transition-colors ${
+                  isActive
+                    ? 'bg-ink text-white border-ink'
+                    : 'bg-white text-grey-35 border-surface-border hover:border-grey-50 hover:text-ink'
+                }`}
+              >
+                {p.name}{p.isDefault ? ' · default' : ''}
+              </button>
+            )
+          })}
+          <button
+            onClick={() => setPipelineFilter('workspace')}
+            title="Rules with no pipeline scope — they fire workspace-wide regardless of pipeline."
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border text-[12px] font-medium transition-colors ${
+              pipelineFilter === 'workspace'
+                ? 'bg-ink text-white border-ink'
+                : 'bg-white text-grey-35 border-surface-border hover:border-grey-50 hover:text-ink'
+            }`}
+          >
+            Any-pipeline
+          </button>
+        </div>
+      )}
+
       {rules.length > 0 && <AutomationPipeline
         rules={rules}
         stages={stages}
@@ -1015,20 +1087,6 @@ export default function AutomationsPage() {
             className={`text-xs px-3 py-1.5 rounded-full border font-medium ${activeOnly ? 'border-green-500 bg-green-50 text-green-700' : 'border-surface-border text-grey-35'}`}>
             Active only
           </button>
-          {pipelines.length > 0 && (
-            <select
-              value={pipelineFilter}
-              onChange={(e) => setPipelineFilter(e.target.value)}
-              title="Filter rules by pipeline scope"
-              className="text-xs px-3 py-1.5 rounded-full border border-surface-border text-grey-35 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-            >
-              <option value="">All pipelines</option>
-              {pipelines.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}{p.isDefault ? ' (default)' : ''}</option>
-              ))}
-              <option value="workspace">Any-pipeline rules only</option>
-            </select>
-          )}
           {stageFilter && (
             <button onClick={() => setStageFilter(null)}
               className="text-xs px-3 py-1.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 font-medium">
