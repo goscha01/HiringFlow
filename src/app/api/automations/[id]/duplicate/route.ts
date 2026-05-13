@@ -16,6 +16,13 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     data: {
       workspaceId: source.workspaceId,
       createdById: ws.userId,
+      // Sort the duplicate to land immediately below its source under the
+      // list endpoint's createdAt-desc order — without this, the copy would
+      // jump to the top of the table on the next refresh (since createdAt
+      // defaults to now()), so it visually detached from the row the
+      // recruiter cloned it from. 1ms backdate is invisible in the UI's
+      // createdAt displays but is enough to stabilize sort order.
+      createdAt: new Date(source.createdAt.getTime() - 1),
       name: `${source.name} (copy)`,
       triggerType: source.triggerType,
       flowId: source.flowId,

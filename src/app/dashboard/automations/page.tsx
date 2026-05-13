@@ -937,11 +937,10 @@ export default function AutomationsPage() {
       refresh()
       return
     }
-    // Insert immediately after the source so the eye doesn't have to hunt to
-    // the top of the createdAt-desc list. The /api/automations refresh would
-    // technically reorder this back to the top, so we skip refresh here and
-    // trust the local insert; the next mutation (toggle / edit / delete) will
-    // pull a fresh server list anyway.
+    // Insert immediately after the source so the recruiter can spot the copy
+    // without scrolling. The server backdates the duplicate's createdAt by
+    // 1ms so the same position is preserved across reloads — see
+    // src/app/api/automations/[id]/duplicate/route.ts.
     setRules((cur) => {
       const idx = cur.findIndex((x) => x.id === r.id)
       if (idx === -1) return [copy, ...cur]
