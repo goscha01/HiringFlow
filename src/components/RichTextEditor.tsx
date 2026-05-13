@@ -1,12 +1,23 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 
 interface Props {
   value: string
   onChange: (html: string) => void
   rows?: number
   className?: string
+}
+
+export interface RichTextEditorHandle {
+  /**
+   * Read the current HTML directly from the DOM. Bypasses React state, so
+   * callers can save the latest content even when the click that triggered
+   * the save also caused the contenteditable to blur within the same event
+   * tick (in which case the onBlur-driven setState hasn't committed yet and
+   * `value` in the parent closure is stale).
+   */
+  getHtml: () => string
 }
 
 /**
@@ -18,11 +29,18 @@ interface Props {
  * Self-managed while focused: external `value` updates only sync into the DOM
  * when focus is elsewhere, so the user's caret never jumps mid-keystroke.
  */
-export default function RichTextEditor({ value, onChange, rows = 8, className = '' }: Props) {
-  const ref = useRef<HTMLDivElement>(null)
+const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichTextEditor(
+  { value, onChange, rows = 8, className = '' },
+  ref,
+) {
+  const editorRef = useRef<HTMLDivElement>(null)
+
+  useImperativeHandle(ref, () => ({
+    getHtml: () => editorRef.current?.innerHTML ?? value,
+  }), [value])
 
   useEffect(() => {
-    const el = ref.current
+    const el = editorRef.current
     if (!el) return
     if (document.activeElement === el) return
     if (el.innerHTML === value) return
@@ -31,7 +49,7 @@ export default function RichTextEditor({ value, onChange, rows = 8, className = 
 
   const exec = (cmd: string, arg?: string) => {
     document.execCommand(cmd, false, arg)
-    if (ref.current) onChange(ref.current.innerHTML)
+    if (editorRef.current) onChange(editorRef.current.innerHTML)
   }
 
   const insertLink = () => {
@@ -56,7 +74,7 @@ export default function RichTextEditor({ value, onChange, rows = 8, className = 
         <Btn onClick={() => exec('removeFormat')} title="Clear formatting" label="Clear" />
       </div>
       <div
-        ref={ref}
+        ref={editorRef}
         contentEditable
         suppressContentEditableWarning
         onInput={(e) => onChange((e.target as HTMLDivElement).innerHTML)}
@@ -66,7 +84,9 @@ export default function RichTextEditor({ value, onChange, rows = 8, className = 
       />
     </div>
   )
-}
+})
+
+export default RichTextEditor
 
 function Btn({ onClick, title, label, cls = '' }: { onClick: () => void; title: string; label: string; cls?: string }) {
   return (

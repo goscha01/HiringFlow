@@ -11,7 +11,7 @@ import {
   normalizeStages,
 } from '@/lib/funnel-stages'
 import { detectAutomationWarnings, deriveFeaturesFromStageTriggers } from '@/lib/automation-warnings'
-import RichTextEditor from '@/components/RichTextEditor'
+import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 
 interface Flow { id: string; name: string }
 interface Template { id: string; name: string; subject: string; bodyHtml?: string; bodyText?: string | null }
@@ -353,6 +353,12 @@ export default function AutomationsPage() {
   // sources. Null = blank-slate (no template selected on the originating step).
   const [templateEditorSourceId, setTemplateEditorSourceId] = useState<string | null>(null)
   const [savingTpl, setSavingTpl] = useState(false)
+  // Imperative handle into the rich-text editor so createTemplate can read
+  // the live DOM HTML instead of the React state mirror. The contenteditable's
+  // onBlur (fired when the Save button is clicked) enqueues a state update
+  // that doesn't commit before the click's createTemplate runs — so the
+  // closure's newTplBody can be one tick stale. Reading the DOM bypasses it.
+  const richEditorRef = useRef<RichTextEditorHandle>(null)
 
   useEffect(() => {
     Promise.all([
@@ -821,16 +827,21 @@ export default function AutomationsPage() {
   const [tplSaveError, setTplSaveError] = useState<string | null>(null)
   const createTemplate = async () => {
     setTplSaveError(null)
+    // Pull HTML from the DOM ref rather than React state — the click that
+    // invoked us also blurred the contenteditable, and that blur's setState
+    // hasn't committed yet. Falls back to newTplBody for the rare case the
+    // ref isn't mounted (e.g. unit-test harness).
+    const bodyHtml = richEditorRef.current?.getHtml() ?? newTplBody
     if (!newTplName.trim()) { setTplSaveError('Template name is required'); return }
     if (!newTplSubject.trim()) { setTplSaveError('Subject is required'); return }
-    if (!newTplBody.trim()) { setTplSaveError('Body is required'); return }
+    if (!bodyHtml.trim()) { setTplSaveError('Body is required'); return }
     setSavingTpl(true)
     const finalName = resolveUniqueTemplateName(newTplName.trim(), templates)
     try {
       const r = await fetch('/api/email-templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml: newTplBody }),
+        body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml }),
       })
       if (!r.ok) {
         const data = await r.json().catch(() => ({}))
@@ -1678,7 +1689,7 @@ export default function AutomationsPage() {
                           </div>
                           <div>
                             <label className="block text-xs text-grey-40 mb-1">Body</label>
-                            <RichTextEditor value={newTplBody} onChange={setNewTplBody} rows={8} />
+                            <RichTextEditor ref={richEditorRef} value={newTplBody} onChange={setNewTplBody} rows={8} />
                           </div>
                           <div className="bg-white rounded-[6px] p-2">
                             <label className="text-[10px] font-medium text-grey-40 uppercase block mb-1">Variables</label>
