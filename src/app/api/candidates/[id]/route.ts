@@ -3,6 +3,7 @@ import { getWorkspaceSession, unauthorized } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { logSchedulingEvent } from '@/lib/scheduling'
 import { recordPipelineStatusChange } from '@/lib/pipeline-status'
+import { resolvePipelineForFlow, stagesFor } from '@/lib/pipelines'
 import {
   isAllowedStatus,
   isCandidateStatus,
@@ -237,6 +238,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     .filter((d): d is Date => d instanceof Date && !isNaN(d.getTime()))
     .reduce<Date | null>((best, d) => (best == null || d.getTime() > best.getTime() ? d : best), null)
 
+  // Resolve which pipeline applies to this candidate. The detail page renders
+  // its kanban-style status panel against these stages, not the legacy
+  // workspace.settings.funnelStages — so a Dispatcher candidate gets the
+  // Dispatcher pipeline's columns even if the recruiter is on a Cleaner
+  // pipeline view in the kanban.
+  const pipeline = await resolvePipelineForFlow({
+    flowId: session.flowId,
+    workspaceId: ws.workspaceId,
+  })
+
   return NextResponse.json({
     ...session,
     automationExecutions,
@@ -246,6 +257,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     isRebook,
     siblingSessions,
     flowStepCount,
+    pipeline: {
+      id: pipeline.id,
+      name: pipeline.name,
+      isDefault: pipeline.isDefault,
+      stages: stagesFor(pipeline),
+    },
     effectiveLastActivityAt: effectiveLastActivityAt?.toISOString() ?? null,
   })
 }

@@ -94,10 +94,13 @@ export async function PATCH(
       noShowTimeoutHours?: number | null
       schedulingTimeoutHours?: number | null
       backgroundCheckTimeoutDays?: number | null
+      // null = use workspace default pipeline. Any non-null value must
+      // reference a pipeline owned by the caller's workspace.
+      pipelineId?: string | null
     }
     const { name, isPublished, startMessage, endMessage, branding,
       videoInterviewTimeoutDays, trainingTimeoutDays, noShowTimeoutHours,
-      schedulingTimeoutHours, backgroundCheckTimeoutDays } = body
+      schedulingTimeoutHours, backgroundCheckTimeoutDays, pipelineId } = body
 
     // Only allow positive integers (or null to clear). Reject other shapes
     // so a typo in the drawer doesn't write garbage to the DB.
@@ -119,6 +122,20 @@ export async function PATCH(
       return NextResponse.json({ error: 'backgroundCheckTimeoutDays must be a positive integer or null' }, { status: 400 })
     }
 
+    // Validate pipelineId against the caller's workspace before persisting.
+    // Null is allowed and means "fall back to workspace default" in the
+    // resolver. Any non-null value must belong to this workspace — otherwise
+    // a recruiter could assign a flow to a pipeline owned by another tenant.
+    if (pipelineId !== undefined && pipelineId !== null) {
+      const pipeline = await prisma.pipeline.findFirst({
+        where: { id: pipelineId, workspaceId: ws.workspaceId },
+        select: { id: true },
+      })
+      if (!pipeline) {
+        return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
+      }
+    }
+
     const updated = await prisma.flow.update({
       where: { id: params.id },
       data: {
@@ -132,6 +149,7 @@ export async function PATCH(
         ...(noShowTimeoutHours !== undefined && { noShowTimeoutHours }),
         ...(schedulingTimeoutHours !== undefined && { schedulingTimeoutHours }),
         ...(backgroundCheckTimeoutDays !== undefined && { backgroundCheckTimeoutDays }),
+        ...(pipelineId !== undefined && { pipelineId }),
       },
     })
 

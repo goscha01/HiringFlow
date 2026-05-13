@@ -1,0 +1,350 @@
+'use client'
+
+// Pipelines management page.
+//
+// Each pipeline owns an ordered stage list (the kanban columns). Roles with
+// different hiring loops point flows at different pipelines so the columns
+// stay relevant — e.g. Dispatcher pipeline has no "Training" stage, while
+// Cleaner does.
+//
+// One pipeline per workspace is marked default; new flows with
+// `pipelineId = null` fall back to that default at runtime. The default
+// can't be deleted but can be swapped with another via "Make default".
+
+import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { PageHeader, Card, Button } from '@/components/design'
+import type { FunnelStage } from '@/lib/funnel-stages'
+
+interface PipelineRow {
+  id: string
+  name: string
+  isDefault: boolean
+  stages: FunnelStage[]
+  flowCount: number
+  createdAt: string
+}
+
+interface FlowRow {
+  id: string
+  name: string
+  pipelineId: string | null
+}
+
+export default function PipelinesPage() {
+  const [pipelines, setPipelines] = useState<PipelineRow[]>([])
+  const [flows, setFlows] = useState<FlowRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [seedFromId, setSeedFromId] = useState<string>('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const [pRes, fRes] = await Promise.all([
+      fetch('/api/pipelines'),
+      fetch('/api/flows'),
+    ])
+    if (pRes.ok) setPipelines(await pRes.json())
+    if (fRes.ok) setFlows(await fRes.json())
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const create = async () => {
+    const name = newName.trim()
+    if (!name) return
+    setCreating(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/pipelines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, seedFromPipelineId: seedFromId || undefined }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d?.error || 'Failed to create')
+      }
+      setNewName('')
+      setSeedFromId('')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const makeDefault = async (id: string) => {
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/pipelines/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ makeDefault: true }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d?.error || 'Failed to set default')
+      }
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const rename = async (id: string, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/pipelines/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d?.error || 'Failed to rename')
+      }
+      setRenameTarget(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const remove = async (p: PipelineRow) => {
+    if (p.isDefault) {
+      alert('Promote another pipeline to default before deleting this one.')
+      return
+    }
+    const fallback = pipelines.find((x) => x.isDefault)
+    const fallbackName = fallback?.name ?? 'default'
+    const flowsAssigned = flows.filter((f) => f.pipelineId === p.id).length
+    const message = flowsAssigned > 0
+      ? `Delete "${p.name}"? ${flowsAssigned} flow${flowsAssigned === 1 ? '' : 's'} currently assigned will fall back to the ${fallbackName} pipeline.`
+      : `Delete "${p.name}"?`
+    if (!confirm(message)) return
+    setBusyId(p.id)
+    try {
+      const res = await fetch(`/api/pipelines/${p.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d?.error || 'Failed to delete')
+      }
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const reassignFlow = async (flowId: string, pipelineId: string | null) => {
+    const res = await fetch(`/api/flows/${flowId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pipelineId }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d?.error || 'Failed to reassign flow')
+      return
+    }
+    // Optimistic update so the panel reflects the move immediately. The
+    // pipeline flow-counts come from a separate /api/pipelines fetch — we
+    // refresh both so the badges stay in sync.
+    setFlows((cur) => cur.map((f) => f.id === flowId ? { ...f, pipelineId } : f))
+    fetch('/api/pipelines').then((r) => r.json()).then(setPipelines).catch(() => {})
+  }
+
+  return (
+    <div>
+      <PageHeader
+        eyebrow={`${pipelines.length} pipeline${pipelines.length === 1 ? '' : 's'}`}
+        title="Pipelines"
+        description="Create separate stage lists for different roles. Edit each pipeline's stages from the kanban (Stages button) while the matching pipeline is selected."
+        actions={
+          <Link
+            href="/dashboard/candidates"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-surface-border text-[13px] text-ink hover:bg-surface-light"
+          >
+            &larr; Back to kanban
+          </Link>
+        }
+      />
+
+      {error && (
+        <div className="mb-4 px-4 py-3 rounded-[10px] bg-red-50 border border-red-200 text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+
+      <Card padding={20} className="mb-6">
+        <h2 className="font-semibold text-[14px] text-ink mb-3">New pipeline</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Pipeline name (e.g. Dispatcher, Cleaner)"
+            className="flex-1 min-w-[200px] px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/40 bg-white"
+            onKeyDown={(e) => { if (e.key === 'Enter') create() }}
+          />
+          <select
+            value={seedFromId}
+            onChange={(e) => setSeedFromId(e.target.value)}
+            className="px-3 py-2 border border-surface-border rounded-[10px] text-[13px] text-ink bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            title="Copy stages from an existing pipeline as a starting point"
+          >
+            <option value="">Start from platform defaults</option>
+            {pipelines.map((p) => (
+              <option key={p.id} value={p.id}>Copy stages from "{p.name}"</option>
+            ))}
+          </select>
+          <Button variant="primary" size="sm" onClick={create} disabled={creating || !newName.trim()}>
+            {creating ? 'Creating…' : 'Create'}
+          </Button>
+        </div>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-10 text-grey-40 text-sm">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          {pipelines.map((p) => {
+            const isBusy = busyId === p.id
+            const assigned = flows.filter((f) => f.pipelineId === p.id)
+            const fallbackFlows = p.isDefault ? flows.filter((f) => f.pipelineId === null) : []
+            const allAssigned = [...assigned, ...fallbackFlows]
+            return (
+              <Card key={p.id} padding={20}>
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {renameTarget?.id === p.id ? (
+                      <input
+                        type="text"
+                        value={renameTarget.name}
+                        onChange={(e) => setRenameTarget({ id: p.id, name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') rename(p.id, renameTarget!.name)
+                          if (e.key === 'Escape') setRenameTarget(null)
+                        }}
+                        className="px-2 py-1 border border-surface-border rounded-[8px] text-[14px] font-semibold text-ink"
+                        autoFocus
+                      />
+                    ) : (
+                      <h3 className="font-semibold text-[15px] text-ink truncate">{p.name}</h3>
+                    )}
+                    {p.isDefault && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-medium border border-amber-200">
+                        Default
+                      </span>
+                    )}
+                    <span className="font-mono text-[11px] text-grey-40 tabular-nums">
+                      {p.stages.length} stage{p.stages.length === 1 ? '' : 's'} · {allAssigned.length} flow{allAssigned.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {renameTarget?.id === p.id ? (
+                      <>
+                        <button onClick={() => rename(p.id, renameTarget.name)} disabled={isBusy} className="text-xs px-3 py-1 rounded-[8px] bg-ink text-white">Save</button>
+                        <button onClick={() => setRenameTarget(null)} className="text-xs px-3 py-1 rounded-[8px] text-grey-40 hover:text-ink">Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setRenameTarget({ id: p.id, name: p.name })}
+                          className="text-xs px-3 py-1 rounded-[8px] border border-surface-border text-grey-35 hover:border-grey-50 hover:text-ink"
+                        >
+                          Rename
+                        </button>
+                        {!p.isDefault && (
+                          <button
+                            onClick={() => makeDefault(p.id)}
+                            disabled={isBusy}
+                            className="text-xs px-3 py-1 rounded-[8px] border border-surface-border text-grey-35 hover:border-grey-50 hover:text-ink"
+                            title="Promote this pipeline to default. Flows with no explicit pipeline assignment will use it."
+                          >
+                            Make default
+                          </button>
+                        )}
+                        {!p.isDefault && (
+                          <button
+                            onClick={() => remove(p)}
+                            disabled={isBusy}
+                            className="text-xs px-3 py-1 rounded-[8px] text-red-600 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {p.stages.map((s) => (
+                    <span
+                      key={s.id}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] text-grey-15 bg-surface-light border border-surface-border"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                      {s.label}
+                    </span>
+                  ))}
+                </div>
+
+                <div>
+                  <div className="font-mono text-[10px] uppercase text-grey-50 mb-2" style={{ letterSpacing: '0.1em' }}>
+                    Assigned flows
+                  </div>
+                  {allAssigned.length === 0 ? (
+                    <div className="text-xs text-grey-40">No flows assigned yet.</div>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {allAssigned.map((f) => (
+                        <li key={f.id} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-grey-15">
+                            {f.name}
+                            {f.pipelineId === null && p.isDefault && (
+                              <span className="ml-2 text-[10px] text-grey-50">(via fallback)</span>
+                            )}
+                          </span>
+                          <select
+                            value={f.pipelineId ?? ''}
+                            onChange={(e) => reassignFlow(f.id, e.target.value === '' ? null : e.target.value)}
+                            className="text-xs px-2 py-1 border border-surface-border rounded-[8px] text-grey-35 bg-white"
+                          >
+                            <option value="">Use default</option>
+                            {pipelines.map((opt) => (
+                              <option key={opt.id} value={opt.id}>{opt.name}{opt.isDefault ? ' (default)' : ''}</option>
+                            ))}
+                          </select>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      <p className="mt-6 text-xs text-grey-40">
+        To edit a pipeline&apos;s stages, open the kanban with that pipeline selected and click <b>Stages</b>.
+      </p>
+    </div>
+  )
+}

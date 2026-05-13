@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
 
   const status = request.nextUrl.searchParams.get('status')
   const flowId = request.nextUrl.searchParams.get('flowId')
+  const pipelineId = request.nextUrl.searchParams.get('pipelineId')
   const search = request.nextUrl.searchParams.get('search')
   // `candidateStatus` is the new orthogonal axis (active/stalled/lost/...)
   // Accepts a comma-separated list, e.g. ?candidateStatus=active,waiting for
@@ -42,6 +43,28 @@ export async function GET(request: NextRequest) {
     const values = candidateStatusParam.split(',').map((s) => s.trim()).filter(Boolean)
     if (values.length === 1) where.status = values[0]
     else if (values.length > 1) where.status = { in: values }
+  }
+  // Filter by pipeline: resolves to "candidates whose flow's pipelineId
+  // matches OR flow.pipelineId is null and the requested pipeline is the
+  // workspace default". When both flowId and pipelineId are passed, flowId
+  // wins (the more specific filter) — the pipeline branch is a no-op so the
+  // explicit flow lookup keeps working.
+  if (pipelineId && !flowId) {
+    const pipeline = await prisma.pipeline.findFirst({
+      where: { id: pipelineId, workspaceId: ws.workspaceId },
+      select: { id: true, isDefault: true },
+    })
+    if (!pipeline) {
+      // Unknown pipeline → empty list (don't 404 since this is a filter).
+      return NextResponse.json([])
+    }
+    const flowsForPipeline = await prisma.flow.findMany({
+      where: pipeline.isDefault
+        ? { workspaceId: ws.workspaceId, OR: [{ pipelineId: pipeline.id }, { pipelineId: null }] }
+        : { workspaceId: ws.workspaceId, pipelineId: pipeline.id },
+      select: { id: true },
+    })
+    where.flowId = { in: flowsForPipeline.map((f) => f.id) }
   }
   if (flowId) {
     where.flowId = flowId

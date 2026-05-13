@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getWorkspaceSession, unauthorized, forbidden } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { executeRule } from '@/lib/automation'
-import { normalizeStages, type StageTriggerEvent } from '@/lib/funnel-stages'
+import { type StageTriggerEvent } from '@/lib/funnel-stages'
+import { resolvePipelineForFlow, stagesFor } from '@/lib/pipelines'
 
 // Workspace roles authorised to issue manual reruns. Manual reruns can create
 // real-world sends (emails, SMS, Certn orders) and are billed; they are a
@@ -33,11 +34,13 @@ async function findMatchingRules(opts: {
   stageId: string
   flowId: string
 }): Promise<{ stageExists: boolean; events: StageTriggerEvent[]; rules: MatchedRule[] }> {
-  const ws = await prisma.workspace.findUnique({
-    where: { id: opts.workspaceId },
-    select: { settings: true },
+  // Stages live on the flow's pipeline now. Workspaces with no pipeline yet
+  // get one created on the fly from their legacy Workspace.settings.funnelStages.
+  const pipeline = await resolvePipelineForFlow({
+    flowId: opts.flowId,
+    workspaceId: opts.workspaceId,
   })
-  const stages = normalizeStages((ws?.settings as { funnelStages?: unknown } | null)?.funnelStages)
+  const stages = stagesFor(pipeline)
   const stage = stages.find((s) => s.id === opts.stageId)
   if (!stage) return { stageExists: false, events: [], rules: [] }
 

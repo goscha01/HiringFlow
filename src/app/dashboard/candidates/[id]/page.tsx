@@ -129,6 +129,17 @@ interface CandidateDetail {
     schedulingTimeoutHours?: number | null
     backgroundCheckTimeoutDays?: number | null
   } | null
+  // Pipeline whose stages this candidate's funnel is rendered against.
+  // Resolved server-side from the flow's pipelineId (or workspace default).
+  // The detail page reads from here instead of workspace.settings.funnelStages
+  // so a Dispatcher candidate gets Dispatcher columns regardless of which
+  // pipeline the recruiter has open on the kanban.
+  pipeline?: {
+    id: string
+    name: string
+    isDefault: boolean
+    stages: FunnelStage[]
+  } | null
   lastStep: { id: string; title: string; stepOrder: number; stepType: string; questionType: string } | null
   flowStepCount: number
   ad: { id: string; name: string; source: string } | null
@@ -229,6 +240,14 @@ export default function CandidateDetailPage() {
     }
     const d = await res.json()
     setCandidate(d)
+    // The detail page renders against this candidate's pipeline (resolved
+    // server-side from the flow's pipelineId or workspace default). Falling
+    // back to whatever the workspace settings drawer most recently saved
+    // would render the wrong columns for a Dispatcher candidate viewed from
+    // a Cleaner-pipeline kanban context.
+    if (Array.isArray(d?.pipeline?.stages) && d.pipeline.stages.length > 0) {
+      setStages(normalizeStages(d.pipeline.stages))
+    }
     setLoading(false)
   }, [id])
 
@@ -240,8 +259,7 @@ export default function CandidateDetailPage() {
     fetch('/api/workspace/settings')
       .then((r) => r.json())
       .then((d) => {
-        const settings = (d?.settings as { funnelStages?: unknown; customRejectionReasons?: unknown; customStatuses?: unknown } | null) ?? null
-        setStages(normalizeStages(settings?.funnelStages))
+        const settings = (d?.settings as { customRejectionReasons?: unknown; customStatuses?: unknown } | null) ?? null
         setCustomReasons(normalizeCustomReasons(settings?.customRejectionReasons))
         setCustomStatuses(normalizeCustomStatuses(settings?.customStatuses))
       })

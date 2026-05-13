@@ -17,10 +17,10 @@ import { setPipelineStatus } from './pipeline-status'
 import {
   findStageForEvent,
   mapLegacyStatusToStageId,
-  normalizeStages,
   type StageTriggerEvent,
   type FunnelStage,
 } from './funnel-stages'
+import { resolvePipelineForSession, stagesFor } from './pipelines'
 
 // Events that mean the candidate is actively progressing — receiving any of
 // these should pull a previously-stalled candidate back into the active pool.
@@ -53,11 +53,15 @@ export async function applyStageTrigger(opts: {
   // hardcoded behaviour for unconfigured workspaces.
   legacyStatus?: string
 }): Promise<string | null> {
-  const ws = await prisma.workspace.findUnique({
-    where: { id: opts.workspaceId },
-    select: { settings: true },
+  // Resolve which pipeline applies to this candidate. Stages now live on
+  // Pipeline rows — the session's flow points at one, falling back to the
+  // workspace default. Workspaces with no Pipeline rows yet get one created
+  // on the fly from their legacy Workspace.settings.funnelStages.
+  const pipeline = await resolvePipelineForSession({
+    sessionId: opts.sessionId,
+    workspaceId: opts.workspaceId,
   })
-  const stages = normalizeStages((ws?.settings as { funnelStages?: unknown } | null)?.funnelStages)
+  const stages = pipeline ? stagesFor(pipeline) : []
   const stage = findStageForEvent(stages, opts.event, { flowId: opts.flowId, trainingId: opts.trainingId })
 
   // Best-effort: if this event represents forward progress, reactivate a

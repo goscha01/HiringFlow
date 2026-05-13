@@ -49,6 +49,11 @@ function describeTrigger(t: StageTrigger, catalog: TargetCatalog | null): string
 interface Props {
   open: boolean
   onClose: () => void
+  // The pipeline whose stages this drawer edits. null means "the caller
+  // hasn't loaded pipelines yet" — drawer disables Save in that case.
+  // Stages are persisted via PATCH /api/pipelines/[id] (not workspace.settings).
+  pipelineId: string | null
+  pipelineName?: string
   stages: FunnelStage[]
   candidateCounts: Record<string, number>
   onSaved: (stages: FunnelStage[]) => void
@@ -56,7 +61,7 @@ interface Props {
 
 type DeleteTarget = { stage: FunnelStage; count: number } | null
 
-export function StageSettingsDrawer({ open, onClose, stages: initial, candidateCounts, onSaved }: Props) {
+export function StageSettingsDrawer({ open, onClose, pipelineId, pipelineName, stages: initial, candidateCounts, onSaved }: Props) {
   const [stages, setStages] = useState<FunnelStage[]>(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -190,37 +195,27 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
   }
 
   const save = async () => {
+    if (!pipelineId) {
+      setError('No pipeline selected')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
-      // Read current settings first so we don't clobber unrelated keys
-      // (e.g. elevenlabs_agent_id). Tolerate non-OK GETs by treating as empty.
-      let currentSettings: Record<string, unknown> = {}
-      try {
-        const getRes = await fetch('/api/workspace/settings', { credentials: 'same-origin' })
-        if (getRes.ok) {
-          const j = await getRes.json()
-          if (j && typeof j.settings === 'object' && j.settings) currentSettings = j.settings
-        }
-      } catch { /* fall through */ }
-
-      const merged = { ...currentSettings, funnelStages: stages }
-      const res = await fetch('/api/workspace/settings', {
+      const res = await fetch(`/api/pipelines/${pipelineId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ settings: merged }),
+        body: JSON.stringify({ stages }),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
         throw new Error(`Save failed (${res.status}): ${text.slice(0, 160)}`)
       }
-      // Verify the round-trip — re-read settings and confirm funnelStages persisted.
-      const verify = await fetch('/api/workspace/settings', { credentials: 'same-origin', cache: 'no-store' })
-      const verifyJson = verify.ok ? await verify.json() : null
-      const persisted = verifyJson?.settings?.funnelStages
-      if (!Array.isArray(persisted) || persisted.length !== stages.length) {
-        throw new Error(`Save did not persist (server returned ${Array.isArray(persisted) ? persisted.length : 'no'} stages)`)
+      const body = await res.json().catch(() => ({}))
+      const persisted = Array.isArray(body?.stages) ? body.stages : null
+      if (!persisted || persisted.length !== stages.length) {
+        throw new Error(`Save did not persist (server returned ${persisted ? persisted.length : 'no'} stages)`)
       }
       const saved = normalizeStages(persisted)
       onSaved(saved)
@@ -286,7 +281,7 @@ export function StageSettingsDrawer({ open, onClose, stages: initial, candidateC
       >
         <div className="shrink-0 px-5 py-4 border-b border-surface-divider flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.1em' }}>Settings</div>
+            <div className="font-mono text-[10px] uppercase text-grey-50" style={{ letterSpacing: '0.1em' }}>Stages · {pipelineName ?? 'Default'}</div>
             <h2 className="font-semibold text-[16px] text-ink truncate">Funnel stages</h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">

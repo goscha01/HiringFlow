@@ -121,7 +121,14 @@ function daysSince(iso: string | null | undefined): number | null {
   return Math.floor(ms / (24 * 60 * 60 * 1000))
 }
 
-interface Flow { id: string; name: string }
+interface Flow { id: string; name: string; pipelineId?: string | null }
+interface PipelineSummary {
+  id: string
+  name: string
+  isDefault: boolean
+  stages: FunnelStage[]
+  flowCount: number
+}
 
 const STAGE_SORT_KEY = 'hiringflow:kanban-stage-sorts'
 
@@ -130,6 +137,12 @@ export default function CandidatesPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
+  // Pipelines list for the workspace. Pipeline picker controls which stage
+  // set (kanban columns) is shown — different roles (Cleaner with onboarding
+  // vs. Dispatcher without) get different layouts. The selected pipeline's
+  // stages override the legacy Workspace.settings.funnelStages.
+  const [pipelines, setPipelines] = useState<PipelineSummary[]>([])
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [flowFilter, setFlowFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
@@ -268,13 +281,34 @@ export default function CandidatesPage() {
 
   useEffect(() => {
     fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
+    // Pull workspace settings for status / source customizations only. Stages
+    // come from the selected pipeline now (see the pipelines fetch below).
     fetch('/api/workspace/settings')
       .then((r) => r.json())
       .then((d) => {
-        const settings = (d?.settings as { funnelStages?: unknown; customStatuses?: unknown; customSources?: unknown } | null) ?? null
-        setStages(normalizeStages(settings?.funnelStages))
+        const settings = (d?.settings as { customStatuses?: unknown; customSources?: unknown } | null) ?? null
         setCustomStatuses(normalizeCustomStatuses(settings?.customStatuses))
         setCustomSources(normalizeCustomSources(settings?.customSources))
+      })
+      .catch(() => {})
+    // Pipelines + initial stage selection. The default pipeline always
+    // exists (auto-created on first read). Restore the last-picked pipeline
+    // from localStorage if it's still around; otherwise fall back to the
+    // workspace default. Stages tracked separately so per-pipeline column
+    // editing stays a single source of truth.
+    fetch('/api/pipelines')
+      .then((r) => r.json())
+      .then((rows: PipelineSummary[]) => {
+        setPipelines(rows)
+        let initialId: string | null = null
+        try {
+          const saved = localStorage.getItem('hiringflow:pipeline')
+          if (saved && rows.find((p) => p.id === saved)) initialId = saved
+        } catch {}
+        if (!initialId) initialId = rows.find((p) => p.isDefault)?.id ?? rows[0]?.id ?? null
+        setSelectedPipelineId(initialId)
+        const picked = rows.find((p) => p.id === initialId)
+        if (picked) setStages(picked.stages)
       })
       .catch(() => {})
     // Restore per-stage sort prefs from prior visits.
@@ -303,6 +337,16 @@ export default function CandidatesPage() {
     try { localStorage.setItem('hiringflow:status-tab', statusTab) } catch {}
   }, [statusTab])
 
+  // Whenever the pipeline selection changes, persist + swap the visible
+  // stage list. Stages drive every kanban column header / drop target so
+  // this is the chokepoint — no other code path should setStages.
+  useEffect(() => {
+    if (!selectedPipelineId) return
+    try { localStorage.setItem('hiringflow:pipeline', selectedPipelineId) } catch {}
+    const picked = pipelines.find((p) => p.id === selectedPipelineId)
+    if (picked) setStages(picked.stages)
+  }, [selectedPipelineId, pipelines])
+
   const setStageSort = (stageId: string, direction: 'asc' | 'desc') => {
     setStageSorts((cur) => {
       const next = { ...cur, [stageId]: direction }
@@ -317,6 +361,7 @@ export default function CandidatesPage() {
     if (!opts?.silent) setLoading(true)
     const params = new URLSearchParams()
     if (flowFilter) params.set('flowId', flowFilter)
+    else if (selectedPipelineId) params.set('pipelineId', selectedPipelineId)
     if (sourceFilter) params.set('source', sourceFilter)
     if (search) params.set('search', search)
     if (interestingOnly) params.set('interesting', '1')
@@ -332,6 +377,7 @@ export default function CandidatesPage() {
     // tab is active.
     const countParams = new URLSearchParams()
     if (flowFilter) countParams.set('flowId', flowFilter)
+    else if (selectedPipelineId) countParams.set('pipelineId', selectedPipelineId)
     if (sourceFilter) countParams.set('source', sourceFilter)
     if (search) countParams.set('search', search)
     fetch(`/api/candidates?${countParams}`)
@@ -348,7 +394,7 @@ export default function CandidatesPage() {
         setStatusCounts(buckets)
       })
       .catch(() => {})
-  }, [flowFilter, sourceFilter, search, statusTab, statusTabs, customStatuses, interestingOnly])
+  }, [flowFilter, sourceFilter, search, statusTab, statusTabs, customStatuses, interestingOnly, selectedPipelineId])
 
   useEffect(() => { load() }, [load])
 
@@ -492,6 +538,49 @@ export default function CandidatesPage() {
       />
 
       <div className="flex-1 min-h-0 flex flex-col px-8 py-5">
+        {/* Pipeline switcher — each pipeline carries its own ordered stage
+            list. Selecting one changes the kanban columns and limits the
+            board to candidates whose flow is assigned to this pipeline.
+            "+ New pipeline" jumps straight to the pipelines page where the
+            recruiter can name + customize stages. */}
+        {pipelines.length > 0 && (
+          <div data-no-pan className="shrink-0 flex items-center gap-2 mb-3 overflow-x-auto">
+            <span className="shrink-0 text-[11px] font-mono uppercase text-grey-35 tracking-wider">Pipeline</span>
+            <div className="flex gap-1">
+              {pipelines.map((p) => {
+                const isActive = p.id === selectedPipelineId
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedPipelineId(p.id)}
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] border text-[12px] font-medium transition-colors ${
+                      isActive
+                        ? 'bg-ink text-white border-ink'
+                        : 'bg-white text-grey-35 border-surface-border hover:border-grey-50 hover:text-ink'
+                    }`}
+                    title={p.isDefault ? 'Default pipeline — receives flows with no explicit pipeline assignment' : undefined}
+                  >
+                    {p.name}
+                    <span className={`font-mono text-[10px] tabular-nums ${isActive ? 'text-white/80' : 'text-grey-50'}`}>
+                      {p.flowCount}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+            <Link
+              href="/dashboard/pipelines"
+              className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-[8px] text-[12px] text-grey-40 hover:text-ink hover:bg-surface-light"
+              title="Create or edit pipelines"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Manage
+            </Link>
+          </div>
+        )}
+
         {/* Status tabs — orthogonal to the funnel stages. Default 'Active'
             hides stalled/lost/nurture/hired so the board only shows
             candidates currently in motion. Counts come from the count
@@ -847,10 +936,20 @@ export default function CandidatesPage() {
       <StageSettingsDrawer
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        pipelineId={selectedPipelineId}
+        pipelineName={pipelines.find((p) => p.id === selectedPipelineId)?.name ?? 'Default'}
         stages={stages}
         candidateCounts={candidateCounts}
         onSaved={(next) => {
           setStages(next)
+          // Mirror the saved stages onto the in-memory pipelines list so
+          // the switcher's flow counts / column tooltips stay accurate
+          // without a full refetch.
+          if (selectedPipelineId) {
+            setPipelines((cur) => cur.map((p) =>
+              p.id === selectedPipelineId ? { ...p, stages: next } : p,
+            ))
+          }
           load()
         }}
       />

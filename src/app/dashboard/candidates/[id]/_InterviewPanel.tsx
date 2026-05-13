@@ -82,18 +82,16 @@ export function InterviewPanel({ candidateId, candidateEmail, isRebook, onCandid
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
   const [currentPipelineStatus, setCurrentPipelineStatus] = useState<string | null>(null)
 
-  // Load workspace funnel stages + this candidate's current stage so the
-  // cancel modal can pre-select "Keep in current stage" and label all the
-  // alternatives by name.
-  useEffect(() => {
-    fetch('/api/workspace/settings').then((r) => r.json()).then((d) => {
-      const raw = (d?.settings as { funnelStages?: unknown } | null)?.funnelStages
-      setStages(normalizeStages(raw))
-    }).catch(() => {})
-  }, [])
+  // Load this candidate's pipeline stages + current stage. The candidate
+  // endpoint serializes `pipeline.stages` resolved from the candidate's flow
+  // (or workspace default), so the cancel modal labels alternatives with the
+  // same columns the recruiter sees on the kanban for that candidate.
   useEffect(() => {
     fetch(`/api/candidates/${candidateId}`).then((r) => r.json()).then((d) => {
       setCurrentPipelineStatus(typeof d?.pipelineStatus === 'string' ? d.pipelineStatus : null)
+      if (Array.isArray(d?.pipeline?.stages)) {
+        setStages(normalizeStages(d.pipeline.stages))
+      }
     }).catch(() => {})
   }, [candidateId])
 

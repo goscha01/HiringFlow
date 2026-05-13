@@ -4,11 +4,11 @@ import { prisma } from '@/lib/prisma'
 import {
   findFurthestStageForEvents,
   mapLegacyStatusToStageId,
-  normalizeStages,
   type FunnelStage,
   type StageTriggerEvent,
 } from '@/lib/funnel-stages'
 import { recordPipelineStatusChange } from '@/lib/pipeline-status'
+import { resolveStagesForFlows } from '@/lib/pipelines'
 import { excludeTestSessions } from '@/lib/session-filters'
 
 interface SessionEvent {
@@ -52,16 +52,6 @@ export async function POST(request: NextRequest) {
 
   const { commit = false } = await request.json().catch(() => ({}))
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: ws.workspaceId },
-    select: { settings: true },
-  })
-  const stages = normalizeStages((workspace?.settings as { funnelStages?: unknown } | null)?.funnelStages)
-  if (stages.length === 0) {
-    return NextResponse.json({ moves: [], byStage: {}, total: 0 })
-  }
-  const stageById = new Map(stages.map((s) => [s.id, s]))
-
   const sessions = await prisma.session.findMany({
     // Test-source sessions never participate in backfill — they're seeded
     // with synthetic pipelineStatus/outcome by the automations test endpoint
@@ -93,6 +83,16 @@ export async function POST(request: NextRequest) {
     },
   })
 
+  // Resolve which pipeline each flow uses up front — one query for all the
+  // workspace's flows, then we look up stages per-session via the flow's
+  // pipeline assignment. Pipelines may have different stage sets, so a
+  // dispatcher session can't share a stages array with a cleaner session.
+  const flowIds = Array.from(new Set(sessions.map((s) => s.flowId)))
+  const stagesByFlow = await resolveStagesForFlows({
+    workspaceId: ws.workspaceId,
+    flowIds,
+  })
+
   const moves: Array<{
     sessionId: string
     candidateName: string | null
@@ -103,6 +103,9 @@ export async function POST(request: NextRequest) {
   const byStage: Record<string, number> = {}
 
   for (const s of sessions) {
+    const stages = stagesByFlow.get(s.flowId) ?? []
+    if (stages.length === 0) continue
+    const stageById = new Map(stages.map((st) => [st.id, st]))
     const events: SessionEvent[] = []
 
     if (s.outcome === 'passed' && s.finishedAt) {

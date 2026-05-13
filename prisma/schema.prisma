@@ -81,8 +81,42 @@ model Workspace {
   backgroundChecks  BackgroundCheck[]
   extensionTokens   ExtensionToken[]
   captureResponses  CaptureResponse[]
+  pipelines         Pipeline[]
 
   @@map("workspaces")
+}
+
+// A named funnel stage list. Each workspace can have many pipelines so roles
+// with different hiring loops (e.g. Cleaner with onboarding training vs.
+// Dispatcher without) can use distinct kanban columns and stage triggers.
+//
+// Stages live in the JSON payload — same shape as the legacy
+// Workspace.settings.funnelStages array (id, label, tone, color, order,
+// triggers[]). Validated through normalizeStages() in src/lib/funnel-stages.ts
+// on every read so a corrupt JSON blob falls back to DEFAULT_FUNNEL_STAGES
+// rather than crashing the kanban.
+//
+// Each workspace has exactly one `isDefault: true` pipeline (enforced at the
+// app layer in src/lib/pipelines.ts). The default acts as the fallback for
+// flows with `pipelineId = null` and is the one new flows are wired to.
+model Pipeline {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  // Validated by normalizeStages(). Stored as JSON for the same reason
+  // funnelStages did: stages are user-editable and the migration cost of
+  // turning each property into a column doesn't pay off.
+  stages      Json
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  flows       Flow[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, isDefault])
+  @@map("pipelines")
 }
 
 model GoogleIntegration {
@@ -374,6 +408,13 @@ model Flow {
   noShowTimeoutHours         Int?             @map("no_show_timeout_hours")
   schedulingTimeoutHours     Int?             @map("scheduling_timeout_hours")
   backgroundCheckTimeoutDays Int?             @map("background_check_timeout_days")
+  // Which Pipeline (funnel stage list) this flow's candidates flow through.
+  // Null falls back to the workspace's default pipeline so existing flows
+  // keep working without an explicit assignment. Roles with different
+  // hiring loops point at different pipelines (e.g. Cleaner → with-training,
+  // Dispatcher → no-training).
+  pipelineId                String?           @map("pipeline_id")
+  pipeline                  Pipeline?         @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   createdAt                 DateTime          @default(now()) @map("created_at")
   steps                     FlowStep[]
   sessions                  Session[]
@@ -381,6 +422,7 @@ model Flow {
   automationRules           AutomationRule[]
   captureResponses          CaptureResponse[]
 
+  @@index([pipelineId])
   @@map("flows")
 }
 
