@@ -49,7 +49,11 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       waitForRecording: source.waitForRecording,
       emailDestination: source.emailDestination,
       emailDestinationAddress: source.emailDestinationAddress,
-      isActive: false, // start paused — user reviews before enabling
+      // Inherit the source's active state. Previously hard-forced to false
+      // for "review before enabling" safety, but the recruiter's mental
+      // model is that duplicating a rule produces a working copy ready to
+      // run — they expect the toggle to match the original.
+      isActive: source.isActive,
       steps: {
         create: source.steps.map((s) => ({
           order: s.order,
