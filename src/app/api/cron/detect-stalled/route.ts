@@ -159,6 +159,11 @@ export async function GET(request: NextRequest) {
   }
 
   // -- Rule 3: training started, never completed -------------------------
+  // Trust the per-flow timeout. If the candidate started training >timeout
+  // ago and hasn't completed it, they're stuck — regardless of session-wide
+  // `lastActivityAt`, which gets bumped by every tangential heartbeat
+  // (opening any link, automation sends) and effectively kept candidates
+  // out of this rule indefinitely.
   for (const flow of flows) {
     const days = flow.trainingTimeoutDays ?? DEFAULT_TIMEOUTS.trainingTimeoutDays
     const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
@@ -174,13 +179,6 @@ export async function GET(request: NextRequest) {
             startedAt: { lt: cutoff },
           },
         },
-        // Use lastActivityAt to avoid flagging candidates who just opened
-        // the training a moment ago — the heartbeat bumps on every public
-        // POST. If lastActivityAt is null we fall back to startedAt.
-        OR: [
-          { lastActivityAt: null },
-          { lastActivityAt: { lt: cutoff } },
-        ],
       },
       select: { id: true },
     })
