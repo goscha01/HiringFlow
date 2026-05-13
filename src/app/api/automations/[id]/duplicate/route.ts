@@ -19,6 +19,12 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       name: `${source.name} (copy)`,
       triggerType: source.triggerType,
       flowId: source.flowId,
+      // Preserve pipeline + stage scope on the copy. Without this, duplicating
+      // a rule from a specific pipeline view dropped the copy into
+      // "Any-pipeline", making it invisible in the user's current filter and
+      // making the duplicate button look broken.
+      pipelineId: source.pipelineId,
+      stageId: source.stageId,
       triggerAutomationId: source.triggerAutomationId,
       actionType: source.actionType,
       // Legacy per-rule fields are still in sync with step 0 right after the
