@@ -373,12 +373,11 @@ export default function AutomationsPage() {
     ]).then(([r, f, t, st, tr, sc, ws, ps]) => {
       setRules(r); setFlows(f); setTemplates(t); setSmsTemplates(st); setTrainings(tr); setSchedulingConfigs(sc)
       setCompanyEmail(ws?.senderEmail || null)
-      // Stage list shown in the rule editor — for now we render the
-      // workspace default pipeline's stages here. (Multiple pipelines may
-      // have different stages; when a rule is pinned to a specific
-      // pipeline, that pipeline's stage list would be the more accurate
-      // option to show. Wiring per-pipeline stage choices into this drawer
-      // is a follow-up — for now any-pipeline rules see the default.)
+      // Workspace-default stage list. Used for the rules table / kanban nav
+      // and as the fallback for the rule editor when the rule is scoped to
+      // "Any pipeline". When the user picks a specific pipeline in the rule
+      // editor, the stage dropdown swaps to that pipeline's stages via the
+      // editorStages memo below.
       const defaultPipeline = (ps as PipelineLite[]).find((p) => p.isDefault)
       const pipelineStages = (ps as Array<{ id: string; stages?: FunnelStage[] }>).find((p) => p.id === defaultPipeline?.id)?.stages
       setStages(Array.isArray(pipelineStages) && pipelineStages.length > 0 ? pipelineStages : DEFAULT_FUNNEL_STAGES)
@@ -1000,6 +999,26 @@ export default function AutomationsPage() {
     }
   }
 
+  // Stage list shown in the rule editor's stage dropdown. Follows the
+  // pipeline picker — picking "Cleaner" surfaces Cleaner's stages, picking
+  // "Dispatcher" surfaces Dispatcher's. Empty pipelineIdField ("Any pipeline")
+  // falls back to the workspace default.
+  const editorStages = useMemo(() => {
+    if (!pipelineIdField) return stages
+    const picked = pipelines.find((p) => p.id === pipelineIdField)
+    if (picked?.stages && picked.stages.length > 0) return picked.stages
+    return stages
+  }, [pipelineIdField, pipelines, stages])
+
+  // When the user switches the rule's pipeline to one that doesn't contain
+  // the previously-chosen stage, drop back to "Auto" — saving with a stage
+  // id that doesn't belong to the new pipeline would leave a dangling
+  // reference the journey UI can't render.
+  useEffect(() => {
+    if (!stageIdField) return
+    if (!editorStages.some((s) => s.id === stageIdField)) setStageIdField('')
+  }, [editorStages, stageIdField])
+
   // Effective stage lookups — explicit stageId wins, else first stage (in
   // funnel order) whose triggers claim the rule's triggerType. Order is
   // taken from the stage's funnel position; rules without any stage match
@@ -1442,7 +1461,7 @@ export default function AutomationsPage() {
                 </label>
                 <select value={stageIdField} onChange={(e) => setStageIdField(e.target.value)} className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500">
                   <option value="">Auto — match the stage that owns this trigger</option>
-                  {stages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  {editorStages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
                 <p className="text-xs text-grey-40 mt-1">
                   Doesn&apos;t change when the rule fires — only how it&apos;s grouped on the
