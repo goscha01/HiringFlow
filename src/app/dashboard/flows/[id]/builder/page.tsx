@@ -52,6 +52,7 @@ interface Flow {
   startMessage: string
   endMessage: string
   branding: Record<string, unknown> | null
+  canvasLayout?: Record<string, { x: number; y: number }> | null
   steps: Step[]
   // Composite flag (global env AND workspace.settings.captureStepsEnabled).
   // Builder hides the Audio Answer tile when this is false. The server is
@@ -832,6 +833,23 @@ export default function FlowBuilderPage() {
     setSaving(false)
   }
 
+  // Debounced save of the schema-view canvas layout. Fires from the schema
+  // view after every drag-end with the full positions map; we only push to
+  // the server once the user pauses for 400ms so a series of drags doesn't
+  // spam the API.
+  const savePositionsTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const savePositions = (positions: Record<string, { x: number; y: number }>) => {
+    setFlow((f) => (f ? { ...f, canvasLayout: positions } : null))
+    if (savePositionsTimerRef.current) clearTimeout(savePositionsTimerRef.current)
+    savePositionsTimerRef.current = setTimeout(() => {
+      fetch(`/api/flows/${flowId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ canvasLayout: positions }),
+      }).catch(() => {})
+    }, 400)
+  }
+
   const handleCancel = () => {
     // Reload from server to discard local changes
     fetchFlow()
@@ -1298,6 +1316,8 @@ export default function FlowBuilderPage() {
             onButtonConfigUpdate={updateButtonConfigNext}
             onClearStartScreen={() => updateFlow({ startMessage: '' })}
             onClearEndScreen={() => updateFlow({ endMessage: '' })}
+            initialPositions={flow.canvasLayout ?? null}
+            onPositionsChange={savePositions}
           />
 
           {/* Popup editor overlay — key forces re-render on flow change */}

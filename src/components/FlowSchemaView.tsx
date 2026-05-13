@@ -51,6 +51,13 @@ interface FlowSchemaViewProps {
   onClearStartScreen?: () => void
   onClearEndScreen?: () => void
   selectedStepId?: string | null
+  // Persisted canvas layout from the server: { [stepId | '__start__' | '__end__']: {x,y} }.
+  // When provided on first render (or when the prop reference changes), those
+  // positions are used instead of the BFS-computed defaults.
+  initialPositions?: Record<string, { x: number; y: number }> | null
+  // Fired after a drag finishes (single card or group) with the full current
+  // positions map. The parent can debounce + persist to the DB.
+  onPositionsChange?: (positions: Record<string, { x: number; y: number }>) => void
 }
 
 interface NodePos {
@@ -129,10 +136,25 @@ export default function FlowSchemaView({
   onClearStartScreen,
   onClearEndScreen,
   selectedStepId,
+  initialPositions,
+  onPositionsChange,
 }: FlowSchemaViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [positions, setPositions] = useState<Record<string, NodePos>>({})
+  const [positions, setPositions] = useState<Record<string, NodePos>>(() => initialPositions ?? {})
+  // Track which initialPositions snapshot we've already absorbed, so a
+  // subsequent fetch returning the same data doesn't clobber user edits.
+  const hydratedFromRef = useRef<typeof initialPositions>(initialPositions ?? null)
+  useEffect(() => {
+    if (!initialPositions) return
+    if (hydratedFromRef.current === initialPositions) return
+    hydratedFromRef.current = initialPositions
+    setPositions((prev) => {
+      // Merge — keep any in-memory positions for steps that weren't saved yet,
+      // overlay with the freshly-loaded saved positions.
+      return { ...prev, ...initialPositions }
+    })
+  }, [initialPositions])
   const [thumbnails, setThumbnails] = useState<Record<string, HTMLCanvasElement>>({})
   const [screenImages, setScreenImages] = useState<Record<string, HTMLImageElement>>({}) // stepId -> loaded image for screen steps
   const [videoAspects, setVideoAspects] = useState<Record<string, number>>({}) // stepId -> width/height ratio
@@ -2063,7 +2085,14 @@ export default function FlowSchemaView({
       if (dx < 5 && dy < 5) {
         // It was a click, not a drag
         onStepClick?.(mode.stepId)
+      } else {
+        // Real drag — persist positions to the parent
+        onPositionsChange?.(positions)
       }
+    }
+
+    if (mode.type === 'dragging_group') {
+      onPositionsChange?.(positions)
     }
 
     if (mode.type === 'panning') {

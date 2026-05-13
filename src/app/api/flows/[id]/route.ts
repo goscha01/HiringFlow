@@ -97,10 +97,13 @@ export async function PATCH(
       // null = use workspace default pipeline. Any non-null value must
       // reference a pipeline owned by the caller's workspace.
       pipelineId?: string | null
+      // Schema-view layout: { [stepId]: { x: number, y: number } }
+      canvasLayout?: Record<string, { x: number; y: number }> | null
     }
     const { name, isPublished, startMessage, endMessage, branding,
       videoInterviewTimeoutDays, trainingTimeoutDays, noShowTimeoutHours,
-      schedulingTimeoutHours, backgroundCheckTimeoutDays, pipelineId } = body
+      schedulingTimeoutHours, backgroundCheckTimeoutDays, pipelineId,
+      canvasLayout } = body
 
     // Only allow positive integers (or null to clear). Reject other shapes
     // so a typo in the drawer doesn't write garbage to the DB.
@@ -150,6 +153,7 @@ export async function PATCH(
         ...(schedulingTimeoutHours !== undefined && { schedulingTimeoutHours }),
         ...(backgroundCheckTimeoutDays !== undefined && { backgroundCheckTimeoutDays }),
         ...(pipelineId !== undefined && { pipelineId }),
+        ...(canvasLayout !== undefined && { canvasLayout: canvasLayout as object }),
       },
     })
 

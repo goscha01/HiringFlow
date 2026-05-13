@@ -416,6 +416,10 @@ model Flow {
   // Dispatcher → no-training).
   pipelineId                String?           @map("pipeline_id")
   pipeline                  Pipeline?         @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  // Schema-view canvas layout: { [stepId]: { x: number, y: number } }.
+  // Persists the user's manual arrangement of cards so reopening the schema
+  // restores their layout instead of re-running BFS from scratch.
+  canvasLayout              Json?             @map("canvas_layout")
   createdAt                 DateTime          @default(now()) @map("created_at")
   steps                     FlowStep[]
   sessions                  Session[]
