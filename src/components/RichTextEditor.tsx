@@ -58,6 +58,39 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
     exec('createLink', url)
   }
 
+  // Aggressive cleanup. execCommand('removeFormat') only walks the current
+  // selection and leaves baked-in inline styles (background-color, font,
+  // color, etc.) alone — common after a paste from Word/Slack/macOS Notes
+  // which is exactly where "why is my text on a black background?!" comes
+  // from. So we also walk the DOM and rip every style/class attribute off
+  // every descendant. The trade-off: a recruiter who used the bold/italic
+  // toolbar on a SELECTION won't lose that, but anything they pasted in
+  // gets normalized.
+  const clearAllFormatting = () => {
+    const el = editorRef.current
+    if (!el) return
+    document.execCommand('removeFormat')
+    for (const node of Array.from(el.querySelectorAll<HTMLElement>('[style]'))) {
+      node.removeAttribute('style')
+    }
+    for (const node of Array.from(el.querySelectorAll<HTMLElement>('[class]'))) {
+      node.removeAttribute('class')
+    }
+    onChange(el.innerHTML)
+  }
+
+  // Strip formatting on paste. We take text/plain from the clipboard and
+  // insert it as-is, so pasting from Word / macOS Notes / Slack never drags
+  // their inline styles into the editor. Lossy by design — users who want
+  // formatted paste can build it back with the toolbar.
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const text = e.clipboardData.getData('text/plain')
+    if (!text) return
+    document.execCommand('insertText', false, text)
+    if (editorRef.current) onChange(editorRef.current.innerHTML)
+  }
+
   return (
     <div className={`border border-surface-border rounded-[6px] overflow-hidden bg-white focus-within:ring-1 focus-within:ring-brand-500 ${className}`}>
       <div className="flex items-center gap-0.5 px-2 py-1 border-b border-surface-border bg-surface">
@@ -71,7 +104,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
         <Btn onClick={insertLink} title="Insert link" label="Link" />
         <Btn onClick={() => exec('unlink')} title="Remove link" label="Unlink" />
         <Sep />
-        <Btn onClick={() => exec('removeFormat')} title="Clear formatting" label="Clear" />
+        <Btn onClick={clearAllFormatting} title="Strip all formatting (styles, colors, fonts) from the editor" label="Clear" />
       </div>
       <div
         ref={editorRef}
@@ -79,6 +112,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
         suppressContentEditableWarning
         onInput={(e) => onChange((e.target as HTMLDivElement).innerHTML)}
         onBlur={(e) => onChange((e.target as HTMLDivElement).innerHTML)}
+        onPaste={handlePaste}
         className="px-3 py-2 text-sm text-grey-15 focus:outline-none [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_a]:text-brand-600 [&_a]:underline"
         style={{ minHeight: `${rows * 1.5}rem` }}
       />
