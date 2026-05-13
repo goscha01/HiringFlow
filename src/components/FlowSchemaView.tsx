@@ -2203,7 +2203,7 @@ export default function FlowSchemaView({
       {/* Zoom controls */}
       <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-white rounded-md shadow border border-gray-200 px-1">
         <button
-          onClick={() => setScale((s) => Math.max(0.3, s - 0.15))}
+          onClick={() => setScale((s) => Math.max(0.1, s - 0.15))}
           className="px-2 py-1 text-gray-600 hover:text-gray-900 text-sm font-medium"
         >
           -
@@ -2216,6 +2216,44 @@ export default function FlowSchemaView({
           className="px-2 py-1 text-gray-600 hover:text-gray-900 text-sm font-medium"
         >
           +
+        </button>
+        <button
+          onClick={() => {
+            const container = containerRef.current
+            if (!container) return
+            const w = container.clientWidth
+            const h = container.clientHeight
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+            for (const id of Object.keys(positions)) {
+              const p = positions[id]
+              const nodeW = id === START_ID || id === END_ID ? SPECIAL_W : NODE_W
+              const nodeH = id === START_ID || id === END_ID ? SPECIAL_H : NODE_H
+              if (p.x < minX) minX = p.x
+              if (p.y < minY) minY = p.y
+              if (p.x + nodeW > maxX) maxX = p.x + nodeW
+              if (p.y + nodeH > maxY) maxY = p.y + nodeH
+            }
+            // Also include backward-edge lane Ys so loopback paths fit too
+            laneYByConn.forEach((laneY) => {
+              if (laneY > maxY) maxY = laneY + 30
+            })
+            if (minX === Infinity) return
+            const contentW = Math.max(1, maxX - minX)
+            const contentH = Math.max(1, maxY - minY)
+            const padding = 40
+            const scaleX = (w - padding * 2) / contentW
+            const scaleY = (h - padding * 2) / contentH
+            const newScale = Math.max(0.1, Math.min(scaleX, scaleY, 1.5))
+            setScale(newScale)
+            setPan({
+              x: (w - contentW * newScale) / 2 - minX * newScale,
+              y: (h - contentH * newScale) / 2 - minY * newScale,
+            })
+          }}
+          className="px-2 py-1 text-gray-600 hover:text-gray-900 text-xs border-l border-gray-200 ml-1"
+          title="Fit flow to screen"
+        >
+          Fit
         </button>
         <button
           onClick={() => { setPositions(computeLayout()); setPan({ x: 40, y: 40 }); setScale(1) }}
