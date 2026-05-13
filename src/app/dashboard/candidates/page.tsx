@@ -142,7 +142,18 @@ export default function CandidatesPage() {
   // vs. Dispatcher without) get different layouts. The selected pipeline's
   // stages override the legacy Workspace.settings.funnelStages.
   const [pipelines, setPipelines] = useState<PipelineSummary[]>([])
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
+  // Hydrate the picker synchronously from localStorage so the first
+  // /api/candidates fetch goes out with the right pipeline filter — otherwise
+  // we render ALL candidates for one tick, then re-fetch once pipelines load,
+  // which looked like a 10s glitch on slow networks.
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    try { return window.localStorage.getItem('hiringflow:pipeline') } catch { return null }
+  })
+  // Gate the first candidates fetch until the pipelines list resolves — covers
+  // first-time visitors (no localStorage value) so they don't get a momentary
+  // "all candidates" flash before the default pipeline kicks in.
+  const [pipelinesLoaded, setPipelinesLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [flowFilter, setFlowFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
@@ -309,8 +320,9 @@ export default function CandidatesPage() {
         setSelectedPipelineId(initialId)
         const picked = rows.find((p) => p.id === initialId)
         if (picked) setStages(picked.stages)
+        setPipelinesLoaded(true)
       })
-      .catch(() => {})
+      .catch(() => { setPipelinesLoaded(true) })
     // Restore per-stage sort prefs from prior visits.
     try {
       const raw = localStorage.getItem(STAGE_SORT_KEY)
@@ -396,7 +408,13 @@ export default function CandidatesPage() {
       .catch(() => {})
   }, [flowFilter, sourceFilter, search, statusTab, statusTabs, customStatuses, interestingOnly, selectedPipelineId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    // Don't fire the first candidates fetch until the pipeline picker is
+    // resolved — otherwise the request goes out with no pipelineId and the
+    // user briefly sees candidates from every pipeline.
+    if (!pipelinesLoaded) return
+    load()
+  }, [load, pipelinesLoaded])
 
   // Auto-refresh: pick up server-side stage changes (meeting_ended,
   // recording_ready, etc.) without requiring the recruiter to hard-refresh.

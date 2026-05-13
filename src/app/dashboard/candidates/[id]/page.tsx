@@ -643,38 +643,10 @@ export default function CandidateDetailPage() {
     }
   }
 
-  const runStageAutomations = async () => {
-    if (runningAutomations) return
-    setRunningAutomations(true)
-    setAutomationToast(null)
-    try {
-      const res = await fetch(`/api/candidates/${id}/run-stage-automations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stageId: activeStage.id }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Failed to fire automations')
-      const fired: number = data.fired ?? 0
-      const failed = (data.results || []).filter((r: { ok: boolean }) => !r.ok).length
-      setAutomationToast(
-        failed > 0
-          ? `Fired ${fired}, ${failed} failed — see timeline for details.`
-          : `Fired ${fired} automation${fired === 1 ? '' : 's'}.`,
-      )
-      fetch(`/api/candidates/${id}`).then((r) => r.json()).then(setCandidate).catch(() => {})
-      setPreviewState(null)
-    } catch (err) {
-      setAutomationToast(err instanceof Error ? err.message : 'Failed to fire automations')
-    } finally {
-      setRunningAutomations(false)
-      setTimeout(() => setAutomationToast(null), 6000)
-    }
-  }
-
-  // Fire a single rule from the preview modal. Same endpoint, same guards as
-  // runStageAutomations, just scoped to one ruleId. Keeps the modal open and
-  // shows per-row status so the recruiter can fire several individually.
+  // Fire a single rule from the preview modal. Keeps the modal open and shows
+  // per-row status so the recruiter can fire each rule individually — the
+  // previous bulk "Fire all" path was removed because it surprised users when
+  // re-running surfaced a "Fire 4 now" button on an already-fired set.
   const runSingleRule = async (ruleId: string) => {
     if (perRuleState[ruleId]?.firing) return
     setPerRuleState((s) => ({ ...s, [ruleId]: { firing: true } }))
@@ -1743,22 +1715,13 @@ export default function CandidateDetailPage() {
                 </ul>
               )}
             </div>
-            <div className="px-6 py-4 flex justify-end gap-2 border-t border-surface-divider mt-2">
+            <div className="px-6 py-4 flex justify-end border-t border-surface-divider mt-2">
               <button
                 onClick={() => setPreviewState(null)}
                 disabled={runningAutomations}
-                className="text-sm px-4 py-2 rounded-[8px] text-grey-40 hover:text-grey-15 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={runStageAutomations}
-                disabled={runningAutomations || previewState.loading || previewState.rules.length === 0}
                 className="text-sm px-4 py-2 rounded-[8px] bg-brand-500 text-white font-semibold hover:bg-brand-600 disabled:opacity-50"
               >
-                {runningAutomations
-                  ? 'Firing…'
-                  : `Fire ${previewState.rules.length} now`}
+                Close
               </button>
             </div>
           </div>
