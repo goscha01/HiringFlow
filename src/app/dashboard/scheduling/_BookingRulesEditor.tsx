@@ -64,6 +64,20 @@ export function BookingRulesEditor({ value, onChange }: Props) {
     update({ workingHours: { ...rules.workingHours, [day]: cur } })
   }
 
+  // "Copy this day to every weekday" shortcut. Recruiters complained about
+  // editing 7 day rows individually when their schedule is the same Mon–Sun.
+  // Source day's range list is cloned into every other day (including ones
+  // currently toggled off — they get re-enabled).
+  const copyDayToAll = (source: Weekday) => {
+    const ranges = rules.workingHours[source]
+    if (ranges.length === 0) return
+    const cloned: Record<Weekday, typeof ranges> = {} as Record<Weekday, typeof ranges>
+    for (const { key } of WEEKDAYS) {
+      cloned[key] = ranges.map((r) => ({ ...r }))
+    }
+    update({ workingHours: cloned })
+  }
+
   return (
     <div className="space-y-4 border border-surface-border rounded-[10px] p-4 bg-surface-light/40">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -151,13 +165,23 @@ export function BookingRulesEditor({ value, onChange }: Props) {
                     </div>
                   ))}
                   {enabled && (
-                    <button
-                      type="button"
-                      onClick={() => addRange(key)}
-                      className="text-[11px] text-grey-35 hover:text-ink"
-                    >
-                      + add range
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => addRange(key)}
+                        className="text-[11px] text-grey-35 hover:text-ink"
+                      >
+                        + add range
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyDayToAll(key)}
+                        title={`Copy ${label}'s hours to every weekday`}
+                        className="text-[11px] text-grey-35 hover:text-[color:var(--brand-primary)]"
+                      >
+                        copy to all days
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

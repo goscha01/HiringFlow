@@ -21,7 +21,7 @@ import { prisma } from '@/lib/prisma'
 import { verifyBookingToken } from '@/lib/scheduling/booking-links'
 import { parseBookingRulesOrDefault } from '@/lib/scheduling/booking-rules'
 import { getBusyIntervals } from '@/lib/scheduling/free-busy'
-import { computeAvailableSlots } from '@/lib/scheduling/slot-computer'
+import { computeAvailableSlots, type BusyInterval } from '@/lib/scheduling/slot-computer'
 
 // Per-key rate limiter (in-memory). 30 req/min. Same shape used for both
 // the per-token (authoritative candidate flow) and per-IP (anonymous)
@@ -101,18 +101,66 @@ export async function GET(request: NextRequest, { params }: { params: { configId
     return NextResponse.json({ error: 'invalid_window' }, { status: 400 })
   }
 
-  let busy
-  try {
-    busy = await getBusyIntervals({
+  // Build the busy set from THREE sources so a recruiter can never be
+  // double-booked:
+  //   1. Google Calendar FreeBusy for THIS config's calendar
+  //   2. Google Calendar FreeBusy for every OTHER active config's calendar
+  //      in this workspace (covers the case where the same recruiter runs
+  //      multiple booking links pointed at different calendar ids)
+  //   3. Existing InterviewMeeting rows for this workspace — guaranteed
+  //      signal in case a recent booking hasn't propagated to Google
+  //      Calendar yet, or the calendar sync is mid-failure
+  const otherConfigs = await prisma.schedulingConfig.findMany({
+    where: {
       workspaceId: config.workspaceId,
-      calendarId: config.calendarId || undefined,
-      fromUtc,
-      toUtc,
-    })
+      isActive: true,
+      useBuiltInScheduler: true,
+      NOT: { id: config.id },
+    },
+    select: { calendarId: true },
+  })
+  const calendarIds = new Set<string | undefined>()
+  calendarIds.add(config.calendarId || undefined)
+  for (const c of otherConfigs) {
+    if (c.calendarId) calendarIds.add(c.calendarId)
+  }
+
+  const busyChunks: BusyInterval[][] = []
+  try {
+    const results = await Promise.all(
+      Array.from(calendarIds).map((calId) =>
+        getBusyIntervals({
+          workspaceId: config.workspaceId,
+          calendarId: calId,
+          fromUtc,
+          toUtc,
+        }).catch((err) => {
+          // One bad calendar shouldn't 502 the whole picker — log and skip
+          // so the other sources still contribute.
+          console.error('[availability] freeBusy failed for', calId, err)
+          return [] as BusyInterval[]
+        }),
+      ),
+    )
+    busyChunks.push(...results)
   } catch (err) {
-    console.error('[availability] freeBusy failed:', err)
+    console.error('[availability] freeBusy fan-out failed:', err)
     return NextResponse.json({ error: 'free_busy_failed', message: (err as Error).message }, { status: 502 })
   }
+
+  // Existing meetings as a backstop. Includes the workspace's own bookings
+  // through any config, even ones we couldn't pull from Google Calendar.
+  const meetings = await prisma.interviewMeeting.findMany({
+    where: {
+      workspaceId: config.workspaceId,
+      scheduledEnd: { gt: fromUtc },
+      scheduledStart: { lt: toUtc },
+    },
+    select: { scheduledStart: true, scheduledEnd: true },
+  })
+  busyChunks.push(meetings.map((m) => ({ start: m.scheduledStart, end: m.scheduledEnd })))
+
+  const busy = busyChunks.flat()
 
   const slots = computeAvailableSlots({
     rules,
