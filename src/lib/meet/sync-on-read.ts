@@ -213,11 +213,13 @@ export async function syncMeetingFromMeetApi(
       // Recording artifact (best-effort). Skip when the recruiter explicitly
       // removed the recording from the candidate profile — re-linking would
       // silently undo their action on the next page load.
+      let recordingJustReady = false
       if (meeting.recordingState !== 'unavailable') {
         try {
           const recs = await listRecordings(client, conf.name)
           const rec = recs[0]
           if (rec?.driveDestination?.file && rec.state === 'FILE_GENERATED') {
+            if (meeting.recordingState !== 'ready') recordingJustReady = true
             data.recordingState = 'ready'
             data.driveRecordingFileId = rec.driveDestination.file
           } else if (rec && rec.state && rec.state !== 'FILE_GENERATED') {
@@ -231,6 +233,16 @@ export async function syncMeetingFromMeetApi(
 
       await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
       updated = true
+
+      // The Workspace Events webhook normally fires `recording_ready`. When
+      // that subscription is suspended (USER_SCOPE_REVOKED) the webhook stops,
+      // and this sync becomes the only path that ever observes the recording.
+      // Fire the trigger here too so automations don't silently stall.
+      // Idempotent: the engine's execution table guards against double-send.
+      if (recordingJustReady) {
+        await fireMeetingLifecycleAutomations(meeting.sessionId, 'recording_ready').catch((err) =>
+          console.error('[meet-sync] fire recording_ready failed for', meeting.id, ':', (err as Error).message))
+      }
 
       // No-show evaluation, but only once we have a real end time. Mid-meeting
       // pulls (if a recruiter loads the page during the call) won't flag.
@@ -369,7 +381,15 @@ async function syncFromDriveRecording(
     // for "Ended" UI. scheduledStart stays authoritative for the start time.
     data.actualEnd = createdAt
   }
+  const prevReady = meeting.recordingState === 'ready'
   await prisma.interviewMeeting.update({ where: { id: meeting.id }, data })
+  // Personal-Gmail path: Workspace Events webhook never fires for these
+  // tenants at all, so this is the *only* place recording_ready ever gets
+  // emitted. Engine de-dupes via the execution table.
+  if (!prevReady) {
+    await fireMeetingLifecycleAutomations(meeting.sessionId, 'recording_ready').catch((err) =>
+      console.error('[meet-sync] fire recording_ready failed for', meeting.id, ':', (err as Error).message))
+  }
   return { updated: true, recordingFileId: chosen.id, createdAt }
 }
 
