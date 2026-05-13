@@ -112,7 +112,8 @@ model Pipeline {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  flows       Flow[]
+  flows           Flow[]
+  automationRules AutomationRule[]
 
   @@index([workspaceId])
   @@index([workspaceId, isDefault])
@@ -922,6 +923,16 @@ model AutomationRule {
   stageId                 String?               @map("stage_id")
   flowId                  String?               @map("flow_id")
   flow                    Flow?                 @relation(fields: [flowId], references: [id])
+  // Pipeline scope. When set, the rule only matches candidates whose flow's
+  // pipeline (`Flow.pipelineId`, falling back to the workspace default) is
+  // this one. Null = "any pipeline" — the rule applies workspace-wide,
+  // preserving back-compat for rules created before multi-pipeline. The
+  // dispatch helpers (fireMeetingLifecycleAutomations, dispatchRulesForTrigger,
+  // scheduleBeforeMeetingReminders, the meeting_ended branch, and the manual
+  // run-stage-automations matcher) all enforce this via pipelineWhereForCandidate
+  // in src/lib/automation-pipeline-scope.ts.
+  pipelineId              String?               @map("pipeline_id")
+  pipeline                Pipeline?             @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   triggerAutomationId     String?               @map("trigger_automation_id")
   triggerAutomation       AutomationRule?       @relation("AutomationChain", fields: [triggerAutomationId], references: [id])
   chainedBy               AutomationRule[]      @relation("AutomationChain")
@@ -968,6 +979,7 @@ model AutomationRule {
   executions              AutomationExecution[]
   steps                   AutomationStep[]
 
+  @@index([pipelineId])
   @@map("automation_rules")
 }
 

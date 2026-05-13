@@ -63,14 +63,25 @@ function validateSteps(steps: unknown): { ok: true; steps: Required<Pick<StepInp
   return { ok: true, steps: normalized }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
+  // Optional ?pipelineId= filter for the automations page picker. Empty
+  // string / unset = "all pipelines"; explicit "null" = "workspace-wide
+  // rules only" (pipelineId IS NULL).
+  const pipelineId = request.nextUrl.searchParams.get('pipelineId')
+  const where: Record<string, unknown> = { workspaceId: ws.workspaceId }
+  if (pipelineId === 'null') {
+    where.pipelineId = null
+  } else if (pipelineId) {
+    where.pipelineId = pipelineId
+  }
   const rules = await prisma.automationRule.findMany({
-    where: { workspaceId: ws.workspaceId },
+    where,
     orderBy: { createdAt: 'desc' },
     include: {
       flow: { select: { id: true, name: true } },
+      pipeline: { select: { id: true, name: true, isDefault: true } },
       // Legacy per-rule fields kept for backwards compatibility with table
       // rendering during rollout. New code reads from `steps`.
       emailTemplate: { select: { id: true, name: true, subject: true } },
@@ -95,7 +106,7 @@ export async function POST(request: NextRequest) {
   const ws = await getWorkspaceSession()
   if (!ws) return unauthorized()
   const body = await request.json()
-  const { name, triggerType, flowId, stageId, triggerAutomationId, minutesBefore, waitForRecording, steps } = body
+  const { name, triggerType, flowId, stageId, pipelineId, triggerAutomationId, minutesBefore, waitForRecording, steps } = body
   // Rule-level trainingId scopes which training a `training_*` rule fires for
   // ("Onboarding only" vs "any training"). Distinct from step.trainingId,
   // which is the action target (which training to send the candidate to).
@@ -105,6 +116,19 @@ export async function POST(request: NextRequest) {
   const triggerTrainingId: string | null =
     typeof body.trainingId === 'string' && body.trainingId ? body.trainingId : null
   if (!name || !triggerType) return NextResponse.json({ error: 'name and triggerType required' }, { status: 400 })
+
+  // Pipeline scope: optional. Null/empty = "any pipeline" (back-compat).
+  // Any non-null value must reference a pipeline owned by the caller's
+  // workspace so we don't leak tenant boundaries.
+  let resolvedPipelineId: string | null = null
+  if (pipelineId !== undefined && pipelineId !== null && pipelineId !== '') {
+    const pipeline = await prisma.pipeline.findFirst({
+      where: { id: pipelineId, workspaceId: ws.workspaceId },
+      select: { id: true },
+    })
+    if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
+    resolvedPipelineId = pipeline.id
+  }
 
   // Steps are the canonical send config now. Reject if missing.
   const validation = validateSteps(steps)
@@ -135,6 +159,7 @@ export async function POST(request: NextRequest) {
     data: {
       workspaceId: ws.workspaceId, createdById: ws.userId, name, triggerType,
       flowId: flowId || null,
+      pipelineId: resolvedPipelineId,
       stageId: typeof stageId === 'string' && stageId ? stageId : null,
       triggerAutomationId: triggerAutomationId || null,
       channel: firstStep.channel === 'both' ? 'email' : firstStep.channel ?? 'email',

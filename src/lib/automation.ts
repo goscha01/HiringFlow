@@ -4,6 +4,7 @@ import { sendSms, normalizeToE164, SmsConfigError, SmsValidationError, SmsSendEr
 import { createAccessToken, buildTrainingLink } from './training-access'
 import { resolveSchedulingUrl, buildScheduleRedirectUrl, logSchedulingEvent, updatePipelineStatus } from './scheduling'
 import { applyStageTrigger } from './funnel-stage-runtime'
+import { automationScopeForSession, pipelineScopeFragment, resolveFlowPipelineId } from './automation-pipeline-scope'
 import { Client } from '@upstash/qstash'
 import { canExecuteAutomationStep, recordSkip, type ExecutionMode } from './automation-guard'
 
@@ -348,11 +349,18 @@ async function reScheduleMeetingRelativeSteps(sessionId: string) {
     select: { workspaceId: true, flowId: true },
   })
   if (!session) return
+  const pipelineId = await resolveFlowPipelineId({
+    flowId: session.flowId,
+    workspaceId: session.workspaceId,
+  })
   const rules = await prisma.automationRule.findMany({
     where: {
       isActive: true,
       workspaceId: session.workspaceId,
-      OR: [{ flowId: session.flowId }, { flowId: null }],
+      AND: [
+        { OR: [{ flowId: session.flowId }, { flowId: null }] },
+        pipelineScopeFragment(pipelineId),
+      ],
       triggerType: { in: ['meeting_scheduled', 'meeting_started', 'meeting_ended', 'recording_ready'] },
       steps: { some: { timingMode: { in: ['before_meeting', 'after_meeting'] } } },
     },
@@ -487,12 +495,19 @@ export async function fireMeetingLifecycleAutomations(
       // For meeting_ended rules, waitForRecording is a per-rule flag that
       // parks the rule's first step. (Multi-step meeting_ended rules are
       // supported but the wait only applies before step 0.)
+      const pipelineId = await resolveFlowPipelineId({
+        flowId: session.flowId,
+        workspaceId: session.workspaceId,
+      })
       const rules = await prisma.automationRule.findMany({
         where: {
           isActive: true,
           triggerType: 'meeting_ended',
           workspaceId: session.workspaceId,
-          OR: [{ flowId: session.flowId }, { flowId: null }],
+          AND: [
+            { OR: [{ flowId: session.flowId }, { flowId: null }] },
+            pipelineScopeFragment(pipelineId),
+          ],
         },
         select: {
           id: true,
@@ -701,8 +716,19 @@ async function dispatchRulesForTrigger(
   // training in the workspace completes, sending duplicate emails and
   // (worse, when nextStepType=scheduling) regressing pipelineStatus back
   // to invited_to_schedule for candidates who already advanced past it.
+  //
+  // Pipeline scope (added 2026-05-13): rules can be pinned to a specific
+  // pipeline. Resolve the candidate's pipeline and filter rules where
+  // pipelineId matches OR is null (workspace-wide). Same composition pattern
+  // as flow/training scope — pushed onto the AND list so a future scope
+  // dimension can slot in without untangling the WHERE clause.
+  const pipelineId = await resolveFlowPipelineId({
+    flowId: session.flowId,
+    workspaceId: session.workspaceId,
+  })
   const ands: Array<Record<string, unknown>> = [
     { OR: [{ flowId: session.flowId }, { flowId: null }] },
+    pipelineScopeFragment(pipelineId) as unknown as Record<string, unknown>,
   ]
   if (ctx.trainingId) {
     ands.push({ OR: [{ trainingId: ctx.trainingId }, { trainingId: null }] })
@@ -1010,12 +1036,19 @@ export async function scheduleBeforeMeetingReminders(sessionId: string, schedule
       select: { workspaceId: true, flowId: true },
     })
     if (!session) return
+    const pipelineId = await resolveFlowPipelineId({
+      flowId: session.flowId,
+      workspaceId: session.workspaceId,
+    })
     const rules = await prisma.automationRule.findMany({
       where: {
         isActive: true,
         triggerType: 'before_meeting',
         workspaceId: session.workspaceId,
-        OR: [{ flowId: session.flowId }, { flowId: null }],
+        AND: [
+          { OR: [{ flowId: session.flowId }, { flowId: null }] },
+          pipelineScopeFragment(pipelineId),
+        ],
       },
       select: {
         id: true,

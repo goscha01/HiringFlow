@@ -67,6 +67,23 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (!rule) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const body = await request.json()
 
+  // Pipeline scope (added 2026-05-13). Null/empty = "any pipeline"
+  // (workspace-wide rule). Non-null values must reference a pipeline in
+  // this workspace — guard the FK lookup against cross-tenant assignment.
+  let pipelineUpdate: { pipelineId: string | null } | null = null
+  if (body.pipelineId !== undefined) {
+    if (body.pipelineId === null || body.pipelineId === '') {
+      pipelineUpdate = { pipelineId: null }
+    } else if (typeof body.pipelineId === 'string') {
+      const pipeline = await prisma.pipeline.findFirst({
+        where: { id: body.pipelineId, workspaceId: ws.workspaceId },
+        select: { id: true },
+      })
+      if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
+      pipelineUpdate = { pipelineId: pipeline.id }
+    }
+  }
+
   // If `steps` was sent, replace the rule's full step set. We don't try to
   // diff per-step in the API — the editor always submits the whole sequence.
   // Pending QStash messages keyed off the OLD step IDs become orphans; the
@@ -100,6 +117,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         ...(body.name !== undefined && { name: body.name }),
         ...(body.triggerType !== undefined && { triggerType: body.triggerType }),
         ...(body.flowId !== undefined && { flowId: body.flowId || null }),
+        ...(pipelineUpdate && pipelineUpdate),
         // trainingId is the trigger filter for training_* rules (which
         // training fires this rule). Independent from step.trainingId
         // (the action target). Persisted regardless of trigger so the
@@ -185,6 +203,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     where: { id: params.id },
     include: {
       flow: { select: { id: true, name: true } },
+      pipeline: { select: { id: true, name: true, isDefault: true } },
       emailTemplate: { select: { id: true, name: true, subject: true } },
       training: { select: { id: true, title: true, slug: true } },
       schedulingConfig: { select: { id: true, name: true, schedulingUrl: true } },

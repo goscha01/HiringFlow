@@ -42,8 +42,13 @@ interface StepShape {
   schedulingConfig?: SchedulingItem | null
 }
 
+interface PipelineLite { id: string; name: string; isDefault: boolean }
 interface Rule {
   id: string; name: string; triggerType: string; flowId: string | null
+  // Pipeline scope (added 2026-05-13). Null = "any pipeline" — rule fires
+  // for candidates regardless of their flow's pipeline assignment.
+  pipelineId?: string | null
+  pipeline?: PipelineLite | null
   // Explicit funnel-stage assignment for the journey UI. Overrides the
   // implicit triggerType→stage mapping when set; null = fall back to
   // implicit (or "Unassigned" if nothing claims the trigger).
@@ -273,6 +278,14 @@ export default function AutomationsPage() {
   const [stageFilter, setStageFilter] = useState<string | null>(null)
   const [activeOnly, setActiveOnly] = useState(false)
   const [stages, setStages] = useState<FunnelStage[]>(DEFAULT_FUNNEL_STAGES)
+  // Pipeline picker. Empty = show rules from all pipelines. Specific id =
+  // show only rules pinned to that pipeline. 'workspace' = workspace-wide
+  // rules (pipelineId IS NULL). Stays in URL so a recruiter can bookmark
+  // "Cleaner automations".
+  const [pipelines, setPipelines] = useState<PipelineLite[]>([])
+  const [pipelineFilter, setPipelineFilter] = useState<string>('')
+  // Pipeline scope for the rule being edited. '' = "any pipeline" (back-compat).
+  const [pipelineIdField, setPipelineIdField] = useState<string>('')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
   const [name, setName] = useState('')
@@ -345,16 +358,39 @@ export default function AutomationsPage() {
       fetch('/api/trainings').then(r => r.json()),
       fetch('/api/scheduling').then(r => r.json()),
       fetch('/api/workspace/settings').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([r, f, t, st, tr, sc, ws]) => {
+      fetch('/api/pipelines').then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([r, f, t, st, tr, sc, ws, ps]) => {
       setRules(r); setFlows(f); setTemplates(t); setSmsTemplates(st); setTrainings(tr); setSchedulingConfigs(sc)
       setCompanyEmail(ws?.senderEmail || null)
-      const rawStages = (ws?.settings as { funnelStages?: unknown } | null)?.funnelStages
-      setStages(normalizeStages(rawStages))
+      // Stage list shown in the rule editor — for now we render the
+      // workspace default pipeline's stages here. (Multiple pipelines may
+      // have different stages; when a rule is pinned to a specific
+      // pipeline, that pipeline's stage list would be the more accurate
+      // option to show. Wiring per-pipeline stage choices into this drawer
+      // is a follow-up — for now any-pipeline rules see the default.)
+      const defaultPipeline = (ps as PipelineLite[]).find((p) => p.isDefault)
+      const pipelineStages = (ps as Array<{ id: string; stages?: FunnelStage[] }>).find((p) => p.id === defaultPipeline?.id)?.stages
+      setStages(Array.isArray(pipelineStages) && pipelineStages.length > 0 ? pipelineStages : DEFAULT_FUNNEL_STAGES)
+      setPipelines(ps as PipelineLite[])
       setLoading(false)
     })
   }, [])
 
-  const refresh = async () => { const r = await fetch('/api/automations'); if (r.ok) setRules(await r.json()) }
+  const refresh = async () => {
+    const params = new URLSearchParams()
+    if (pipelineFilter === 'workspace') params.set('pipelineId', 'null')
+    else if (pipelineFilter) params.set('pipelineId', pipelineFilter)
+    const r = await fetch(`/api/automations${params.toString() ? `?${params}` : ''}`)
+    if (r.ok) setRules(await r.json())
+  }
+
+  // Re-fetch when the pipeline filter changes so the table reflects the
+  // selection. Doesn't reset other UI state (search, sort, etc.).
+  useEffect(() => {
+    if (loading) return
+    refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineFilter])
 
   // Inject a {{xxx_link}} CTA into a workspace template's bodyHtml so the
   // recruiter doesn't have to hand-edit the template. Idempotent — does
@@ -529,6 +565,10 @@ export default function AutomationsPage() {
     setFlowId('')
     setTriggerTrainingId('')
     setStageIdField('')
+    // Default new rules to the active pipeline filter when one is selected,
+    // so a recruiter creating from the Dispatcher view gets a Dispatcher
+    // rule by default. 'workspace' (any-pipeline) keeps as ''.
+    setPipelineIdField(pipelineFilter && pipelineFilter !== 'workspace' ? pipelineFilter : '')
     setMinutesBefore(60); setWaitForRecording(false)
 
     // Always run seed — it's idempotent on the server (inserts only the
@@ -563,6 +603,7 @@ export default function AutomationsPage() {
     setFlowId(r.flowId || (r as { triggerAutomationId?: string }).triggerAutomationId || '')
     setTriggerTrainingId(r.trainingId ?? '')
     setStageIdField(r.stageId ?? '')
+    setPipelineIdField(r.pipelineId ?? '')
     setMinutesBefore(r.minutesBefore || 60)
     setWaitForRecording(!!r.waitForRecording)
     // Hydrate steps. Older rules may have an empty steps[] (pre-backfill).
@@ -685,6 +726,10 @@ export default function AutomationsPage() {
       flowId: (!SESSION_WIDE_TRIGGERS.has(triggerType)) ? (flowId || null) : null,
       trainingId: isTrainingTrigger ? (triggerTrainingId || null) : null,
       stageId: stageIdField || null,
+      // Pipeline scope. Empty = "any pipeline" (workspace-wide rule). When
+      // set, the rule only fires for candidates whose flow's pipeline
+      // matches.
+      pipelineId: pipelineIdField || null,
       triggerAutomationId: triggerType === 'automation_completed' ? (flowId || null) : null,
       minutesBefore: triggerType === 'before_meeting' ? minutesBefore : null,
       waitForRecording: triggerType === 'meeting_ended' ? waitForRecording : false,
@@ -970,6 +1015,20 @@ export default function AutomationsPage() {
             className={`text-xs px-3 py-1.5 rounded-full border font-medium ${activeOnly ? 'border-green-500 bg-green-50 text-green-700' : 'border-surface-border text-grey-35'}`}>
             Active only
           </button>
+          {pipelines.length > 0 && (
+            <select
+              value={pipelineFilter}
+              onChange={(e) => setPipelineFilter(e.target.value)}
+              title="Filter rules by pipeline scope"
+              className="text-xs px-3 py-1.5 rounded-full border border-surface-border text-grey-35 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+            >
+              <option value="">All pipelines</option>
+              {pipelines.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}{p.isDefault ? ' (default)' : ''}</option>
+              ))}
+              <option value="workspace">Any-pipeline rules only</option>
+            </select>
+          )}
           {stageFilter && (
             <button onClick={() => setStageFilter(null)}
               className="text-xs px-3 py-1.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 font-medium">
@@ -1237,6 +1296,26 @@ export default function AutomationsPage() {
                   <p className="text-xs text-grey-40 mt-1">
                     Pick a specific training to fire only when that one is {triggerType === 'training_completed' ? 'completed' : 'started'}.
                     Leave on &ldquo;Any&rdquo; to fire for every training in the workspace.
+                  </p>
+                </div>
+              )}
+              {pipelines.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-grey-20 mb-1.5">
+                    Pipeline <span className="font-normal text-grey-40">(which candidates this rule applies to)</span>
+                  </label>
+                  <select
+                    value={pipelineIdField}
+                    onChange={(e) => setPipelineIdField(e.target.value)}
+                    className="w-full px-4 py-3 border border-surface-border rounded-[8px] text-grey-15 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    <option value="">Any pipeline — fires for all candidates</option>
+                    {pipelines.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.isDefault ? ' (default)' : ''}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-grey-40 mt-1">
+                    Pin to a specific pipeline so e.g. a Cleaner training email doesn&apos;t fire for a Dispatcher candidate. Leave on &ldquo;Any pipeline&rdquo; to fire workspace-wide.
                   </p>
                 </div>
               )}

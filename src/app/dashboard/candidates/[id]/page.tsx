@@ -275,14 +275,20 @@ export default function CandidateDetailPage() {
     if (!candidate?.flow?.id) return
     fetch('/api/automations')
       .then((r) => r.json())
-      .then((rules: Array<{ id: string; isActive: boolean; triggerType: string; flowId: string | null; stageId: string | null }>) => {
+      .then((rules: Array<{ id: string; isActive: boolean; triggerType: string; flowId: string | null; stageId: string | null; pipelineId?: string | null }>) => {
         const candidateFlowId = candidate.flow!.id
+        const candidatePipelineId = candidate.pipeline?.id ?? null
         const counts: Record<string, number> = {}
         for (const stage of stages) {
           const events = new Set((stage.triggers ?? []).map((t) => t.event))
           counts[stage.id] = rules.filter((r) => {
             if (!r.isActive) return false
             if (r.flowId !== null && r.flowId !== candidateFlowId) return false
+            // Pipeline scope mirror — rule applies to this candidate iff its
+            // pipelineId is null (any-pipeline) or matches the candidate's
+            // resolved pipeline. Keeps the kanban "X rules in this stage"
+            // badge honest after multi-pipeline.
+            if (r.pipelineId != null && candidatePipelineId != null && r.pipelineId !== candidatePipelineId) return false
             if (r.stageId === stage.id) return true
             if (r.stageId === null && events.has(r.triggerType as never)) return true
             return false
@@ -291,7 +297,7 @@ export default function CandidateDetailPage() {
         setStageRuleCounts(counts)
       })
       .catch(() => {})
-  }, [stages, candidate?.flow?.id])
+  }, [stages, candidate?.flow?.id, candidate?.pipeline?.id])
 
   const updateStatus = async (pipelineStatus: string) => {
     await fetch(`/api/candidates/${id}`, {
