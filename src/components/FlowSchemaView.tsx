@@ -617,52 +617,57 @@ export default function FlowSchemaView({
         if (btnTarget && btnTarget !== '__end__') targets.push(btnTarget)
         const uniqueTargets = Array.from(new Set(targets))
 
-        if (sources.length !== 1 || uniqueTargets.length !== 1) {
-          const start = viewportCenter ?? { x: 0, y: 0 }
-          if (placeWithoutOverlap(id, start.x, start.y)) continue
-          merged[id] = { ...start }
-          continue
-        }
+        // "+" insert path: any new step with exactly one source step is a
+        // mid-chain insert (regardless of how many forward branches it has).
+        // Slot it beside the source on the same row.
+        // Standalone "+ Add Step" with no source falls through to the
+        // viewport-center placement below.
+        if (sources.length === 1) {
+          const src = merged[sources[0].id]
+          if (src) {
+            const newX = src.x + slot
+            const newY = src.y
+            merged[id] = { x: newX, y: newY }
 
-        const src = merged[sources[0].id]
-        const tgt = merged[uniqueTargets[0]]
-        if (!src || !tgt) {
-          const start = viewportCenter ?? { x: 0, y: 0 }
-          if (placeWithoutOverlap(id, start.x, start.y)) continue
-          merged[id] = { ...start }
-          continue
-        }
-
-        // Drop the new step right next to the source, on the same row.
-        const newX = src.x + slot
-        const newY = src.y
-        merged[id] = { x: newX, y: newY }
-
-        // If the new step overlaps the target, shift target and everything
-        // downstream right by the slot width so there's clean spacing.
-        if (newX + NODE_W > tgt.x - 4) {
-          const shift = newX + slot - tgt.x
-          const toShift = new Set<string>()
-          const queue = [uniqueTargets[0]]
-          while (queue.length > 0) {
-            const sid = queue.shift()!
-            if (toShift.has(sid)) continue
-            toShift.add(sid)
-            const s = steps.find((x) => x.id === sid)
-            if (!s) continue
-            for (const o of s.options) {
-              if (o.nextStepId && o.nextStepId !== '__end__' && !toShift.has(o.nextStepId)) {
-                queue.push(o.nextStepId)
+            // Shift downstream only when there's a single forward target —
+            // a clean "A → new → B" insertion. Multi-branch question
+            // steps don't auto-shift because there's no single "downstream"
+            // to follow; the user can manually arrange the branches.
+            if (uniqueTargets.length === 1) {
+              const tgt = merged[uniqueTargets[0]]
+              if (tgt && newX + NODE_W > tgt.x - 4) {
+                const shift = newX + slot - tgt.x
+                const toShift = new Set<string>()
+                const queue = [uniqueTargets[0]]
+                while (queue.length > 0) {
+                  const sid = queue.shift()!
+                  if (toShift.has(sid)) continue
+                  toShift.add(sid)
+                  const s = steps.find((x) => x.id === sid)
+                  if (!s) continue
+                  for (const o of s.options) {
+                    if (o.nextStepId && o.nextStepId !== '__end__' && !toShift.has(o.nextStepId)) {
+                      queue.push(o.nextStepId)
+                    }
+                  }
+                  const cBtn = s.buttonConfig?.nextStepId
+                  if (cBtn && cBtn !== '__end__' && !toShift.has(cBtn)) queue.push(cBtn)
+                }
+                toShift.forEach((sid) => {
+                  const p = merged[sid]
+                  if (p) merged[sid] = { x: p.x + shift, y: p.y }
+                })
               }
             }
-            const cBtn = s.buttonConfig?.nextStepId
-            if (cBtn && cBtn !== '__end__' && !toShift.has(cBtn)) queue.push(cBtn)
+            continue
           }
-          toShift.forEach((sid) => {
-            const p = merged[sid]
-            if (p) merged[sid] = { x: p.x + shift, y: p.y }
-          })
         }
+
+        // No single source → standalone "+ Add Step". Drop at viewport
+        // center, with overlap avoidance.
+        const start = viewportCenter ?? { x: 0, y: 0 }
+        if (placeWithoutOverlap(id, start.x, start.y)) continue
+        merged[id] = { ...start }
       }
 
       // Snap combined-with partners adjacent. If a partner is far away, slide
