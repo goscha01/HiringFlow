@@ -1032,7 +1032,12 @@ export default function FlowSchemaView({
 
       const laneY = laneYByConn.get(connKey(conn))
 
-      drawConnection(ctx, out.x, out.y, inp.x, inp.y, conn.label, false, '#FF9500', laneY)
+      // Button arrows hide their label on the canvas — the "Continue"
+      // button itself is already visible on the source card, so a label
+      // is redundant. Option arrows keep their answer text.
+      const displayLabel = conn.kind === 'button' ? '' : conn.label
+
+      drawConnection(ctx, out.x, out.y, inp.x, inp.y, displayLabel, false, '#FF9500', laneY)
 
       const [midX, midY] = bezierMid(out.x, out.y, inp.x, inp.y, laneY)
 
@@ -1192,6 +1197,42 @@ export default function FlowSchemaView({
       const hasIncoming = steps.some((s) => s.options.some((o) => o.nextStepId === step.id))
         || step.id === sorted[0]?.id
       drawPortCircle(ctx, inp.x, inp.y, isInpHovered, hasIncoming)
+    }
+
+    // Re-draw drag handles for the SELECTED arrow after port circles, so
+    // the active orange handle ends up on top of the inactive step port
+    // (port circles are drawn after the connection loop, which would
+    // otherwise hide the drag handle).
+    if (selectedArrow) {
+      if (selectedArrow.kind === 'start') {
+        const sortedSteps = [...steps].sort((a, b) => a.stepOrder - b.stepOrder)
+        const fp = sortedSteps[0] ? positions[sortedSteps[0].id] : null
+        if (fp) drawDragHandle(ctx, fp.x, fp.y + NODE_H / 2)
+      } else if (selectedArrow.kind === 'end') {
+        const sPos = positions[selectedArrow.stepId]
+        if (sPos) drawDragHandle(ctx, sPos.x + NODE_W, sPos.y + NODE_H / 2)
+      } else {
+        // option or button: re-draw both source-out and target-in handles
+        const sourceStep = steps.find((s) => s.id === selectedArrow.stepId)
+        const sourcePos = sourceStep ? positions[sourceStep.id] : null
+        let targetStepId: string | null = null
+        if (selectedArrow.kind === 'button') {
+          const btnNext = sourceStep?.buttonConfig?.nextStepId
+          if (btnNext && btnNext !== '__end__') targetStepId = btnNext
+        } else if (sourceStep) {
+          const option = sourceStep.options.find((o) => o.id === selectedArrow.optionId)
+          if (option?.nextStepId && option.nextStepId !== '__end__') targetStepId = option.nextStepId
+        }
+        const targetPos = targetStepId ? positions[targetStepId] : null
+        if (sourcePos) {
+          const o = getOutputPort(sourcePos)
+          drawDragHandle(ctx, o.x, o.y)
+        }
+        if (targetPos) {
+          const i = getInputPort(targetPos)
+          drawDragHandle(ctx, i.x, i.y)
+        }
+      }
     }
 
     // Draw draft connection line while dragging
