@@ -894,10 +894,36 @@ export default function AutomationsPage() {
     await fetch(`/api/automations/${id}`, { method: 'DELETE' }); refresh()
   }
 
+  // ID of the most recently duplicated rule. The row renders a brief flash so
+  // the recruiter can spot where the copy landed (right below the source) —
+  // important when the table is long or filtered to a specific pipeline.
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const duplicate = async (r: Rule) => {
     const res = await fetch(`/api/automations/${r.id}/duplicate`, { method: 'POST' })
-    if (res.ok) refresh()
-    else alert('Failed to duplicate automation')
+    if (!res.ok) {
+      alert('Failed to duplicate automation')
+      return
+    }
+    const copy = (await res.json().catch(() => null)) as Rule | null
+    if (!copy) {
+      // Server didn't return the new row — fall back to refetch.
+      refresh()
+      return
+    }
+    // Insert immediately after the source so the eye doesn't have to hunt to
+    // the top of the createdAt-desc list. The /api/automations refresh would
+    // technically reorder this back to the top, so we skip refresh here and
+    // trust the local insert; the next mutation (toggle / edit / delete) will
+    // pull a fresh server list anyway.
+    setRules((cur) => {
+      const idx = cur.findIndex((x) => x.id === r.id)
+      if (idx === -1) return [copy, ...cur]
+      return [...cur.slice(0, idx + 1), copy, ...cur.slice(idx + 1)]
+    })
+    setHighlightId(copy.id)
+    setTimeout(() => {
+      setHighlightId((cur) => (cur === copy.id ? null : cur))
+    }, 2000)
   }
 
   const runTest = async (r: Rule) => {
@@ -1175,7 +1201,12 @@ export default function AutomationsPage() {
                   const eff = effectiveStageOf(r)
                   const isExplicit = !!r.stageId
                   return (
-                    <tr key={r.id} className="hover:bg-surface-light">
+                    <tr
+                      key={r.id}
+                      className={`hover:bg-surface-light transition-colors duration-700 ${
+                        highlightId === r.id ? 'bg-brand-50' : ''
+                      }`}
+                    >
                       <td className="px-5 py-4 text-sm font-medium text-grey-15">{r.name}</td>
                       <td className="px-5 py-4">
                         {eff.id ? (
