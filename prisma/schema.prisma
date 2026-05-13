@@ -529,6 +529,12 @@ model Session {
   // (recruiter-entered) rather than self-applying through a flow. Distinct
   // from `source`, which is now user-selectable (Indeed/Facebook/custom).
   addedManually           Boolean                @default(false) @map("added_manually")
+  // Recruiter shortlist flag — when set, the candidate is "starred" in the
+  // dashboard. Orthogonal to status / pipelineStatus: a recruiter can flag
+  // anyone (active, stalled, lost) as interesting to revisit later. Stamp
+  // doubles as the sort key so the most recently flagged candidates surface
+  // first when filtering by interesting.
+  interestingAt           DateTime?              @map("interesting_at")
   answers                 SessionAnswer[]
   submissions             CandidateSubmission[]
   trainingEnrollments     TrainingEnrollment[]
@@ -1248,6 +1254,13 @@ model CaptureResponse {
   // while still being able to identify the "active" take (status='processed'
   // with the highest ordinal — surfaced by capture-response.service).
   captureOrdinal  Int       @default(1) @map("capture_ordinal")
+  // Public share token. When set, anyone with the URL can play this recording
+  // via the unauthenticated /api/public/captures/[token] route. Minted on
+  // demand by the recruiter "Share" button and revoked by clicking Unshare.
+  // Indexed for the public lookup. Per-row toggle so a leaked link can be
+  // killed without touching other captures.
+  shareToken      String?   @unique @map("share_token")
+  shareCreatedAt  DateTime? @map("share_created_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

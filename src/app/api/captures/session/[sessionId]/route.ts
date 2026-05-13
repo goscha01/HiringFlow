@@ -93,6 +93,7 @@ export async function GET(
         captureOrdinal: r.captureOrdinal,
         playbackUrl,
         playbackExpiresAt,
+        shareToken: r.shareToken,
         createdAt: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString(),
       }

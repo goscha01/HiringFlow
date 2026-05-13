@@ -16,6 +16,10 @@ export async function GET(request: NextRequest) {
   // that still maps to pipelineStatus (funnel stage id) — left intact so
   // existing query params keep working.
   const candidateStatusParam = request.nextUrl.searchParams.get('candidateStatus')
+  // `interesting=1` restricts to recruiter-starred candidates. The flag is
+  // independent of status / pipelineStatus — a recruiter can keep an eye on
+  // anyone, including rejected ones — so it composes with the other filters.
+  const interestingParam = request.nextUrl.searchParams.get('interesting')
   // Source filter — matches the kanban card's display logic
   // (`ad.source || session.source`). When the candidate came through a flow
   // ad, the ad's source wins; otherwise the session's own `source` (set by
@@ -41,6 +45,9 @@ export async function GET(request: NextRequest) {
   }
   if (flowId) {
     where.flowId = flowId
+  }
+  if (interestingParam === '1' || interestingParam === 'true') {
+    where.interestingAt = { not: null }
   }
   if (search) {
     andClauses.push({
@@ -164,6 +171,7 @@ export async function GET(request: NextRequest) {
     finishedAt: s.finishedAt,
     source: s.source,
     addedManually: s.addedManually,
+    interestingAt: s.interestingAt,
     flow: s.flow,
     ad: s.ad,
     answerCount: s.answers.length,

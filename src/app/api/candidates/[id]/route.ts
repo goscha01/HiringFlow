@@ -281,6 +281,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     candidateEmail?: string | null
     candidatePhone?: string | null
     flowId?: string
+    interesting?: boolean
   }
   const {
     pipelineStatus,
@@ -292,6 +293,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     candidateEmail,
     candidatePhone,
     flowId,
+    interesting,
   } = body
 
   const data: Record<string, unknown> = {}
@@ -322,6 +324,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (candidatePhone !== undefined) {
     const trimmed = typeof candidatePhone === 'string' ? candidatePhone.trim() : null
     data.candidatePhone = trimmed && trimmed.length > 0 ? trimmed : null
+  }
+  // Star / un-star — recruiter shortlist toggle. Setting to `true` stamps now,
+  // `false` clears. Stored timestamp doubles as the sort key so the dashboard
+  // can list "interesting candidates" newest-first.
+  if (interesting !== undefined) {
+    data.interestingAt = interesting ? new Date() : null
   }
   // Reassign to a different flow. The current `lastStepId` references a step
   // in the old flow, which would dangle once flowId moves — clear it so the
@@ -443,6 +451,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     candidateEmail: updated.candidateEmail,
     candidatePhone: updated.candidatePhone,
     flowId: updated.flowId,
+    interestingAt: updated.interestingAt,
   })
 }
 

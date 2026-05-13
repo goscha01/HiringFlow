@@ -46,6 +46,7 @@ interface CaptureSummary {
   // legacy video submissions and inline meeting links.
   playbackUrl: string | null
   playbackExpiresAt: string | null
+  shareToken?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -119,6 +120,7 @@ interface CandidateDetail {
   stalledAt: string | null; lostAt: string | null; hiredAt: string | null
   source: string | null; campaign: string | null; addedManually: boolean
   rejectionReason: string | null; rejectionReasonAt: string | null
+  interestingAt: string | null
   flow: {
     id: string; name: string; slug: string
     videoInterviewTimeoutDays?: number | null
@@ -447,6 +449,32 @@ export default function CandidateDetailPage() {
       setProfileError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  // Recruiter shortlist toggle — star/un-star. PATCH writes `interestingAt`
+  // and we optimistic-merge the result so the icon flips immediately.
+  const [interestingBusy, setInterestingBusy] = useState(false)
+  const toggleInteresting = async () => {
+    if (!candidate || interestingBusy) return
+    const next = !candidate.interestingAt
+    setInterestingBusy(true)
+    setCandidate((prev) => prev ? { ...prev, interestingAt: next ? new Date().toISOString() : null } : null)
+    try {
+      const res = await fetch(`/api/candidates/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interesting: next }),
+      })
+      if (!res.ok) {
+        // Roll back optimistic update on failure
+        setCandidate((prev) => prev ? { ...prev, interestingAt: next ? null : (prev.interestingAt ?? null) } : null)
+        return
+      }
+      const data = await res.json()
+      setCandidate((prev) => prev ? { ...prev, interestingAt: data.interestingAt ?? null } : null)
+    } finally {
+      setInterestingBusy(false)
     }
   }
 
@@ -843,6 +871,15 @@ export default function CandidateDetailPage() {
         <Link href="/dashboard/candidates" className="text-grey-40 hover:text-grey-15">&larr; Back</Link>
         <div className="flex-1">
           <div className="flex items-center gap-2">
+            <button
+              onClick={toggleInteresting}
+              disabled={interestingBusy}
+              title={candidate.interestingAt ? 'Remove from interesting' : 'Mark as interesting'}
+              aria-pressed={!!candidate.interestingAt}
+              className={`text-xl leading-none px-1 disabled:opacity-50 ${candidate.interestingAt ? 'text-amber-500 hover:text-amber-600' : 'text-grey-40 hover:text-amber-500'}`}
+            >
+              {candidate.interestingAt ? '★' : '☆'}
+            </button>
             <h1 className="text-2xl font-semibold text-grey-15">{candidate.candidateName || 'Anonymous'}</h1>
             <button
               onClick={openProfileEditor}

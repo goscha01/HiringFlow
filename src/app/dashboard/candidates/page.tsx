@@ -51,6 +51,7 @@ interface Candidate {
   ad: { id: string; name: string; source: string } | null
   isRebook?: boolean
   nextMeetingAt?: string | null
+  interestingAt?: string | null
 }
 
 // Status tabs above the kanban. The "Active" tab — the default view —
@@ -134,6 +135,10 @@ export default function CandidatesPage() {
   const [sourceFilter, setSourceFilter] = useState('')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  // Toggle: when true, only show recruiter-starred candidates (interestingAt
+  // not null). Persisted in localStorage so the recruiter's shortlist view
+  // sticks across refreshes.
+  const [interestingOnly, setInterestingOnly] = useState(false)
   const [dragging, setDragging] = useState<string | null>(null)
   const [hoverCol, setHoverCol] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -314,6 +319,7 @@ export default function CandidatesPage() {
     if (flowFilter) params.set('flowId', flowFilter)
     if (sourceFilter) params.set('source', sourceFilter)
     if (search) params.set('search', search)
+    if (interestingOnly) params.set('interesting', '1')
     const tab = statusTabs.find((t) => t.key === statusTab)
     if (tab && tab.statuses) params.set('candidateStatus', tab.statuses.join(','))
     fetch(`/api/candidates?${params}`)
@@ -342,7 +348,7 @@ export default function CandidatesPage() {
         setStatusCounts(buckets)
       })
       .catch(() => {})
-  }, [flowFilter, sourceFilter, search, statusTab, statusTabs, customStatuses])
+  }, [flowFilter, sourceFilter, search, statusTab, statusTabs, customStatuses, interestingOnly])
 
   useEffect(() => { load() }, [load])
 
@@ -377,6 +383,25 @@ export default function CandidatesPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pipelineStatus }),
     })
+  }
+
+  // Star / un-star — optimistic. Persisted as `interestingAt` (timestamp set
+   // when starred, cleared when unstarred). Doesn't move the card on the
+   // kanban; only changes the icon and filters when the "Interesting" toggle
+   // is on.
+  const toggleInteresting = async (c: Candidate) => {
+    const next = !c.interestingAt
+    const nextIso = next ? new Date().toISOString() : null
+    const prev = candidates
+    setCandidates((cur) => cur.map((x) => x.id === c.id ? { ...x, interestingAt: nextIso } : x))
+    const res = await fetch(`/api/candidates/${c.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interesting: next }),
+    })
+    if (!res.ok) {
+      setCandidates(prev)
+    }
   }
 
   const deleteCandidate = async (c: Candidate) => {
@@ -534,6 +559,15 @@ export default function CandidatesPage() {
               </optgroup>
             )}
           </select>
+          <button
+            onClick={() => setInterestingOnly((v) => !v)}
+            aria-pressed={interestingOnly}
+            title={interestingOnly ? 'Showing only candidates you starred — click to clear' : 'Show only candidates you marked as interesting'}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] border focus:outline-none focus:ring-2 focus:ring-brand-500/40 ${interestingOnly ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-white border-surface-border text-grey-35 hover:border-grey-35'}`}
+          >
+            <span className={interestingOnly ? 'text-amber-500' : 'text-grey-50'}>{interestingOnly ? '★' : '☆'}</span>
+            Interesting
+          </button>
         </div>
 
         {loading ? (
@@ -670,9 +704,21 @@ export default function CandidatesPage() {
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2 mb-1.5">
-                            <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight pr-6">
-                              {c.candidateName || 'Anonymous'}
-                            </Link>
+                            <div className="flex items-center gap-1 pr-6 min-w-0">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleInteresting(c) }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                draggable={false}
+                                className={`shrink-0 text-[14px] leading-none ${c.interestingAt ? 'text-amber-500 hover:text-amber-600' : 'text-grey-50 hover:text-amber-500'}`}
+                                title={c.interestingAt ? 'Remove from interesting' : 'Mark as interesting'}
+                                aria-pressed={!!c.interestingAt}
+                              >
+                                {c.interestingAt ? '★' : '☆'}
+                              </button>
+                              <Link href={`/dashboard/candidates/${c.id}`} className="font-medium text-[13px] text-ink hover:text-[color:var(--brand-primary)] leading-tight truncate">
+                                {c.candidateName || 'Anonymous'}
+                              </Link>
+                            </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); deleteCandidate(c) }}
                               onMouseDown={(e) => e.stopPropagation()}
