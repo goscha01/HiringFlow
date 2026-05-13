@@ -319,14 +319,18 @@ export default function AutomationsPage() {
   const [templateEditorStepIdx, setTemplateEditorStepIdx] = useState<number | null>(null)
   const [templateEditorChannel, setTemplateEditorChannel] = useState<'email' | 'sms'>('email')
   // When the editor opens (idx becomes non-null), pull it into view AND
-  // clear any stale save error from a previous attempt.
+  // clear any stale save error from a previous attempt. When it closes (idx
+  // becomes null), also clear the edit-in-place flags so a subsequent open
+  // doesn't accidentally inherit them from the prior session.
   useEffect(() => {
     if (templateEditorStepIdx !== null) {
       setTplSaveError(null)
-      // Defer to next frame so the editor is in the DOM before we scroll.
       requestAnimationFrame(() => {
         tplEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       })
+    } else {
+      setTemplateEditorEditingId(null)
+      setSmsTemplateEditorEditingId(null)
     }
   }, [templateEditorStepIdx])
   const [companyEmail, setCompanyEmail] = useState<string | null>(null)
@@ -353,6 +357,12 @@ export default function AutomationsPage() {
   // sources. Null = blank-slate (no template selected on the originating step).
   const [templateEditorSourceId, setTemplateEditorSourceId] = useState<string | null>(null)
   const [savingTpl, setSavingTpl] = useState(false)
+  // When set, the inline editor PATCHes this template id (update-in-place)
+  // instead of POSTing a new one. Used by the "Edit" link on the template
+  // preview — recruiter clicks it expecting to edit the existing template,
+  // not auto-duplicate. Null = the "+ New template" flow (POST).
+  const [templateEditorEditingId, setTemplateEditorEditingId] = useState<string | null>(null)
+  const [smsTemplateEditorEditingId, setSmsTemplateEditorEditingId] = useState<string | null>(null)
   // Imperative handle into the rich-text editor so createTemplate can read
   // the live DOM HTML instead of the React state mirror. The contenteditable's
   // onBlur (fired when the Save button is clicked) enqueues a state update
@@ -835,26 +845,44 @@ export default function AutomationsPage() {
     if (!newTplSubject.trim()) { setTplSaveError('Subject is required'); return }
     if (!bodyHtml.trim()) { setTplSaveError('Body is required'); return }
     setSavingTpl(true)
-    const finalName = resolveUniqueTemplateName(newTplName.trim(), templates)
     try {
-      const r = await fetch('/api/email-templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml }),
-      })
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}))
-        setTplSaveError(data.error || `Save failed (${r.status})`)
-        return
-      }
-      const newTpl = await r.json()
-      const tplRes = await fetch('/api/email-templates')
-      if (tplRes.ok) setTemplates(await tplRes.json())
-      // Bind the new template to the step that opened the editor.
-      if (templateEditorStepIdx !== null) {
-        updateStep(templateEditorStepIdx, { emailTemplateId: newTpl.id })
+      // Branch on edit-in-place vs new-template intent. Edit-in-place keeps
+      // the same template id so every rule that points at it sees the update;
+      // POST creates a new row and rebinds only the step we opened from.
+      if (templateEditorEditingId) {
+        const r = await fetch(`/api/email-templates/${templateEditorEditingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newTplName.trim(), subject: newTplSubject, bodyHtml }),
+        })
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}))
+          setTplSaveError(data.error || `Save failed (${r.status})`)
+          return
+        }
+        const tplRes = await fetch('/api/email-templates')
+        if (tplRes.ok) setTemplates(await tplRes.json())
+      } else {
+        const finalName = resolveUniqueTemplateName(newTplName.trim(), templates)
+        const r = await fetch('/api/email-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: finalName, subject: newTplSubject, bodyHtml }),
+        })
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}))
+          setTplSaveError(data.error || `Save failed (${r.status})`)
+          return
+        }
+        const newTpl = await r.json()
+        const tplRes = await fetch('/api/email-templates')
+        if (tplRes.ok) setTemplates(await tplRes.json())
+        if (templateEditorStepIdx !== null) {
+          updateStep(templateEditorStepIdx, { emailTemplateId: newTpl.id })
+        }
       }
       setTemplateEditorStepIdx(null)
+      setTemplateEditorEditingId(null)
       setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
     } catch (err) {
       setTplSaveError(err instanceof Error ? err.message : 'Save failed')
@@ -881,8 +909,31 @@ export default function AutomationsPage() {
     if (!newTplName.trim()) { setTplSaveError('Template name is required'); return }
     if (!newSmsTplBody.trim()) { setTplSaveError('Body is required'); return }
     setSavingTpl(true)
-    const finalName = resolveUniqueSmsTemplateName(newTplName.trim(), smsTemplates)
     try {
+      if (smsTemplateEditorEditingId) {
+        const r = await fetch(`/api/sms-templates/${smsTemplateEditorEditingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newTplName.trim(), body: newSmsTplBody }),
+        })
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}))
+          setTplSaveError(data.error || `Save failed (${r.status})`)
+          return
+        }
+        const tplRes = await fetch('/api/sms-templates')
+        if (tplRes.ok) setSmsTemplates(await tplRes.json())
+        // Mirror the edited body into the step's smsBody so the inline
+        // preview reflects the new content. The template id stays the same.
+        if (templateEditorStepIdx !== null) {
+          updateStep(templateEditorStepIdx, { smsBody: newSmsTplBody })
+        }
+        setTemplateEditorStepIdx(null)
+        setSmsTemplateEditorEditingId(null)
+        setNewTplName(''); setNewSmsTplBody('Hi {{candidate_name}}, ')
+        return
+      }
+      const finalName = resolveUniqueSmsTemplateName(newTplName.trim(), smsTemplates)
       const r = await fetch('/api/sms-templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1545,6 +1596,7 @@ export default function AutomationsPage() {
                       onCreateTemplate={() => {
                         setTemplateEditorChannel('email')
                         setTemplateEditorStepIdx(idx)
+                        setTemplateEditorEditingId(null)
                         // Seed the editor with the step's currently-assigned
                         // template so "+ New template" doubles as "duplicate &
                         // edit the one I'm already using". The "Start from"
@@ -1565,12 +1617,21 @@ export default function AutomationsPage() {
                       onPickDefaultTemplate={(tpl) => {
                         setTemplateEditorChannel('email')
                         setTemplateEditorStepIdx(idx)
+                        setTemplateEditorEditingId(null)
                         setTemplateEditorSourceId(null)
+                        setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml)
+                      }}
+                      onEditExistingTemplate={(tpl) => {
+                        setTemplateEditorChannel('email')
+                        setTemplateEditorStepIdx(idx)
+                        setTemplateEditorEditingId(tpl.id)
+                        setTemplateEditorSourceId(tpl.id)
                         setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml)
                       }}
                       onCreateSmsTemplate={() => {
                         setTemplateEditorChannel('sms')
                         setTemplateEditorStepIdx(idx)
+                        setSmsTemplateEditorEditingId(null)
                         const current = step.smsTemplateId
                           ? smsTemplates.find((t) => t.id === step.smsTemplateId)
                           : null
@@ -1586,13 +1647,21 @@ export default function AutomationsPage() {
                       onPickDefaultSmsTemplate={(tpl) => {
                         setTemplateEditorChannel('sms')
                         setTemplateEditorStepIdx(idx)
+                        setSmsTemplateEditorEditingId(null)
                         setTemplateEditorSourceId(null)
+                        setNewTplName(tpl.name); setNewSmsTplBody(tpl.body)
+                      }}
+                      onEditExistingSmsTemplate={(tpl) => {
+                        setTemplateEditorChannel('sms')
+                        setTemplateEditorStepIdx(idx)
+                        setSmsTemplateEditorEditingId(tpl.id)
+                        setTemplateEditorSourceId(tpl.id)
                         setNewTplName(tpl.name); setNewSmsTplBody(tpl.body)
                       }}
                       smsEditorSlot={templateEditorStepIdx === idx && templateEditorChannel === 'sms' ? (
                         <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-purple-300/60">
                           <div className="flex items-center justify-between">
-                            <div className="text-xs font-medium text-grey-15">SMS template editor</div>
+                            <div className="text-xs font-medium text-grey-15">{smsTemplateEditorEditingId ? 'Edit SMS template' : 'New SMS template'}</div>
                             <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
                           </div>
                           {smsTemplates.length > 0 && (
@@ -1652,13 +1721,13 @@ export default function AutomationsPage() {
                               {tplSaveError}
                             </div>
                           )}
-                          <button onClick={createSmsTemplate} disabled={savingTpl} className="w-full py-2.5 text-xs bg-purple-600 text-white rounded-[6px] hover:bg-purple-700 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Assign to step'}</button>
+                          <button onClick={createSmsTemplate} disabled={savingTpl} className="w-full py-2.5 text-xs bg-purple-600 text-white rounded-[6px] hover:bg-purple-700 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : smsTemplateEditorEditingId ? 'Update template' : 'Save template & assign to step'}</button>
                         </div>
                       ) : null}
                       editorSlot={templateEditorStepIdx === idx && templateEditorChannel === 'email' ? (
                         <div ref={tplEditorRef} className="p-4 bg-surface rounded-[8px] border border-surface-border space-y-3 ring-2 ring-brand-300/50">
                           <div className="flex items-center justify-between">
-                            <div className="text-xs font-medium text-grey-15">Template editor</div>
+                            <div className="text-xs font-medium text-grey-15">{templateEditorEditingId ? 'Edit template' : 'New template'}</div>
                             <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
                           </div>
                           {templates.length > 0 && (
@@ -1718,7 +1787,7 @@ export default function AutomationsPage() {
                               {tplSaveError}
                             </div>
                           )}
-                          <button onClick={createTemplate} disabled={savingTpl} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : 'Save Template & Assign to step'}</button>
+                          <button onClick={createTemplate} disabled={savingTpl} className="w-full py-2.5 text-xs bg-brand-500 text-white rounded-[6px] hover:bg-brand-600 disabled:opacity-50 font-medium">{savingTpl ? 'Saving...' : templateEditorEditingId ? 'Update template' : 'Save template & assign to step'}</button>
                         </div>
                       ) : null}
                     />
@@ -1943,8 +2012,13 @@ function StepCard(props: {
   onInsertTokenInSmsBody: (kind: 'training' | 'scheduling' | 'meet_link' | 'background_check') => void
   onCreateTemplate: () => void
   onPickDefaultTemplate: (tpl: { name: string; subject: string; bodyHtml: string }) => void
+  // Edit-in-place: opens the inline editor pointed at an existing template
+  // so Save patches that row rather than creating a new one. Separate from
+  // onPickDefaultTemplate, which always implies "new template".
+  onEditExistingTemplate: (tpl: { id: string; name: string; subject: string; bodyHtml: string }) => void
   onCreateSmsTemplate: () => void
   onPickDefaultSmsTemplate: (tpl: { name: string; body: string }) => void
+  onEditExistingSmsTemplate: (tpl: { id: string; name: string; body: string }) => void
   isEditingTemplate: boolean
   isEditingSmsTemplate: boolean
   editorSlot: React.ReactNode
@@ -2163,9 +2237,9 @@ function StepCard(props: {
                       </div>
                       <button
                         type="button"
-                        onClick={() => props.onPickDefaultTemplate({ name: sel.name, subject: sel.subject, bodyHtml: sel.bodyHtml || '' })}
+                        onClick={() => props.onEditExistingTemplate({ id: sel.id, name: sel.name, subject: sel.subject, bodyHtml: sel.bodyHtml || '' })}
                         className="text-[11px] text-brand-600 hover:text-brand-700 font-medium whitespace-nowrap flex-shrink-0"
-                        title={`Edit "${sel.name}" — saves as a new template (auto-suffixed if the name collides)`}
+                        title={`Edit "${sel.name}" in place — every rule that uses this template will see the update`}
                       >
                         Edit
                       </button>
@@ -2313,9 +2387,9 @@ function StepCard(props: {
                       </div>
                       <button
                         type="button"
-                        onClick={() => props.onPickDefaultSmsTemplate({ name: sel.name, body: sel.body })}
+                        onClick={() => props.onEditExistingSmsTemplate({ id: sel.id, name: sel.name, body: sel.body })}
                         className="text-[11px] text-purple-700 hover:text-purple-900 font-medium whitespace-nowrap flex-shrink-0"
-                        title={`Edit "${sel.name}" — saves as a new template (auto-suffixed if the name collides)`}
+                        title={`Edit "${sel.name}" in place — every rule that uses this template will see the update`}
                       >
                         Edit
                       </button>
