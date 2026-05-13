@@ -347,6 +347,10 @@ export default function AutomationsPage() {
   const [newTplSubject, setNewTplSubject] = useState('')
   const [newTplBody, setNewTplBody] = useState('<p>Hi {{candidate_name}},</p>\n<p></p>')
   const [newSmsTplBody, setNewSmsTplBody] = useState('Hi {{candidate_name}}, ')
+  // Tracks which existing template the inline editor was seeded from, so the
+  // "Start from existing template" picker stays in sync as the user switches
+  // sources. Null = blank-slate (no template selected on the originating step).
+  const [templateEditorSourceId, setTemplateEditorSourceId] = useState<string | null>(null)
   const [savingTpl, setSavingTpl] = useState(false)
 
   useEffect(() => {
@@ -1499,21 +1503,48 @@ export default function AutomationsPage() {
                       onCreateTemplate={() => {
                         setTemplateEditorChannel('email')
                         setTemplateEditorStepIdx(idx)
-                        setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
+                        // Seed the editor with the step's currently-assigned
+                        // template so "+ New template" doubles as "duplicate &
+                        // edit the one I'm already using". The "Start from"
+                        // picker inside the editor lets the user re-source.
+                        const current = step.emailTemplateId
+                          ? templates.find((t) => t.id === step.emailTemplateId)
+                          : null
+                        if (current) {
+                          setTemplateEditorSourceId(current.id)
+                          setNewTplName(current.name)
+                          setNewTplSubject(current.subject)
+                          setNewTplBody(current.bodyHtml || current.bodyText || '')
+                        } else {
+                          setTemplateEditorSourceId(null)
+                          setNewTplName(''); setNewTplSubject(''); setNewTplBody('<p>Hi {{candidate_name}},</p>\n<p></p>')
+                        }
                       }}
                       onPickDefaultTemplate={(tpl) => {
                         setTemplateEditorChannel('email')
                         setTemplateEditorStepIdx(idx)
+                        setTemplateEditorSourceId(null)
                         setNewTplName(tpl.name); setNewTplSubject(tpl.subject); setNewTplBody(tpl.bodyHtml)
                       }}
                       onCreateSmsTemplate={() => {
                         setTemplateEditorChannel('sms')
                         setTemplateEditorStepIdx(idx)
-                        setNewTplName(''); setNewSmsTplBody('Hi {{candidate_name}}, ')
+                        const current = step.smsTemplateId
+                          ? smsTemplates.find((t) => t.id === step.smsTemplateId)
+                          : null
+                        if (current) {
+                          setTemplateEditorSourceId(current.id)
+                          setNewTplName(current.name)
+                          setNewSmsTplBody(current.body)
+                        } else {
+                          setTemplateEditorSourceId(null)
+                          setNewTplName(''); setNewSmsTplBody('Hi {{candidate_name}}, ')
+                        }
                       }}
                       onPickDefaultSmsTemplate={(tpl) => {
                         setTemplateEditorChannel('sms')
                         setTemplateEditorStepIdx(idx)
+                        setTemplateEditorSourceId(null)
                         setNewTplName(tpl.name); setNewSmsTplBody(tpl.body)
                       }}
                       smsEditorSlot={templateEditorStepIdx === idx && templateEditorChannel === 'sms' ? (
@@ -1522,6 +1553,29 @@ export default function AutomationsPage() {
                             <div className="text-xs font-medium text-grey-15">SMS template editor</div>
                             <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
                           </div>
+                          {smsTemplates.length > 0 && (
+                            <div>
+                              <label className="block text-xs text-grey-40 mb-1">Start from existing template</label>
+                              <select
+                                value={templateEditorSourceId ?? ''}
+                                onChange={(e) => {
+                                  const id = e.target.value
+                                  if (!id) { setTemplateEditorSourceId(null); return }
+                                  const t = smsTemplates.find((x) => x.id === id)
+                                  if (!t) return
+                                  setTemplateEditorSourceId(t.id)
+                                  setNewTplName(t.name)
+                                  setNewSmsTplBody(t.body)
+                                }}
+                                className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm bg-white text-grey-15 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                              >
+                                <option value="">— Blank template —</option>
+                                {smsTemplates.map((t) => (
+                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           <div>
                             <label className="block text-xs text-grey-40 mb-1">Template Name</label>
                             <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. 1-hour Reminder" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-purple-500" />
@@ -1565,6 +1619,30 @@ export default function AutomationsPage() {
                             <div className="text-xs font-medium text-grey-15">Template editor</div>
                             <button onClick={() => setTemplateEditorStepIdx(null)} className="text-xs text-grey-40 hover:text-grey-15">Cancel</button>
                           </div>
+                          {templates.length > 0 && (
+                            <div>
+                              <label className="block text-xs text-grey-40 mb-1">Start from existing template</label>
+                              <select
+                                value={templateEditorSourceId ?? ''}
+                                onChange={(e) => {
+                                  const id = e.target.value
+                                  if (!id) { setTemplateEditorSourceId(null); return }
+                                  const t = templates.find((x) => x.id === id)
+                                  if (!t) return
+                                  setTemplateEditorSourceId(t.id)
+                                  setNewTplName(t.name)
+                                  setNewTplSubject(t.subject)
+                                  setNewTplBody(t.bodyHtml || t.bodyText || '')
+                                }}
+                                className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm bg-white text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                              >
+                                <option value="">— Blank template —</option>
+                                {templates.map((t) => (
+                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           <div>
                             <label className="block text-xs text-grey-40 mb-1">Template Name</label>
                             <input type="text" value={newTplName} onChange={e => setNewTplName(e.target.value)} placeholder="e.g. Training Invitation" className="w-full px-3 py-2 border border-surface-border rounded-[6px] text-sm text-grey-15 focus:outline-none focus:ring-1 focus:ring-brand-500" />
