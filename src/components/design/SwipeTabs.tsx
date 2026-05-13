@@ -91,6 +91,18 @@ export function SwipeTabs({ items, children, mobileBreakpoint = 768, disabledPat
     ? 'none'
     : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
 
+  // Only apply the transform / willChange while the swipe is actually
+  // animating. CSS's containing-block rule says any non-`none` transform
+  // (and `will-change: transform`) on an ancestor makes that ancestor the
+  // containing block for `position: fixed` descendants — so modals rendered
+  // inside <main> would scroll with the page instead of staying pinned to
+  // the viewport. Dropping the style at rest restores the expected fixed
+  // behavior and the swipe animation still works during drag.
+  const idle = !dragging && !snapping && dx === 0
+  const animStyle = idle
+    ? undefined
+    : { transform, transition, willChange: 'transform' as const }
+
   return (
     <div
       {...bind}
@@ -98,7 +110,7 @@ export function SwipeTabs({ items, children, mobileBreakpoint = 768, disabledPat
       // the transform container stacks correctly.
       style={{ ...bind.style, position: 'relative', minHeight: 'calc(100vh - 60px)' }}
     >
-      <div style={{ transform, transition, willChange: 'transform' }}>
+      <div style={animStyle}>
         {children}
       </div>
       {/* Edge hint: when user drags, show a subtle arrow that fades in with
