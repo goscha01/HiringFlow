@@ -17,6 +17,7 @@ import Link from 'next/link'
 import { signOut, useSession } from 'next-auth/react'
 import { TopNav, type TopNavItem } from '@/components/design'
 import { SwipeTabs } from '@/components/design/SwipeTabs'
+import { TranscodeBanner } from './_components/TranscodeBanner'
 
 const NAV_ITEMS: TopNavItem[] = [
   { href: '/dashboard/candidates', label: 'Candidates' },
@@ -73,6 +74,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         }
       />
+
+      <TranscodeBanner />
 
       <SwipeTabs items={NAV_ITEMS} disabledPaths={SWIPE_DISABLED}>
         <main

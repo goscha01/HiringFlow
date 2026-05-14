@@ -153,8 +153,25 @@ export default function MediaPage() {
     await fetchVideos()
     setUploading(false)
     e.target.value = ''
-    setTimeout(() => setUploads([]), 3000)
+    // Leave the success/error rows visible long enough for the recruiter to
+    // read the "you can leave the page" banner that surfaces underneath. The
+    // previous 3-second auto-clear was too tight when uploads come in fast and
+    // the recruiter is still reading.
+    setTimeout(() => setUploads([]), 12000)
   }
+
+  // Prevent accidentally leaving the page during an in-flight XHR PUT (the
+  // upload is foreground; navigation cancels it). The browser shows the
+  // "are you sure you want to leave" dialog automatically when returnValue is
+  // set. Once status flips to 'success' or 'error' the PUT is done — at that
+  // point the recruiter can navigate freely; the transcode runs server-side.
+  useEffect(() => {
+    const anyInFlight = uploads.some((u) => u.status === 'uploading' || u.status === 'pending')
+    if (!anyInFlight) return
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [uploads])
 
   const uploadSinglePicture = async (file: File, index: number) => {
     try {
@@ -272,8 +289,29 @@ export default function MediaPage() {
                     }}
                   />
                 </div>
+                {u.status === 'uploading' && (
+                  <p className="mt-2 text-[11px] text-grey-35">Uploading to secure storage — please keep this tab open until it reaches 100%.</p>
+                )}
+                {u.status === 'error' && (
+                  <p className="mt-2 text-[11px] text-[color:var(--danger-fg)]">{u.error || 'Upload failed — try again. If the file is large, leave the tab open until it reaches 100%.'}</p>
+                )}
               </Card>
             ))}
+            {uploads.every((u) => u.status === 'success' || u.status === 'error') && uploads.some((u) => u.status === 'success') && (
+              // Persistent banner shown after the upload PUT finishes. The
+              // transcode itself runs in the background on Lambda; the
+              // recruiter can navigate away or kick off another upload — an
+              // email lands when each video is playable.
+              <div className="rounded-[10px] border p-4 flex items-start gap-3" style={{ background: '#FFF7EA', borderColor: '#FFE2B7' }}>
+                <div className="w-8 h-8 rounded-full flex-none flex items-center justify-center" style={{ background: '#FF9500' }}>
+                  <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <div className="flex-1 text-[13px] leading-relaxed">
+                  <div className="font-semibold text-ink mb-0.5">Upload complete — transcoding in the background</div>
+                  <p className="text-grey-35">Feel free to keep working or close this tab. We&apos;ll email you at your account address when the video is ready to play (usually 1–5 minutes per video).</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
