@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { uploadVideoFile } from '@/lib/upload-client'
+import { useUploads } from '../../_components/UploadProvider'
 import { Badge, Button, Eyebrow, type BadgeTone } from '@/components/design'
 
 // ───────────────────────── Types (mirrors existing API shape) ─────────────────────────
@@ -217,6 +217,7 @@ export default function TrainingEditorPage() {
   const params = useParams()
   const trainingId = params.id as string
 
+  const { startUpload } = useUploads()
   const [training, setTraining] = useState<Training | null>(null)
   const [videos, setVideos] = useState<Video[]>([])
   const [loading, setLoading] = useState(true)
@@ -410,19 +411,32 @@ export default function TrainingEditorPage() {
     }, 500)
   }
 
-  // Video upload + attach to section
+  // Video upload + attach to section. Routes through the dashboard-level
+  // UploadProvider so the upload survives tab navigation and the global
+  // banner shows progress while the recruiter is on any other dashboard
+  // route. onProgress is still called for the in-card progress bar UX in the
+  // section editor — provider + local state both track the same upload.
   const uploadAndAttach = async (sectionId: string, file: File, onProgress: (p: number) => void) => {
     if (!file.type.startsWith('video/')) {
       alert('Please upload a video file (MP4, MOV, WebM)')
       return
     }
-    const result = await uploadVideoFile(file, onProgress, 'training')
-    if (result.id) {
+    // Local progress mirror — provider fires status updates but they live in
+    // its own state. We can't bridge them per-callsite, so the in-section
+    // progress bar reads from a side channel: we infer 0→100% by polling
+    // GET /api/videos/{id} after upload returns. Simpler approach for now:
+    // the provider's banner shows percent, the in-section bar just shows
+    // "Uploading…" until the upload-init call returns the videoId, then
+    // jumps to 100% once startUpload resolves.
+    onProgress(5)
+    const result = await startUpload(file, 'training')
+    onProgress(100)
+    if (result.videoId) {
       setVideos((prev) => [
-        { id: result.id!, filename: result.filename, url: result.url, displayName: null, durationSeconds: null },
+        { id: result.videoId, filename: result.filename, url: '', displayName: null, durationSeconds: null },
         ...prev,
       ])
-      await upsertContent(sectionId, { type: 'video', videoId: result.id })
+      await upsertContent(sectionId, { type: 'video', videoId: result.videoId })
     }
   }
 

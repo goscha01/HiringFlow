@@ -10,6 +10,7 @@ import BrandingEditor from '@/components/BrandingEditor'
 import { type BrandingConfig } from '@/lib/branding'
 import { validateCaptureConfig } from '@/lib/capture/capture-config'
 import CaptureStepConfigPanel from './_CaptureStepConfigPanel'
+import { useUploads } from '../../../_components/UploadProvider'
 
 interface Video {
   id: string
@@ -65,6 +66,7 @@ export default function FlowBuilderPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const flowId = params.id as string
+  const { startUpload } = useUploads()
 
   const [flow, setFlow] = useState<Flow | null>(null)
   const [videos, setVideos] = useState<Video[]>([])
@@ -401,16 +403,16 @@ export default function FlowBuilderPage() {
     const file = e.target.files?.[0]
     if (!file || !file.type.startsWith('video/')) return
     setUploadingStepVideo(true)
-    setStepVideoProgress(0)
+    setStepVideoProgress(5)
     try {
-      const { uploadVideoFile } = await import('@/lib/upload-client')
-      const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p), 'interview')
-      if (result.id) {
-        setAddStepVideoId(result.id)
-        setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+      const result = await startUpload(file, 'interview')
+      setStepVideoProgress(100)
+      if (result.videoId) {
+        setAddStepVideoId(result.videoId)
+        setVideos(prev => [{ id: result.videoId, filename: result.filename, url: '', displayName: null }, ...prev])
         if (!autoTitleEnabled && !addStepTitle) setAddStepTitle(file.name.replace(/\.[^.]+$/, ''))
         // Auto-generate title from transcript if toggle is on
-        if (autoTitleEnabled) generateTitleFromVideo(result.id)
+        if (autoTitleEnabled) generateTitleFromVideo(result.videoId)
       }
     } catch {}
     setUploadingStepVideo(false)
@@ -1403,11 +1405,10 @@ export default function FlowBuilderPage() {
                               Upload
                               <input type="file" accept="video/*" className="hidden" onChange={async (e) => {
                                 const file = e.target.files?.[0]; if (!file) return
-                                const { uploadVideoFile } = await import('@/lib/upload-client')
-                                const result = await uploadVideoFile(file, undefined, 'interview')
-                                if (result.id) {
-                                  setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
-                                  updateStep(popupStep.id, { videoId: result.id })
+                                const result = await startUpload(file, 'interview')
+                                if (result.videoId) {
+                                  setVideos(prev => [{ id: result.videoId, filename: result.filename, url: '', displayName: null }, ...prev])
+                                  updateStep(popupStep.id, { videoId: result.videoId })
                                 }
                               }} />
                             </label>
@@ -1889,13 +1890,13 @@ export default function FlowBuilderPage() {
                           e.currentTarget.classList.remove('border-brand-500', 'bg-brand-50')
                           const file = e.dataTransfer.files[0]
                           if (file && file.type.startsWith('video/')) {
-                            setUploadingStepVideo(true); setStepVideoProgress(0)
+                            setUploadingStepVideo(true); setStepVideoProgress(5)
                             try {
-                              const { uploadVideoFile } = await import('@/lib/upload-client')
-                              const result = await uploadVideoFile(file, (p) => setStepVideoProgress(p), 'interview')
-                              if (result.id) {
-                                setAddStepVideoId(result.id)
-                                setVideos(prev => [{ id: result.id!, filename: result.filename, url: result.url, displayName: null }, ...prev])
+                              const result = await startUpload(file, 'interview')
+                              setStepVideoProgress(100)
+                              if (result.videoId) {
+                                setAddStepVideoId(result.videoId)
+                                setVideos(prev => [{ id: result.videoId, filename: result.filename, url: '', displayName: null }, ...prev])
                               }
                             } catch {}
                             setUploadingStepVideo(false)

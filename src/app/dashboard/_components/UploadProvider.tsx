@@ -13,10 +13,22 @@ export interface UploadEntry {
   startedAt: number
 }
 
+// What `startUpload` resolves with on success — mirrors the legacy
+// `UploadResult` from `lib/upload-client` so callers can swap from direct
+// `uploadVideoFile` calls to provider-managed uploads without changing what
+// they do with the result.
+export interface UploadOutcome {
+  videoId: string
+  filename: string
+  mimeType: string
+  sizeBytes: number
+}
+
 interface UploadCtx {
   uploads: UploadEntry[]
   inFlightCount: number
-  startUpload: (file: File, kind: VideoKind) => Promise<void>
+  /** Resolves with the new video id on success, throws on failure. */
+  startUpload: (file: File, kind: VideoKind) => Promise<UploadOutcome>
   clearFinished: () => void
   /** Subscribers re-render once any upload reaches `success` so they can refetch. */
   successTick: number
@@ -37,18 +49,25 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const [uploads, setUploads] = useState<UploadEntry[]>([])
   const [successTick, setSuccessTick] = useState(0)
 
-  const startUpload = useCallback(async (file: File, kind: VideoKind) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    setUploads((prev) => [...prev, { id, filename: file.name, kind, progress: 0, status: 'pending', startedAt: Date.now() }])
+  const startUpload = useCallback(async (file: File, kind: VideoKind): Promise<UploadOutcome> => {
+    const localId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setUploads((prev) => [...prev, { id: localId, filename: file.name, kind, progress: 0, status: 'pending', startedAt: Date.now() }])
     try {
-      await uploadVideoFile(file, (progress) => {
-        setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, progress, status: 'uploading' } : u)))
+      const result = await uploadVideoFile(file, (progress) => {
+        setUploads((prev) => prev.map((u) => (u.id === localId ? { ...u, progress, status: 'uploading' } : u)))
       }, kind)
-      setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, progress: 100, status: 'success' } : u)))
+      setUploads((prev) => prev.map((u) => (u.id === localId ? { ...u, progress: 100, status: 'success' } : u)))
       setSuccessTick((t) => t + 1)
+      return {
+        videoId: result.id || '',
+        filename: result.filename,
+        mimeType: result.mimeType,
+        sizeBytes: result.sizeBytes,
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
-      setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, status: 'error', error: msg } : u)))
+      setUploads((prev) => prev.map((u) => (u.id === localId ? { ...u, status: 'error', error: msg } : u)))
+      throw err
     }
   }, [])
 

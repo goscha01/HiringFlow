@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { uploadVideoFile, triggerVideoAnalysis } from '@/lib/upload-client'
+import { triggerVideoAnalysis } from '@/lib/upload-client'
+import { useUploads } from '@/app/dashboard/_components/UploadProvider'
 import CaptionedVideo, { type CaptionStyle, DEFAULT_CAPTION_STYLE } from './CaptionedVideo'
 
 // Debounced input that keeps cursor position stable
@@ -170,6 +171,7 @@ export default function StepEditorPanel({
   onVideoUploaded,
   onClose,
 }: StepEditorPanelProps) {
+  const { startUpload } = useUploads()
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [transcribing, setTranscribing] = useState(false)
@@ -209,23 +211,25 @@ export default function StepEditorPanel({
     }
 
     setUploading(true)
-    setUploadProgress(0)
+    setUploadProgress(5)
 
     try {
-      const result = await uploadVideoFile(file, (progress) => {
-        setUploadProgress(progress)
-      }, 'interview')
+      // Route through the dashboard-level UploadProvider so this upload shows
+      // up in the global banner and survives if the recruiter navigates to
+      // another step or page mid-upload.
+      const result = await startUpload(file, 'interview')
+      setUploadProgress(100)
 
-      if (result.id) {
-        const video = { id: result.id, filename: result.filename, url: result.url }
+      if (result.videoId) {
+        const video = { id: result.videoId, filename: result.filename, url: '' }
         onVideoUploaded?.(video)
-        onUpdateStep(step.id, { videoId: result.id })
+        onUpdateStep(step.id, { videoId: result.videoId })
 
         // Auto-trigger analysis (transcription + AI summary) in background
         setAnalyzing(true)
         setAnalysisError(null)
         triggerVideoAnalysis(
-          result.id,
+          result.videoId,
           (analysis) => {
             setAnalyzing(false)
             setTranscript({ text: analysis.transcript, segments: analysis.segments || [] })
