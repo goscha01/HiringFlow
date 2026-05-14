@@ -1545,8 +1545,10 @@ export default function AutomationsPage() {
                   {editorStages.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
                 <p className="text-xs text-grey-40 mt-1">
-                  Doesn&apos;t change when the rule fires — only how it&apos;s grouped on the
-                  pipeline view and the rules table. Leave on Auto to follow the stage&apos;s configured triggers.
+                  <b>Auto</b> — fires whenever the trigger event fires, regardless of which stage
+                  the candidate is currently in. <b>A specific stage</b> — gates the rule so it
+                  only fires when the candidate is in that stage; if they&apos;re elsewhere the
+                  send is skipped with <code>wrong_stage</code>.
                 </p>
               </div>
               {triggerType === 'automation_completed' && (

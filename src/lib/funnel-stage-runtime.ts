@@ -22,6 +22,21 @@ import {
 } from './funnel-stages'
 import { resolvePipelineForSession, stagesFor } from './pipelines'
 
+// When a "completion" event fires and no stage explicitly claims it, we look
+// at the candidate's CURRENT stage: if that stage was entered via the paired
+// "start" event for the same target (same trainingId / same meeting), we treat
+// the current stage as done and advance to the next stage in pipeline order.
+//
+// This matches the recruiter's mental model: a stage represents a step the
+// candidate is performing; completing the step moves the card to the next
+// column. Workspaces no longer have to declare a `*_completed` trigger on the
+// "next" stage just to get out of the current one.
+const COMPLETION_PAIRS: Partial<Record<StageTriggerEvent, StageTriggerEvent[]>> = {
+  training_completed: ['training_started'],
+  meeting_ended: ['meeting_scheduled', 'meeting_confirmed', 'meeting_started'],
+  background_check_passed: [],
+}
+
 // Events that mean the candidate is actively progressing — receiving any of
 // these should pull a previously-stalled candidate back into the active pool.
 // We only flip `status` when it was `stalled` so a manually-set `nurture`,
@@ -82,9 +97,32 @@ export async function applyStageTrigger(opts: {
   })
   const currentOrder = currentStageOrder(stages, session?.pipelineStatus ?? null)
 
-  // No matching stage configured — fall back to the legacy hardcoded marker so
-  // unconfigured workspaces keep working.
+  // No matching stage configured — before falling back to legacy, check if
+  // this event is the natural completion for the candidate's CURRENT stage.
+  // If so, advance to the next stage in pipeline order.
   if (!stage) {
+    const advanced = await maybeAutoAdvanceOnCompletion({
+      event: opts.event,
+      stages,
+      currentOrder,
+      flowId: opts.flowId,
+      trainingId: opts.trainingId,
+      sessionId: opts.sessionId,
+    })
+    if (advanced) {
+      if (reactivatePatch) {
+        await prisma.session.updateMany({
+          where: { id: opts.sessionId, status: 'stalled' },
+          data: reactivatePatch,
+        }).catch(() => {})
+      }
+      const { cancelStageMismatchedQueued } = await import('./automation')
+      await cancelStageMismatchedQueued(opts.sessionId, advanced).catch((err) => {
+        console.error('[funnel-stage-runtime] cancelStageMismatchedQueued (auto-advance) failed:', err)
+      })
+      return advanced
+    }
+
     if (reactivatePatch) {
       await prisma.session.updateMany({
         where: { id: opts.sessionId, status: 'stalled' },
@@ -149,6 +187,59 @@ export async function applyStageTrigger(opts: {
   })
 
   return stage.id
+}
+
+// If the firing event is a completion event paired with the candidate's
+// current stage's start trigger, advance them to the next stage in order.
+// Returns the new stage id on success, null otherwise.
+async function maybeAutoAdvanceOnCompletion(opts: {
+  event: StageTriggerEvent
+  stages: FunnelStage[]
+  currentOrder: number | null
+  flowId?: string
+  trainingId?: string
+  sessionId: string
+}): Promise<string | null> {
+  const startEvents = COMPLETION_PAIRS[opts.event]
+  if (!startEvents || startEvents.length === 0) return null
+  if (opts.currentOrder === null) return null
+
+  const currentStage = opts.stages.find((s) => s.order === opts.currentOrder)
+  if (!currentStage?.triggers?.length) return null
+
+  // The current stage must have an entry trigger that pairs with this
+  // completion event AND targets the same entity (or is a wildcard).
+  const target = opts.event.startsWith('training_') ? opts.trainingId
+    : opts.event.startsWith('meeting_') ? undefined
+    : undefined
+  const pair = currentStage.triggers.find((t) => {
+    if (!startEvents.includes(t.event)) return false
+    if (t.targetId && target && t.targetId !== target) return false
+    return true
+  })
+  if (!pair) return null
+
+  // Pick the next stage in funnel order (skipping any terminal stages would
+  // be over-engineering — recruiters lay out stages in the order they want
+  // candidates to flow through).
+  const nextStage = opts.stages
+    .filter((s) => s.order > opts.currentOrder!)
+    .sort((a, b) => a.order - b.order)[0]
+  if (!nextStage) return null
+
+  await setPipelineStatus({
+    sessionId: opts.sessionId,
+    toStatus: nextStage.id,
+    source: `auto-advance:${opts.event}`,
+    metadata: {
+      from: currentStage.id,
+      via: 'completion-pair',
+      pairedStart: pair.event,
+      flowId: opts.flowId,
+      trainingId: opts.trainingId,
+    },
+  }).catch(() => {})
+  return nextStage.id
 }
 
 function currentStageOrder(stages: FunnelStage[], pipelineStatus: string | null): number | null {
