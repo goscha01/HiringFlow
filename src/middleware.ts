@@ -55,6 +55,9 @@ export default withAuth(
           if (path.startsWith('/api/interview-meetings/')) return true
           // Chrome extension attendance ingest — Bearer-token auth inside the handler
           if (path.startsWith('/api/google-meet/attendance')) return true
+          // R2/HLS transcoder Lambda callback — HMAC-SHA256 signature
+          // verification inside the handler.
+          if (path.match(/^\/api\/videos\/[^/]+\/transcode-complete$/)) return true
           return !!token
         }
 
