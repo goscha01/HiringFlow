@@ -24,6 +24,13 @@ interface Video {
   kind: VideoKind
   createdAt: string
   url: string
+  // R2/HLS pipeline (2026-05-14): status is 'ready' for legacy Vercel Blob
+  // videos AND for new uploads that finished transcoding. 'transcoding'/'uploading'
+  // mean Lambda is still processing; 'failed' means the Lambda gave up.
+  status?: string
+  hlsManifestUrl?: string | null
+  posterUrl?: string | null
+  transcodeError?: string | null
 }
 
 interface Picture {
@@ -88,6 +95,16 @@ export default function MediaPage() {
   }, [])
 
   useEffect(() => { fetchVideos(); fetchPictures() }, [fetchVideos, fetchPictures])
+
+  // Poll for transcode status while any video is still processing. We refetch
+  // the whole list (cheap, returns once status flips) every 8 s so the
+  // "Transcoding..." badge auto-clears without forcing a page refresh.
+  useEffect(() => {
+    const anyPending = videos.some((v) => v.status === 'transcoding' || v.status === 'uploading')
+    if (!anyPending) return
+    const id = setInterval(() => { fetchVideos() }, 8000)
+    return () => clearInterval(id)
+  }, [videos, fetchVideos])
 
   const counts = {
     interview: videos.filter((v) => v.kind === 'interview').length,
@@ -315,23 +332,37 @@ export default function MediaPage() {
               {filtered.map((v) => {
                 const duration = fmtDuration(v.durationSeconds)
                 const isPlaying = playing === v.id
+                const isTranscoding = v.status === 'transcoding' || v.status === 'uploading'
+                const isFailed = v.status === 'failed'
                 return (
                   <Card key={v.id} padding={0} className="overflow-hidden group">
                     <div
                       className="aspect-video relative cursor-pointer"
                       style={{ background: isPlaying ? '#000' : 'linear-gradient(135deg, #2a2826 0%, #1a1815 100%)' }}
-                      onClick={() => setPlaying(isPlaying ? null : v.id)}
+                      onClick={() => { if (!isTranscoding && !isFailed) setPlaying(isPlaying ? null : v.id) }}
                     >
                       {isPlaying ? (
                         <video src={v.url} className="w-full h-full object-contain" controls autoPlay />
                       ) : (
                         <>
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
-                              <svg className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                          {isTranscoding ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+                              <div className="w-8 h-8 mb-2 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
+                              <p className="text-xs font-mono uppercase" style={{ letterSpacing: '0.08em' }}>Transcoding…</p>
                             </div>
-                          </div>
-                          {duration && (
+                          ) : isFailed ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-white px-3 text-center">
+                              <p className="text-xs font-semibold mb-1">Transcode failed</p>
+                              <p className="text-[10px] text-white/70 line-clamp-2" title={v.transcodeError || ''}>{v.transcodeError || 'Unknown error'}</p>
+                            </div>
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-sm transition-transform group-hover:scale-110" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                                <svg className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                              </div>
+                            </div>
+                          )}
+                          {duration && !isTranscoding && !isFailed && (
                             <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-[4px] font-mono text-[10px] text-white" style={{ background: 'rgba(0,0,0,0.6)', letterSpacing: '0.04em' }}>
                               {duration}
                             </div>

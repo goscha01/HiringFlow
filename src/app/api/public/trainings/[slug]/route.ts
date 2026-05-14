@@ -240,7 +240,13 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
       contents: s.contents.map((c) => ({
         id: c.id,
         type: c.type,
+        // Legacy MP4 URL — viewer falls back to this when hlsManifestUrl is null
+        // (Vercel Blob videos predating the R2/HLS pipeline, or videos still
+        // mid-transcode where the manifest doesn't exist yet).
         videoUrl: c.video ? getVideoUrl(c.video.storageKey) : null,
+        videoHlsUrl: c.video?.hlsManifestUrl ?? null,
+        videoPosterUrl: c.video?.posterUrl ?? null,
+        videoStatus: c.video?.status ?? null,
         videoName: c.video?.displayName || c.video?.filename || null,
         videoDurationSeconds: c.video?.durationSeconds ?? null,
         requiredWatch: c.requiredWatch,

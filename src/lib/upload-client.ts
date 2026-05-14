@@ -7,9 +7,13 @@ interface UploadResult {
   filename: string
   mimeType: string
   sizeBytes: number
+  status?: string
 }
 
-// Trigger video analysis (transcription + AI summary) after upload
+// Trigger video analysis (transcription + AI summary) after upload. With the
+// R2/HLS pipeline analysis fires automatically when the transcode-complete
+// webhook lands, so this is now a no-op for new uploads — but legacy callers
+// (and the local-dev path that doesn't go through R2) still rely on it.
 export function triggerVideoAnalysis(
   videoId: string,
   onComplete?: (result: any) => void,
@@ -36,84 +40,82 @@ export async function uploadVideoFile(
   kind: VideoKind = 'training'
 ): Promise<UploadResult> {
   if (IS_VERCEL) {
-    return uploadViaBlob(file, onProgress, kind)
+    return uploadViaR2(file, onProgress, kind)
   }
   return uploadViaApi(file, onProgress, kind)
 }
 
-// Production: get presigned S3 URL, upload directly from browser
-// No file data goes through our server — unlimited file size
-async function uploadViaBlob(
+// Production (R2/HLS pipeline). Three-step flow:
+//   1. POST /api/videos/upload-init — creates a Video row in status='uploading'
+//      and returns a presigned R2 PUT URL pointing at the staging bucket.
+//   2. xhr PUT the file directly to that URL (no bytes through Vercel).
+//   3. POST /api/videos/{videoId}/finalize — flips status='transcoding' and
+//      enqueues the Lambda transcode job. Server-side webhook flips to 'ready'
+//      with the HLS manifest URL when transcoding finishes (~3-5 min later).
+async function uploadViaR2(
   file: File,
   onProgress?: (percent: number) => void,
   kind: VideoKind = 'training'
 ): Promise<UploadResult> {
-  onProgress?.(5)
+  onProgress?.(2)
 
-  // Step 1: Get presigned URL from our API (tiny JSON request)
-  const tokenRes = await fetch('/api/videos/upload-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename: file.name, contentType: file.type || 'video/mp4' }),
-  })
-
-  if (!tokenRes.ok) throw new Error('Failed to get upload URL')
-  const { uploadUrl, publicUrl, key } = await tokenRes.json()
-
-  // Step 2: Upload directly to S3 via presigned URL with progress
-  await new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        onProgress(Math.round((event.loaded / event.total) * 85))
-      }
-    }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve()
-      } else {
-        reject(new Error(`S3 upload failed: ${xhr.status}`))
-      }
-    }
-
-    xhr.onerror = () => reject(new Error('Upload failed'))
-
-    xhr.open('PUT', uploadUrl)
-    xhr.setRequestHeader('Content-Type', file.type || 'video/mp4')
-    xhr.send(file)
-  })
-
-  onProgress?.(90)
-
-  // Step 3: Register in DB + trigger analysis
-  const regRes = await fetch('/api/videos/register', {
+  const initRes = await fetch('/api/videos/upload-init', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      url: publicUrl,
       filename: file.name,
       mimeType: file.type || 'video/mp4',
       sizeBytes: file.size,
-      storageKey: key,
-      analyze: true,
       kind,
     }),
   })
+  if (!initRes.ok) {
+    const err = await initRes.json().catch(() => ({}))
+    throw new Error(err?.detail || err?.error || 'Failed to initiate upload')
+  }
+  const { videoId, presignedPutUrl, expectedContentType } = await initRes.json()
+
+  // The Content-Type on the PUT MUST match the type we signed with — R2's
+  // signature check will otherwise reject the upload with a 403.
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        // Reserve the last 5% for the finalize call.
+        onProgress(Math.round(5 + (event.loaded / event.total) * 90))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(`R2 upload failed: ${xhr.status} ${xhr.responseText?.slice(0, 200) || ''}`))
+    }
+    xhr.onerror = () => reject(new Error('Upload network error'))
+    xhr.open('PUT', presignedPutUrl)
+    xhr.setRequestHeader('Content-Type', expectedContentType || file.type || 'video/mp4')
+    xhr.send(file)
+  })
+
+  onProgress?.(97)
+
+  const finalRes = await fetch(`/api/videos/${videoId}/finalize`, { method: 'POST' })
+  if (!finalRes.ok) {
+    const err = await finalRes.json().catch(() => ({}))
+    throw new Error(err?.detail || err?.error || 'Failed to finalize upload')
+  }
 
   onProgress?.(100)
 
-  if (!regRes.ok) throw new Error('Failed to register video')
-
-  const video = await regRes.json()
   return {
-    id: video.id,
-    url: video.url || publicUrl,
-    storageKey: video.storageKey || key,
-    filename: video.filename,
-    mimeType: video.mimeType,
-    sizeBytes: video.sizeBytes,
+    id: videoId,
+    // storageKey points at the final original.mp4 URL once transcode finishes.
+    // Callers should poll GET /api/videos/{id} until status==='ready' before
+    // attempting playback or analysis on the returned URL.
+    url: '',
+    storageKey: '',
+    filename: file.name,
+    mimeType: file.type || 'video/mp4',
+    sizeBytes: file.size,
+    status: 'transcoding',
   }
 }
 

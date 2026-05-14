@@ -4,18 +4,38 @@ import { prisma } from '@/lib/prisma'
 import { openai } from '@/lib/openai'
 import { transcribeFromUrl } from '@/lib/deepgram'
 import { getVideoUrl } from '@/lib/storage'
+import { createHmac, timingSafeEqual } from 'crypto'
 
 export const maxDuration = 120
+
+// Lets the transcode-complete webhook re-trigger analysis without a user
+// session. Same HMAC secret as the inbound webhook itself; the signed string
+// includes the video id so a leaked signature can't fire analysis on a
+// different video.
+function isInternalCallerAuthorized(request: NextRequest, videoId: string): boolean {
+  if (request.headers.get('x-internal-source') !== 'transcode-complete') return false
+  const sig = request.headers.get('x-internal-signature') || ''
+  const secret = process.env.HF_TRANSCODE_WEBHOOK_SECRET
+  if (!secret || !sig) return false
+  const expected = createHmac('sha256', secret).update(`analyze:${videoId}`).digest('hex')
+  if (sig.length !== expected.length) return false
+  try { return timingSafeEqual(Buffer.from(sig), Buffer.from(expected)) } catch { return false }
+}
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { videoId: string } }
 ) {
-  const ws = await getWorkspaceSession()
-  if (!ws) return unauthorized()
+  const internalAuthorized = isInternalCallerAuthorized(request, params.videoId)
+  let workspaceId: string | null = null
+  if (!internalAuthorized) {
+    const ws = await getWorkspaceSession()
+    if (!ws) return unauthorized()
+    workspaceId = ws.workspaceId
+  }
 
   const video = await prisma.video.findFirst({
-    where: { id: params.videoId, workspaceId: ws.workspaceId },
+    where: workspaceId ? { id: params.videoId, workspaceId } : { id: params.videoId },
   })
 
   if (!video) {

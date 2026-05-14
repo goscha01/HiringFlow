@@ -364,6 +364,15 @@ model Video {
   bulletPoints     String[]          @default([]) @map("bullet_points")
   displayName      String?           @map("display_name")
   kind             String            @default("training")
+  // R2/HLS pipeline (added 2026-05-14). New uploads go through R2 staging →
+  // Lambda transcode → R2 videos bucket. Legacy Vercel Blob videos have
+  // status='ready' + hlsManifestUrl=null and continue to play from storageKey
+  // via the legacy <video src> path until the migration script reprocesses
+  // them. `status` values: uploading | transcoding | ready | failed.
+  status           String            @default("ready")
+  hlsManifestUrl   String?           @map("hls_manifest_url")
+  posterUrl        String?           @map("poster_url")
+  transcodeError   String?           @map("transcode_error")
   createdAt        DateTime          @default(now()) @map("created_at")
   steps            FlowStep[]
   trainingContents TrainingContent[]

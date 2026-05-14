@@ -4,7 +4,21 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { type BrandingConfig, mergeBranding } from '@/lib/branding'
 
-interface ContentItem { id: string; type: string; videoUrl: string | null; videoName: string | null; videoDurationSeconds: number | null; requiredWatch: boolean; autoplayNext: boolean; textContent: string | null }
+interface ContentItem {
+  id: string
+  type: string
+  videoUrl: string | null
+  // R2/HLS pipeline (2026-05-14): when set, the viewer prefers this manifest
+  // over the legacy MP4 URL — drives adaptive bitrate via hls.js.
+  videoHlsUrl?: string | null
+  videoPosterUrl?: string | null
+  videoStatus?: string | null
+  videoName: string | null
+  videoDurationSeconds: number | null
+  requiredWatch: boolean
+  autoplayNext: boolean
+  textContent: string | null
+}
 
 function fmtLessonTime(seconds?: number | null): string {
   if (!seconds || !isFinite(seconds) || seconds <= 0) return '—'
@@ -74,8 +88,12 @@ function reportVideoEvent(payload: Record<string, unknown>) {
 
 type VideoPhase = 'loading' | 'ready' | 'buffering' | 'error'
 
-function LessonVideo({ src, poster, slug, contentId, requiredWatch, autoPlay, onEnded, className }: {
+function LessonVideo({ src, hlsUrl, poster, slug, contentId, requiredWatch, autoPlay, onEnded, className }: {
   src: string
+  // When set, the viewer attaches an hls.js MediaSource instead of using `src`
+  // directly. Falls through to `src` for legacy Vercel Blob videos and for
+  // browsers (Safari) that can natively play HLS.
+  hlsUrl?: string | null
   poster?: string
   slug: string
   contentId: string
@@ -110,7 +128,44 @@ function LessonVideo({ src, poster, slug, contentId, requiredWatch, autoPlay, on
     stallCountRef.current = 0
     lastStallReportAtRef.current = 0
     milestoneSentRef.current = {}
-  }, [src, reloadKey])
+  }, [src, hlsUrl, reloadKey])
+
+  // hls.js attachment. When the candidate's browser can't natively play HLS
+  // (Chrome/Firefox/Edge — everything that isn't Safari) we load hls.js
+  // dynamically and let it drive the <video> element. The library handles the
+  // adaptive bitrate switching that makes 360p auto-engage on slow Ukrainian
+  // mobile while broadband US gets 720p.
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !hlsUrl) return
+    if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari / iOS — native HLS. Just set src and let the browser do it.
+      v.src = hlsUrl
+      return
+    }
+    let cancelled = false
+    let hls: { destroy: () => void } | null = null
+    import('hls.js').then((mod) => {
+      const Hls = mod.default
+      if (cancelled || !Hls.isSupported()) return
+      const instance = new Hls({
+        // Cap the initial level to mid-tier so the very first segment doesn't
+        // fetch the 720p variant (which then immediately downshifts). Saves
+        // ~2-3 s on slow connections to first-frame.
+        startLevel: 1,
+        // Default 60s buffer — enough for short hiccups, not so much that we
+        // pre-download minutes of footage a candidate might never watch.
+        maxBufferLength: 60,
+      })
+      instance.loadSource(hlsUrl)
+      instance.attachMedia(v)
+      hls = instance
+    }).catch(() => { /* hls.js dynamic import failed; falls back to src below */ })
+    return () => {
+      cancelled = true
+      if (hls) hls.destroy()
+    }
+  }, [hlsUrl, reloadKey])
 
   useEffect(() => {
     const v = videoRef.current
@@ -272,7 +327,12 @@ function LessonVideo({ src, poster, slug, contentId, requiredWatch, autoPlay, on
       <video
         key={reloadKey}
         ref={videoRef}
-        src={src}
+        // Don't set `src` directly when hlsUrl is in play — hls.js drives the
+        // element via MediaSource, and a competing src attribute makes the
+        // browser load the legacy MP4 in parallel (doubles bandwidth, can
+        // cause "AbortError: play() interrupted"). The hls.js useEffect sets
+        // src itself on Safari (native HLS path).
+        {...(hlsUrl ? {} : { src })}
         poster={poster}
         // Only fetch metadata (duration, first frame) on mount. Without this some
         // browsers default to `auto` and start downloading the full file before
@@ -860,17 +920,31 @@ export default function TrainingPage() {
             <div className="bg-white rounded-[12px] p-8 border border-[#F1F1F3]">
               {content.type === 'video' && content.videoUrl ? (
                 <div className="mb-6">
-                  <LessonVideo
-                    key={content.id}
-                    src={content.videoUrl}
-                    poster={training.coverImage || undefined}
-                    slug={slug}
-                    contentId={content.id}
-                    requiredWatch={content.requiredWatch}
-                    autoPlay={content.autoplayNext}
-                    onEnded={() => setVideoEnded(true)}
-                    className="w-full rounded-[8px]"
-                  />
+                  {content.videoStatus === 'transcoding' || content.videoStatus === 'uploading' ? (
+                    // Show a placeholder if the recruiter wired this lesson
+                    // before transcoding finished. Refreshing the page checks
+                    // again — the new flow auto-flips status to 'ready' once
+                    // the Lambda webhook lands.
+                    <div className="w-full aspect-video bg-[#F1F1F3] rounded-[8px] flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="w-8 h-8 mx-auto mb-3 border-3 border-[#FF9500] border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-[#59595A]">Video is still preparing — try again in a minute.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <LessonVideo
+                      key={content.id}
+                      src={content.videoUrl}
+                      hlsUrl={content.videoHlsUrl ?? null}
+                      poster={content.videoPosterUrl || training.coverImage || undefined}
+                      slug={slug}
+                      contentId={content.id}
+                      requiredWatch={content.requiredWatch}
+                      autoPlay={content.autoplayNext}
+                      onEnded={() => setVideoEnded(true)}
+                      className="w-full rounded-[8px]"
+                    />
+                  )}
                   {!videoEnded && <p className="text-sm mt-3 text-center text-[#59595A]">{content.requiredWatch ? 'Watch the video to continue (skipping ahead is disabled)' : 'Watch the video to continue'}</p>}
                 </div>
               ) : content.type === 'text' && content.textContent ? (
