@@ -83,8 +83,23 @@ export async function applyStageTrigger(opts: {
   // stalled candidate. Runs whether or not a stage trigger matched (so even
   // workspaces that haven't wired triggers benefit). Scoped to status='stalled'
   // so we never overwrite a recruiter's deliberate 'nurture' / 'lost' / 'hired'.
+  //
+  // Critically: clear `automationsHaltedAt` / `automationsHaltedReason` too.
+  // The cron stalls via `stalledPayload()` which stamps the halt switch
+  // alongside `stalledAt`; without clearing both on reactivation, downstream
+  // automations on the same forward-progress event hit the guard and skip
+  // with `skipped_cancelled` (Elena Bobb, 2026-05-13: training_completed
+  // reactivated her but the three training_completed rules were silently
+  // dropped). Mirrors `statusTransitionPatch('active')` in candidate-status.ts
+  // which handles the manual-reactivate path.
   const reactivatePatch: Record<string, unknown> | null = FORWARD_PROGRESS_EVENTS.has(opts.event)
-    ? { status: 'active', stalledAt: null, dispositionReason: null }
+    ? {
+        status: 'active',
+        stalledAt: null,
+        dispositionReason: null,
+        automationsHaltedAt: null,
+        automationsHaltedReason: null,
+      }
     : null
 
   // Pull the current pipelineStatus once so both branches share the same
