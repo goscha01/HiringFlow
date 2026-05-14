@@ -151,6 +151,14 @@ export default function MediaPage() {
     pictures: pictures.length,
   }
 
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const copyShareLink = async (videoId: string) => {
+    const url = `${window.location.origin}/preview/video/${videoId}`
+    try { await navigator.clipboard.writeText(url) } catch { /* swallow — fallback prompt below */ return prompt('Copy this share link:', url) ?? undefined }
+    setCopiedId(videoId)
+    setTimeout(() => setCopiedId((curr) => (curr === videoId ? null : curr)), 1800)
+  }
+
   const deleteVideo = async (id: string) => {
     if (!confirm('Delete this video?')) return
     setVideos((prev) => prev.filter((v) => v.id !== id))
@@ -440,6 +448,15 @@ export default function MediaPage() {
                           {fmtFileSize(v.sizeBytes)} · {new Date(v.createdAt).toLocaleDateString()}
                         </span>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {v.status !== 'transcoding' && v.status !== 'uploading' && v.status !== 'failed' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); copyShareLink(v.id) }}
+                              className="text-grey-35 hover:text-ink"
+                              title="Copy public share link"
+                            >
+                              {copiedId === v.id ? 'Copied!' : 'Share'}
+                            </button>
+                          )}
                           <button
                             onClick={(e) => { e.stopPropagation(); reclassifyVideo(v.id, v.kind === 'interview' ? 'training' : 'interview') }}
                             className="text-grey-35 hover:text-ink"
