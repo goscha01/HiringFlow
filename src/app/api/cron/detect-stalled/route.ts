@@ -104,54 +104,40 @@ export async function GET(request: NextRequest) {
   // -- Rule 2: training sent, never started -----------------------------
   // The "sent but ignored" signal lives on TrainingAccessToken — when the
   // automation sends a training invite, a token row is created. Clicking
-  // the link upserts a TrainingEnrollment with status='in_progress' (see
-  // src/lib/training-access.ts). So:
-  //   token.usedAt IS NULL  ↔  candidate never opened the training
-  //   no enrollment exists  ↔  same signal, alternate evidence
+  // the link upserts a TrainingEnrollment bound to THAT token via
+  // `accessTokenId` (see src/lib/training-access.ts:getOrCreateEnrollment).
   //
-  // We flag a candidate when:
-  //   - they have at least one unused token older than `trainingTimeoutDays`, AND
-  //   - they have no enrollment that has progressed past 'not_started'
-  // The "every" guard excludes candidates who did start a different
-  // training but were also sent a second one they ignored.
+  // Scope per-token, not per-session: a candidate who completed an earlier
+  // onboarding training and was then sent a second one they ignored is
+  // still stalled on the second one. The old session-wide "no progressed
+  // enrollment" guard exempted them because of the earlier completion
+  // (Nguyen Tu Bui, 2026-05-14: completed Onboarding Apr 30, ignored
+  // post-interview "Test job preparation" token from May 5).
   for (const flow of flows) {
     const days = flow.trainingTimeoutDays ?? DEFAULT_TIMEOUTS.trainingTimeoutDays
     const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
-    const stalledCandidates = await prisma.session.findMany({
+    const stuckTokens = await prisma.trainingAccessToken.findMany({
       where: {
-        flowId: flow.id,
-        status: 'active',
-        ...excludeTestSessions(),
-        OR: [
-          // (a) Unused access token older than the cutoff, no progressed
-          // enrollment. Catches the common "automation sent training
-          // invite, candidate never clicked" case (e.g. Toya West).
-          {
-            trainingAccessTokens: {
-              some: { usedAt: null, createdAt: { lt: cutoff } },
-            },
-            trainingEnrollments: {
-              none: { status: { not: 'not_started' } },
-            },
-          },
-          // (b) Belt-and-suspenders: enrollment manually created at
-          // 'not_started' (some legacy paths do this) and never advanced.
-          {
-            trainingEnrollments: {
-              some: { status: 'not_started', startedAt: { lt: cutoff } },
-              every: { status: 'not_started' },
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    })
-    if (stalledCandidates.length > 0) {
-      const result = await prisma.session.updateMany({
-        where: {
-          id: { in: stalledCandidates.map((s) => s.id) },
+        usedAt: null,
+        createdAt: { lt: cutoff },
+        candidate: {
+          flowId: flow.id,
           status: 'active',
+          ...excludeTestSessions(),
         },
+        // Per-token enrollment relation — only enrollments bound to THIS
+        // token count. A progressed enrollment for a different training (or
+        // a different token to the same training) doesn't mask this one.
+        enrollments: { none: { status: { not: 'not_started' } } },
+      },
+      select: { candidateId: true },
+    })
+    const ids = Array.from(
+      new Set(stuckTokens.map((t) => t.candidateId).filter((id): id is string => Boolean(id))),
+    )
+    if (ids.length > 0) {
+      const result = await prisma.session.updateMany({
+        where: { id: { in: ids }, status: 'active' },
         data: stalledPayload(now, 'training_not_started'),
       })
       counts.trainingNotStarted += result.count
