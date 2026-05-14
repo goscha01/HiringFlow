@@ -229,7 +229,10 @@ export const handler = async (event) => {
       // it for downstream Deepgram transcription + OpenAI analysis, which run
       // against an HTTPS URL and don't speak HLS. Cheap (~$0.05/yr storage per
       // GB) and keeps the analyze pipeline untouched.
-      const sourceExt = (payload.filename || '').split('.').pop() || 'mp4'
+      // Lowercase the extension — iPhone uploads come in as IMG_XXXX.MOV
+      // (uppercase) and R2 keys are case-sensitive. Standardizing the case
+      // lets HF (and any backfill) predict the URL from filename alone.
+      const sourceExt = ((payload.filename || '').split('.').pop() || 'mp4').toLowerCase()
       const originalKey = `${destPrefix}/original.${sourceExt}`
       await s3.send(new PutObjectCommand({
         Bucket: secrets.R2_VIDEOS_BUCKET,
