@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { uploadVideoFile } from '@/lib/upload-client'
 import { SubNav } from '../_components/SubNav'
 import { Card, Eyebrow, PageHeader } from '@/components/design'
+import { useUploads } from '../_components/UploadProvider'
 
 const ASSETS_NAV = [
   { href: '/dashboard/content', label: 'Templates' },
@@ -43,13 +43,6 @@ interface Picture {
   createdAt: string
 }
 
-interface UploadProgress {
-  filename: string
-  progress: number
-  status: 'pending' | 'uploading' | 'success' | 'error'
-  error?: string
-}
-
 function fmtFileSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
@@ -66,8 +59,11 @@ export default function MediaPage() {
   const [tab, setTab] = useState<Tab>('training')
   const [videos, setVideos] = useState<Video[]>([])
   const [pictures, setPictures] = useState<Picture[]>([])
-  const [uploading, setUploading] = useState(false)
-  const [uploads, setUploads] = useState<UploadProgress[]>([])
+  const [pictureUploads, setPictureUploads] = useState<Array<{ filename: string; progress: number; status: 'pending' | 'uploading' | 'success' | 'error'; error?: string }>>([])
+  // Video uploads now live in the dashboard-level UploadProvider so they
+  // survive tab navigation. Pictures still upload synchronously (smaller,
+  // single API call), so we keep their state local.
+  const { uploads: videoUploads, startUpload: startVideoUpload, clearFinished, successTick } = useUploads()
   const [playing, setPlaying] = useState<string | null>(null)
   // Global display preference: show AI displayName or fall back to file name.
   // Persisted in localStorage so it survives reloads.
@@ -95,6 +91,11 @@ export default function MediaPage() {
   }, [])
 
   useEffect(() => { fetchVideos(); fetchPictures() }, [fetchVideos, fetchPictures])
+
+  // Refetch the videos list whenever an upload succeeds in the global
+  // provider — covers the case where the recruiter starts an upload here,
+  // navigates to /candidates, comes back, and expects to see the new row.
+  useEffect(() => { if (successTick > 0) fetchVideos() }, [successTick, fetchVideos])
 
   // Poll for transcode status while any video is still processing. We refetch
   // the whole list (cheap, returns once status flips) every 8 s so the
@@ -132,71 +133,43 @@ export default function MediaPage() {
     await fetch(`/api/pictures/${id}`, { method: 'DELETE' })
   }
 
-  const uploadSingleVideo = async (file: File, index: number, kind: VideoKind) => {
-    try {
-      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'uploading' } : u)))
-      await uploadVideoFile(file, (progress) => {
-        setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress, status: 'uploading' } : u)))
-      }, kind)
-      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u)))
-    } catch {
-      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u)))
-    }
-  }
-
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>, kind: VideoKind) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
-    setUploading(true)
-    setUploads(files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' })))
-    for (let i = 0; i < files.length; i++) await uploadSingleVideo(files[i], i, kind)
-    await fetchVideos()
-    setUploading(false)
     e.target.value = ''
-    // Leave the success/error rows visible long enough for the recruiter to
-    // read the "you can leave the page" banner that surfaces underneath. The
-    // previous 3-second auto-clear was too tight when uploads come in fast and
-    // the recruiter is still reading.
-    setTimeout(() => setUploads([]), 12000)
+    // Fire all uploads in parallel through the global provider — they keep
+    // running even if the recruiter navigates to another dashboard tab.
+    // The provider also handles the beforeunload guard.
+    files.forEach((file) => { startVideoUpload(file, kind) })
   }
-
-  // Prevent accidentally leaving the page during an in-flight XHR PUT (the
-  // upload is foreground; navigation cancels it). The browser shows the
-  // "are you sure you want to leave" dialog automatically when returnValue is
-  // set. Once status flips to 'success' or 'error' the PUT is done — at that
-  // point the recruiter can navigate freely; the transcode runs server-side.
-  useEffect(() => {
-    const anyInFlight = uploads.some((u) => u.status === 'uploading' || u.status === 'pending')
-    if (!anyInFlight) return
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [uploads])
 
   const uploadSinglePicture = async (file: File, index: number) => {
     try {
-      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'uploading', progress: 20 } : u)))
+      setPictureUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'uploading', progress: 20 } : u)))
       const formData = new FormData()
       formData.append('file', file)
       const res = await fetch('/api/pictures', { method: 'POST', body: formData })
       if (!res.ok) throw new Error('Upload failed')
-      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u)))
+      setPictureUploads((prev) => prev.map((u, i) => (i === index ? { ...u, progress: 100, status: 'success' } : u)))
     } catch {
-      setUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u)))
+      setPictureUploads((prev) => prev.map((u, i) => (i === index ? { ...u, status: 'error', error: 'Upload failed' } : u)))
     }
   }
 
   const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
-    setUploading(true)
-    setUploads(files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' })))
+    setPictureUploads(files.map((f) => ({ filename: f.name, progress: 0, status: 'pending' as const })))
     for (let i = 0; i < files.length; i++) await uploadSinglePicture(files[i], i)
     await fetchPictures()
-    setUploading(false)
     e.target.value = ''
-    setTimeout(() => setUploads([]), 3000)
+    setTimeout(() => setPictureUploads([]), 3000)
   }
+
+  // Active "upload in flight or just-finished" row from the global provider,
+  // merged with synchronous picture uploads. We render both lists below.
+  const uploading = videoUploads.some((u) => u.status === 'pending' || u.status === 'uploading') ||
+    pictureUploads.some((u) => u.status === 'pending' || u.status === 'uploading')
 
   const tabs: Array<{ k: Tab; l: string; count: number; hint: string }> = [
     { k: 'interview', l: 'Interview videos', count: counts.interview, hint: 'Short clips used in flow steps (usually under a minute).' },
@@ -265,14 +238,15 @@ export default function MediaPage() {
       </div>
 
       <div className="px-8 py-4">
-        {uploads.length > 0 && (
+        {(videoUploads.length > 0 || pictureUploads.length > 0) && (
           <div className="mb-5 space-y-2">
-            {uploads.map((u, idx) => (
-              <Card key={idx} padding={12}>
+            {[...videoUploads.map((u) => ({ key: u.id, filename: u.filename, progress: u.progress, status: u.status, error: u.error, isVideo: true as const })),
+              ...pictureUploads.map((u, i) => ({ key: `pic-${i}`, filename: u.filename, progress: u.progress, status: u.status, error: u.error, isVideo: false as const }))].map((u) => (
+              <Card key={u.key} padding={12}>
                 <div className="flex justify-between text-[12px] mb-1.5">
                   <span className="truncate font-medium text-ink">{u.filename}</span>
                   <span className="ml-2 font-mono text-grey-35">
-                    {u.status === 'success' && 'Done'}
+                    {u.status === 'success' && (u.isVideo ? 'Uploaded — transcoding' : 'Done')}
                     {u.status === 'error' && 'Failed'}
                     {u.status === 'uploading' && `${u.progress}%`}
                     {u.status === 'pending' && 'Waiting…'}
@@ -289,15 +263,15 @@ export default function MediaPage() {
                     }}
                   />
                 </div>
-                {u.status === 'uploading' && (
-                  <p className="mt-2 text-[11px] text-grey-35">Uploading to secure storage — please keep this tab open until it reaches 100%.</p>
+                {u.status === 'uploading' && u.isVideo && (
+                  <p className="mt-2 text-[11px] text-grey-35">Uploading to secure storage — keep the browser open. You can switch to other tabs (Candidates, Automations…) while this runs.</p>
                 )}
                 {u.status === 'error' && (
-                  <p className="mt-2 text-[11px] text-[color:var(--danger-fg)]">{u.error || 'Upload failed — try again. If the file is large, leave the tab open until it reaches 100%.'}</p>
+                  <p className="mt-2 text-[11px] text-[color:var(--danger-fg)]">{u.error || 'Upload failed — try again.'}</p>
                 )}
               </Card>
             ))}
-            {uploads.every((u) => u.status === 'success' || u.status === 'error') && uploads.some((u) => u.status === 'success') && (
+            {videoUploads.length > 0 && videoUploads.every((u) => u.status === 'success' || u.status === 'error') && videoUploads.some((u) => u.status === 'success') && (
               // Persistent banner shown after the upload PUT finishes. The
               // transcode itself runs in the background on Lambda; the
               // recruiter can navigate away or kick off another upload — an
@@ -310,6 +284,14 @@ export default function MediaPage() {
                   <div className="font-semibold text-ink mb-0.5">Upload complete — transcoding in the background</div>
                   <p className="text-grey-35">Feel free to keep working or close this tab. We&apos;ll email you at your account address when the video is ready to play (usually 1–5 minutes per video).</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={clearFinished}
+                  className="text-[12px] text-grey-35 hover:text-ink"
+                  title="Dismiss"
+                >
+                  Dismiss
+                </button>
               </div>
             )}
           </div>
