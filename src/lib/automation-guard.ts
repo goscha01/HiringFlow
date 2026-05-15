@@ -319,6 +319,8 @@ const PREREQUISITES: Record<string, PrerequisitePredicate> = {
  *   2. Lifecycle status — session.status in BLOCKING_STATUSES unless
  *      rule.allowedForStatuses opts in.
  *   3. Stage match — rule.stageId, if set, must equal session.pipelineStatus.
+ *      Enforced only for executionMode='delayed_callback' (staleness check
+ *      on QStash-delayed sends). Same-tick paths trust the rule's trigger.
  *   4. Prerequisite predicate for the triggerType.
  *   5. Idempotency — existing 'sent' execution for (step, session, channel).
  *
@@ -362,11 +364,19 @@ export async function canExecuteAutomationStep(ctx: GuardCtx): Promise<GuardResu
     }
   }
 
-  // 3. Stage match — when the rule is pinned to a stage, the session must
-  //    still be in that stage. Crucial for delayed sends: a 24h reminder
-  //    queued while the candidate was in "training_sent" should NOT fire if
-  //    they've since moved to "interview_scheduled" or anywhere else.
-  if (rule.stageId && session.pipelineStatus !== rule.stageId) {
+  // 3. Stage match — staleness protection for *delayed* sends only. A 24h
+  //    reminder queued while the candidate was in "training_sent" should NOT
+  //    fire if they've since moved on. For same-tick dispatches (immediate,
+  //    chained, cron, public_trigger, debug) the rule's triggerType is
+  //    authoritative: the event just happened, the rule is wired to it, so
+  //    fire. Without this carve-out, rules wired to a stage that the
+  //    candidate's pipeline never auto-advances them into (e.g. Dispatcher
+  //    pipeline with no entry triggers configured) silently skip every send.
+  if (
+    rule.stageId &&
+    executionMode === 'delayed_callback' &&
+    session.pipelineStatus !== rule.stageId
+  ) {
     return {
       allowed: false,
       reason: 'skipped_wrong_stage',

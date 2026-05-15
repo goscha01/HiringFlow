@@ -323,16 +323,20 @@ describe('canExecuteAutomationStep — prerequisite (training_completed)', () =>
 })
 
 describe('canExecuteAutomationStep — stage match', () => {
-  it('blocks when the rule is pinned to a stage and the session is elsewhere', async () => {
+  // Stage gate is staleness protection for QStash-delayed sends. Same-tick
+  // dispatches trust the rule's triggerType — without this carve-out, a rule
+  // wired to a stage the pipeline never auto-advances into (e.g. Dispatcher
+  // pipeline with empty entry triggers) silently skips every send.
+  it('blocks delayed_callback when the rule is pinned to a stage and the session is elsewhere', async () => {
     await prisma.automationRule.update({
       where: { id: ruleId },
       data: { stageId: 'stage_3' },
     })
     const session = await prisma.session.create({
-      data: { workspaceId, flowId, candidateName: 'WrongStage', status: 'active', pipelineStatus: 'stage_7' },
+      data: { workspaceId, flowId, candidateName: 'WrongStageDelayed', status: 'active', pipelineStatus: 'stage_7' },
     })
     await prisma.trainingEnrollment.create({
-      data: { trainingId, sessionId: session.id, userEmail: 'stage@test.com', completedAt: new Date() },
+      data: { trainingId, sessionId: session.id, userEmail: 'stage-delayed@test.com', completedAt: new Date() },
     })
 
     const { session: s, rule, step } = await loadFixture(session.id)
@@ -345,9 +349,35 @@ describe('canExecuteAutomationStep — stage match', () => {
     expect(result.allowed).toBe(false)
     if (!result.allowed) expect(result.reason).toBe('skipped_wrong_stage')
 
-    // Reset stage pin
     await prisma.automationRule.update({ where: { id: ruleId }, data: { stageId: null } })
   })
+
+  it.each(['immediate', 'chained', 'cron', 'public_trigger', 'debug'] as ExecutionMode[])(
+    'allows %s even when session pipelineStatus does not match rule.stageId',
+    async (mode) => {
+      await prisma.automationRule.update({
+        where: { id: ruleId },
+        data: { stageId: 'stage_3' },
+      })
+      const session = await prisma.session.create({
+        data: { workspaceId, flowId, candidateName: `WrongStage-${mode}`, status: 'active', pipelineStatus: 'training_completed' },
+      })
+      await prisma.trainingEnrollment.create({
+        data: { trainingId, sessionId: session.id, userEmail: `stage-${mode}@test.com`, completedAt: new Date() },
+      })
+
+      const { session: s, rule, step } = await loadFixture(session.id)
+      const result = await canExecuteAutomationStep({
+        session: s, rule, step, channel: 'email',
+        triggerType: 'training_completed',
+        triggerContext: { trainingId },
+        executionMode: mode,
+      })
+      expect(result.allowed, `mode=${mode}`).toBe(true)
+
+      await prisma.automationRule.update({ where: { id: ruleId }, data: { stageId: null } })
+    },
+  )
 })
 
 describe('canExecuteAutomationStep — idempotency', () => {
