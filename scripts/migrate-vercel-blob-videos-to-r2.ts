@@ -15,8 +15,10 @@
 // the actual transcode happens in parallel on Lambda once messages land in SQS.
 
 import { PrismaClient } from '@prisma/client'
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client } from '@aws-sdk/client-s3'
+import { Upload } from '@aws-sdk/lib-storage'
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
+import { Readable } from 'node:stream'
 
 const prisma = new PrismaClient()
 
@@ -56,14 +58,22 @@ async function main() {
     credentials: { accessKeyId: need('HF_SQS_PUBLISHER_ACCESS_KEY_ID'), secretAccessKey: need('HF_SQS_PUBLISHER_SECRET_ACCESS_KEY') },
   })
 
-  // Vercel Blob URLs all live under *.blob.vercel-storage.com — that's our
-  // tell for which rows still need migrating. Anything else (R2 already, or
-  // local /api/uploads/ keys from dev) is skipped.
+  // Anything missing an `hlsManifestUrl` is pre-pipeline. Production has
+  // historically used a mix of Vercel Blob (`*.blob.vercel-storage.com`) and
+  // direct S3 (`hiringflow-uploads.s3.us-east-1.amazonaws.com`); both flow
+  // through this same migration path. Rows already pointing at R2
+  // (`*.r2.dev` / `*.r2.cloudflarestorage.com`) are skipped — they're the
+  // new-pipeline rows that just haven't finished transcoding yet, and
+  // re-enqueuing them would race the live Lambda job.
   const candidates = await prisma.video.findMany({
     where: {
       kind: KIND,
-      storageKey: { contains: 'blob.vercel-storage.com' },
       hlsManifestUrl: null,
+      storageKey: { startsWith: 'http' },
+      NOT: [
+        { storageKey: { contains: 'r2.dev' } },
+        { storageKey: { contains: 'r2.cloudflarestorage.com' } },
+      ],
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -84,13 +94,21 @@ async function main() {
     try {
       const res = await fetch(url)
       if (!res.ok || !res.body) throw new Error(`fetch ${res.status}`)
-      const buf = Buffer.from(await res.arrayBuffer())
-      await r2.send(new PutObjectCommand({
-        Bucket: need('R2_STAGING_BUCKET'),
-        Key: stagingKey,
-        Body: buf,
-        ContentType: v.mimeType || 'video/mp4',
-      }))
+      // Stream the source straight from S3 (or wherever) into R2's multipart
+      // upload — without this, the 887MB videos blow Node's heap. lib-storage
+      // chunks it into 5 MB parts and runs 4 in parallel.
+      const upload = new Upload({
+        client: r2,
+        params: {
+          Bucket: need('R2_STAGING_BUCKET'),
+          Key: stagingKey,
+          Body: Readable.fromWeb(res.body as unknown as ReadableStream<Uint8Array>),
+          ContentType: v.mimeType || 'video/mp4',
+        },
+        queueSize: 4,
+        partSize: 5 * 1024 * 1024,
+      })
+      await upload.done()
       await prisma.video.update({
         where: { id: v.id },
         data: {
