@@ -294,15 +294,29 @@ export default function PipelinesPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-1.5 mb-4">
-                  {p.stages.map((s) => (
-                    <span
-                      key={s.id}
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] text-grey-15 bg-surface-light border border-surface-border"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
-                      {s.label}
-                    </span>
-                  ))}
+                  {p.stages.map((s) => {
+                    // Natural endpoints don't need entry triggers — `new` is
+                    // where every candidate starts; `hired` / `rejected` are
+                    // terminal manual moves. Surface the warning only on
+                    // mid-funnel stages that have no triggers configured.
+                    const isEndpoint = s.id === 'new' || s.id === 'hired' || s.id === 'rejected'
+                    const missingTriggers = !isEndpoint && (s.triggers?.length ?? 0) === 0
+                    return (
+                      <span
+                        key={s.id}
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] ${
+                          missingTriggers
+                            ? 'bg-amber-50 border border-amber-200 text-amber-900'
+                            : 'bg-surface-light border border-surface-border text-grey-15'
+                        }`}
+                        title={missingTriggers ? 'No entry trigger configured — candidates won’t auto-advance into this stage' : undefined}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                        {s.label}
+                        {missingTriggers && <span className="ml-0.5 text-amber-700 font-medium" aria-hidden="true">!</span>}
+                      </span>
+                    )
+                  })}
                 </div>
 
                 {/*

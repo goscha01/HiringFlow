@@ -204,6 +204,17 @@ export async function fireMeetingRescheduledAutomations(sessionId: string) {
       include: { flow: true, ad: true },
     })
     if (!session) return
+    // Stage move is opt-in: only fires if the workspace wired a stage to
+    // `meeting_rescheduled`. The furthest-wins guard inside applyStageTrigger
+    // protects against regressing a candidate who has already advanced past
+    // the schedule milestone. legacyStatus is intentionally omitted so an
+    // unconfigured workspace's kanban card stays put.
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: 'meeting_rescheduled',
+      flowId: session.flowId,
+    }).catch(() => {})
     await dispatchRulesForTrigger(sessionId, 'meeting_rescheduled', session)
   } catch (error) {
     console.error('[Automation] Error firing meeting_rescheduled automations for session', sessionId, ':', error)
@@ -471,6 +482,19 @@ export async function fireMeetingLifecycleAutomations(
           },
         }).catch((err) => console.error('[Automation] failed to stamp rejection / lost fields', err))
       }
+    }
+
+    if (trigger === 'recording_ready' || trigger === 'transcript_ready') {
+      // Stage move is opt-in: only fires if the workspace wired a stage to
+      // recording_ready / transcript_ready. No legacy fallback — these are
+      // post-meeting artifact events; if unconfigured, the kanban card
+      // stays where it was set by meeting_ended.
+      await applyStageTrigger({
+        sessionId,
+        workspaceId: session.workspaceId,
+        event: trigger,
+        flowId: session.flowId,
+      }).catch(() => {})
     }
 
     if (trigger === 'recording_ready') {
