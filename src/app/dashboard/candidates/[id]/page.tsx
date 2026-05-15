@@ -76,7 +76,7 @@ interface TrainingEnrollment {
 }
 interface SchedulingEvent { id: string; eventType: string; eventAt: string; metadata: Record<string, any> | null }
 interface AutomationExec {
-  id: string; status: string; errorMessage: string | null; sentAt: string | null; scheduledFor: string | null; createdAt: string
+  id: string; status: string; errorMessage: string | null; skipReason: string | null; sentAt: string | null; scheduledFor: string | null; createdAt: string
   channel: string
   automationRule: {
     id: string; name: string; triggerType: string
@@ -783,6 +783,15 @@ export default function CandidateDetailPage() {
       timeline.push({ label: `${base} — scheduled`, detail: `${bits} · Fires at ${new Date(e.scheduledFor).toLocaleString()}`, time: e.scheduledFor, type: 'scheduled' })
     } else if (e.status === 'cancelled') {
       timeline.push({ label: `${base} — cancelled${e.errorMessage ? `: ${e.errorMessage}` : ''}`, detail: bits, time: e.createdAt, type: 'info' })
+    } else if (e.status?.startsWith('skipped_')) {
+      // skipped_wrong_stage / skipped_wrong_status / skipped_missing_prerequisite /
+      // skipped_duplicate / skipped_cancelled / skipped_ineligible — make the
+      // block reason visible so recruiters can tell at a glance why no email
+      // was sent (instead of seeing it linger as "pending" forever).
+      const reasonLabel = e.skipReason
+        ? e.skipReason.replace(/^skipped_/, '').replace(/_/g, ' ')
+        : 'skipped'
+      timeline.push({ label: `${base} — skipped (${reasonLabel})`, detail: bits, time: e.createdAt, type: 'error' })
     } else {
       timeline.push({ label: `${base} — pending`, detail: bits, time: e.createdAt, type: 'info' })
     }
