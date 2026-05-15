@@ -51,16 +51,23 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 Candidate name: ${candidateName}
 Role / Flow: ${flowName}
 Current pipeline stage: ${stageLabel || 'unknown'}
-Rejection reason (private — DO NOT quote verbatim): ${reason}
+REJECTION REASON (must be reflected in the email): ${reason}
 Sender (sign-off as): ${senderName}
 
-Tone & rules:
+REQUIRED — the body MUST explain WHY they are not moving forward, and that explanation MUST be derived from the REJECTION REASON above. Do not write a generic "we went with other candidates" email. The candidate should finish reading and understand the specific reason.
+
+How to translate the reason into copy:
+- Hard requirement mismatch (e.g. "No speaking Russian", "outside service area", "wrong schedule", "pay expectations"): state the specific requirement in plain English, e.g. "This role requires fluent Russian, and from your interview that didn't come through clearly." Be direct but kind — name the actual gap.
+- Skill / qualification ("not qualified"): say what was lacking in general terms ("the experience level we needed for this role").
+- Behavior / culture ("declined offer", "no-show"): reference the event factually without judgment.
+- Truly subjective ("not selected"): say "we moved forward with candidates whose background was a closer match" — only fall back to generic phrasing when the reason itself is generic.
+
+You may paraphrase the recruiter's wording for tone, but the substance of the reason must come through clearly. Do not omit it.
+
+Other rules:
 - Warm, respectful, concise (3–5 short paragraphs MAX).
-- Use the rejection reason to PERSONALIZE the message, but rephrase it tactfully — never copy the recruiter's wording.
-- If the reason names a hard requirement (language, location, schedule, pay), acknowledge the mismatch directly but kindly.
-- If the reason is subjective ("not qualified", "not selected"), keep it generic without faulting the candidate.
-- Match the stage: early-stage rejections are brief; late-stage (post-interview) rejections thank them for their time investment.
-- Sign off with the sender name. No fake company-wide signatures.
+- Match the stage: early-stage rejections are brief; late-stage (post-interview) rejections thank them for their time investment first.
+- Sign off with the sender name. No fake company-wide signatures, no "Best regards, The Hiring Team" unless the sender is literally that.
 - Use the merge token {{candidate_name}} in the greeting and {{flow_name}} when referring to the role. Do NOT insert other merge tokens.
 - Output clean HTML with <p> paragraphs only. No <html>/<body> wrappers, no inline styles, no headers, no images, no links.
 
@@ -74,7 +81,7 @@ Respond in strict JSON (no markdown, no commentary):
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.6,
+      temperature: 0.4,
       max_tokens: 700,
       response_format: { type: 'json_object' },
     })
