@@ -305,6 +305,28 @@ export default function PipelinesPage() {
                   ))}
                 </div>
 
+                {/*
+                  Entry-trigger warning. A pipeline whose stages all have empty
+                  `triggers` won't auto-advance candidates on system events
+                  (meeting_scheduled, training_completed, etc.) — the kanban
+                  card stays put and recruiters have to drag it manually. New
+                  pipelines created from platform defaults start in this state;
+                  the warning is what reminds you to wire the entry triggers
+                  via the Stages drawer.
+                */}
+                {!p.stages.some((s) => (s.triggers?.length ?? 0) > 0) && (
+                  <div className="mb-4 px-3 py-2.5 rounded-[10px] bg-amber-50 border border-amber-200 text-amber-800 text-[12px] leading-snug">
+                    <div className="font-medium mb-0.5">No stage entry triggers configured</div>
+                    <div className="text-amber-700">
+                      Candidates won&apos;t auto-advance between columns on system events (meeting scheduled, training completed, etc.).{' '}
+                      <Link href="/dashboard/candidates" className="underline hover:text-amber-900">
+                        Open kanban
+                      </Link>{' '}
+                      with this pipeline selected and click <b>Stages</b> to wire entry triggers.
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <div className="font-mono text-[10px] uppercase text-grey-50 mb-2" style={{ letterSpacing: '0.1em' }}>
                     Assigned flows
