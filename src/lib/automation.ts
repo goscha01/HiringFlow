@@ -73,6 +73,43 @@ export async function fireAutomations(sessionId: string, outcome: string, opts?:
   }
 }
 
+/**
+ * Fire `recording_ready` rules for a *flow recording submission* (candidate
+ * uploaded a video/audio answer to a submission step). This is distinct from
+ * `fireMeetingLifecycleAutomations('recording_ready')`, which is for Google
+ * Meet meeting recordings and additionally releases `waiting_for_recording`
+ * executions — that path is interview-specific and would no-op for flows.
+ *
+ * Stage move is opt-in via `applyStageTrigger('recording_ready')` with no
+ * legacyStatus fallback: workspaces that didn't wire `recording_ready` to a
+ * stage keep their current kanban position (the `flow_completed` path that
+ * usually fires alongside this owns the default stage move).
+ */
+export async function fireFlowRecordingReadyAutomations(
+  sessionId: string,
+  opts?: FireDispatchOptions,
+) {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { flow: true, ad: true },
+    })
+    if (!session) return
+    await applyStageTrigger({
+      sessionId,
+      workspaceId: session.workspaceId,
+      event: 'recording_ready',
+      flowId: session.flowId,
+    }).catch(() => {})
+    await dispatchRulesForTrigger(sessionId, 'recording_ready', session, {
+      executionMode: opts?.executionMode,
+      actorUserId: opts?.actorUserId,
+    })
+  } catch (error) {
+    console.error('[Automation] Error firing flow recording_ready automations for session', sessionId, ':', error)
+  }
+}
+
 export async function fireTrainingCompletedAutomations(
   sessionId: string,
   trainingId?: string,

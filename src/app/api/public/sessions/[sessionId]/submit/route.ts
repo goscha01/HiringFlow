@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { saveCandidateVideoFile } from '@/lib/storage'
+import { fireAutomations, fireFlowRecordingReadyAutomations } from '@/lib/automation'
 
 export async function POST(
   request: NextRequest,
@@ -95,14 +96,33 @@ export async function POST(
       },
     })
 
-    // Mark session as finished (submission step ends the flow)
+    // Mark session as finished (submission step ends the flow). Stamp
+    // `outcome: 'completed'` so fireAutomations and downstream guards see
+    // the same shape they get from the answer/route.ts path.
     await prisma.session.update({
       where: { id: params.sessionId },
       data: {
         lastStepId: stepId,
         finishedAt: new Date(),
+        outcome: 'completed',
+        lastActivityAt: new Date(),
       },
     })
+
+    // Fire `flow_completed` rules — the standard "candidate finished the
+    // flow" event. Without this call, rules pinned to flow_completed never
+    // fired for flows that ended on a submission step (the answer/route.ts
+    // path already fires this; submit/route.ts didn't).
+    await fireAutomations(params.sessionId, 'completed', { executionMode: 'public_trigger' })
+
+    // Additionally fire `recording_ready` rules when the submission carried
+    // a video/audio recording. This lets workspaces wire automation rules
+    // (and stage advancement) to "candidate uploaded a recording" without
+    // overloading `flow_completed`. Same trigger type that Meet recordings
+    // use; the rule scope (pipeline + flow) keeps them from cross-firing.
+    if (videoData) {
+      await fireFlowRecordingReadyAutomations(params.sessionId, { executionMode: 'public_trigger' })
+    }
 
     return NextResponse.json({ finished: true })
   } catch (error) {
