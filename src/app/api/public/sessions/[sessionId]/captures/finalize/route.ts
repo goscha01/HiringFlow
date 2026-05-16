@@ -12,6 +12,7 @@ import { prisma } from '@/lib/prisma'
 import { isMimeAllowed, type CaptureMode } from '@/lib/capture/capture-config'
 import { captureLog } from '@/lib/capture/capture-log'
 import { checkCaptureRateLimit, extractIp } from '@/lib/capture/capture-rate-limit'
+import { fireFlowRecordingReadyAutomations } from '@/lib/automation'
 
 // Public candidate-facing route. Confirms the presigned PUT actually landed
 // in S3, then transitions the CaptureResponse forward.
@@ -165,6 +166,16 @@ export async function POST(
       where: { id: params.sessionId },
       data: { lastActivityAt: new Date() },
     }).catch(() => {})
+
+    // Fire `recording_ready` automations now that the capture is processed.
+    // Capture steps live in CaptureResponse (separate from CandidateSubmission),
+    // so the firing path that lives in submit/route.ts never sees them — without
+    // this call, rules wired to recording_ready would never trigger for
+    // capture-based flows (the Spotless Homes voice-recording flow at
+    // Dispatcher pipeline was the reproducer). Fire-and-forget; an automation
+    // dispatcher failure must not bubble back to the candidate's upload UI.
+    fireFlowRecordingReadyAutomations(params.sessionId, { executionMode: 'public_trigger' })
+      .catch((err) => console.error('[captures/finalize] fireFlowRecordingReadyAutomations failed:', err))
 
     return NextResponse.json({
       capture: {
